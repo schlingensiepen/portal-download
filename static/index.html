@@ -1,0 +1,725 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<link rel="icon" href="data:,">
+<title>Portal-Download</title>
+<style>
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --text: #1d2330; --muted: #5d6677; --line: #dde1e8;
+  --accent: #2456c7; --accent-text: #ffffff; --ok: #1d7a46; --bad: #b3261e; --warn: #a15c00;
+  --chip-bad: #fde7e6; --chip-warn: #fff1dc; --chip-ok: #e3f4ea; --chip: #eef1f6;
+  --radius: 8px; --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14171c; --panel: #1c2027; --text: #e6e9ef; --muted: #9aa3b2; --line: #2e343e;
+    --accent: #6c9bff; --accent-text: #0d1220; --ok: #5cc98b; --bad: #ff8a80; --warn: #ffb74d;
+    --chip-bad: #3a1f1f; --chip-warn: #3a2d17; --chip-ok: #1b3326; --chip: #262b34;
+  }
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body { background: var(--bg); color: var(--text); font: 15px/1.45 var(--font); }
+button, input, textarea, select { font: inherit; color: inherit; }
+a { color: var(--accent); }
+#app { display: grid; grid-template-columns: 1fr minmax(320px, 25%); height: 100vh; }
+#stage { position: relative; overflow: auto; border-right: 1px solid var(--line); }
+#bar { background: var(--panel); overflow: auto; display: flex; flex-direction: column; }
+@media (max-width: 800px) {
+  #app { grid-template-columns: 1fr; grid-template-rows: auto auto; height: auto; }
+  #bar { order: -1; border-bottom: 1px solid var(--line); }
+  #stage { min-height: 70vh; border-right: 0; }
+}
+.pad { padding: 20px 24px; }
+h1 { font-size: 20px; margin: 0 0 12px; }
+h2 { font-size: 16px; margin: 20px 0 8px; }
+h3 { font-size: 15px; margin: 0; }
+.muted { color: var(--muted); }
+.small { font-size: 13px; }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.grow { flex: 1; min-width: 0; }
+.btn { border: 1px solid var(--line); background: var(--panel); border-radius: var(--radius); padding: 7px 12px; cursor: pointer; }
+.btn:hover { border-color: var(--accent); }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+.btn.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+.btn.ok { background: var(--ok); color: #fff; border-color: var(--ok); }
+.btn.bad { background: var(--bad); color: #fff; border-color: var(--bad); }
+.btn.link { border: 0; background: none; padding: 0; color: var(--accent); text-decoration: underline; }
+.btn.icon { padding: 6px 10px; }
+.btn.wide { width: 100%; }
+.chip { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; background: var(--chip); }
+.chip.bad { background: var(--chip-bad); color: var(--bad); }
+.chip.warn { background: var(--chip-warn); color: var(--warn); }
+.chip.ok { background: var(--chip-ok); color: var(--ok); }
+label { display: block; font-size: 13px; color: var(--muted); margin: 12px 0 4px; }
+input[type=text], input[type=url], input[type=number], input[type=date], input[type=password], input[type=email], textarea {
+  width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg);
+}
+textarea { min-height: 140px; resize: vertical; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px; }
+input[type=checkbox] { transform: scale(1.15); margin-right: 6px; }
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: 12px; color: var(--muted); font-weight: 600; }
+tr.clickable { cursor: pointer; }
+tr.clickable:hover td { background: var(--chip); }
+tr.current td { background: var(--chip); }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; margin: 0 0 12px; }
+
+/* work bar */
+.bar-head { padding: 12px 16px; border-bottom: 1px solid var(--line); }
+.bar-head .app { font-weight: 700; }
+.bar-nav { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+.bar-body { padding: 14px 16px; flex: 1; }
+.pager { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
+.pager .pos { color: var(--muted); font-size: 13px; }
+.field { display: flex; gap: 6px; align-items: center; margin: 6px 0; }
+.field .k { width: 92px; color: var(--muted); font-size: 13px; flex: none; }
+.field .v { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px; padding: 5px 8px; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; }
+.instructions { border-left: 3px solid var(--accent); padding: 2px 0 2px 12px; margin: 12px 0; }
+.instructions :first-child { margin-top: 0; }
+.instructions :last-child { margin-bottom: 0; }
+.finish { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+#toast { position: fixed; left: 16px; bottom: 16px; max-width: min(420px, calc(100vw - 32px)); z-index: 30; display: flex; flex-direction: column; gap: 8px; }
+#toast div { background: var(--text); color: var(--bg); padding: 10px 14px; border-radius: var(--radius); box-shadow: 0 4px 16px rgba(0,0,0,.2); }
+#toast div.err { background: var(--bad); color: #fff; }
+
+/* stage */
+#portal { position: absolute; inset: 36px 0 0 0; width: 100%; height: calc(100% - 36px); border: 0; background: #fff; }
+#portal-strip { position: absolute; top: 0; left: 0; right: 0; height: 36px; display: flex; align-items: center; gap: 10px; padding: 0 12px; border-bottom: 1px solid var(--line); background: var(--panel); font-size: 13px; }
+#loading { display: flex; align-items: center; justify-content: center; height: 100%; color: var(--muted); }
+.spinner { width: 18px; height: 18px; border: 3px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: spin 1s linear infinite; margin-right: 10px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.secret-once { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px; word-break: break-all; background: var(--chip-warn); padding: 10px; border-radius: var(--radius); }
+
+/* modal */
+#modal { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: flex; align-items: center; justify-content: center; z-index: 20; padding: 16px; }
+#modal[hidden] { display: none; }
+#modal .box { background: var(--panel); border-radius: 12px; padding: 22px 24px; width: min(460px, 100%); max-height: 90vh; overflow: auto; }
+[hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div id="app">
+  <main id="stage">
+    <div id="loading"><div class="spinner"></div>Lädt …</div>
+    <div id="portal-strip" hidden></div>
+    <iframe id="portal" hidden title="Portal"
+      sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads allow-modals"
+      referrerpolicy="no-referrer"></iframe>
+    <section id="view"></section>
+  </main>
+  <aside id="bar"></aside>
+</div>
+<div id="modal" hidden><div class="box" id="modal-box"></div></div>
+<div id="toast" aria-live="polite"></div>
+<script>
+"use strict";
+/* Portal-Download – the whole application. Form and hydration only: every piece of content
+   arrives through the API. Vendored libraries: none. */
+
+// ------------------------------------------------------------------ helpers
+const $ = (s) => document.querySelector(s);
+function h(tag, attrs, ...kids) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v === null || v === undefined || v === false) continue;
+    if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
+    else if (k === "class") el.className = v;
+    else if (k === "html") el.innerHTML = v; // only for HTML the service sanitized
+    else if (v === true) el.setAttribute(k, "");
+    else el.setAttribute(k, v);
+  }
+  for (const kid of kids.flat(Infinity)) {
+    if (kid === null || kid === undefined || kid === false) continue;
+    el.append(kid instanceof Node ? kid : document.createTextNode(String(kid)));
+  }
+  return el;
+}
+function toast(msg, isError) {
+  const d = h("div", { class: isError ? "err" : "" }, msg);
+  $("#toast").append(d);
+  setTimeout(() => d.remove(), isError ? 9000 : 3500);
+}
+function fail(e) { console.error(e); toast(e.message || String(e), true); }
+const fmtDate = (iso) => { if (!iso) return "–"; const d = new Date(iso.length === 10 ? iso + "T00:00:00" : iso); return d.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" }); };
+const fmtDateTime = (iso) => iso ? new Date(iso).toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" }) : "–";
+function urgency(days) {
+  if (days < 0) return h("span", { class: "chip bad" }, `überfällig seit ${-days} ${-days === 1 ? "Tag" : "Tagen"}`);
+  if (days === 0) return h("span", { class: "chip warn" }, "heute fällig");
+  if (days === 1) return h("span", { class: "chip warn" }, "morgen fällig");
+  return h("span", { class: "chip" }, `fällig in ${days} Tagen`);
+}
+const outcomeChip = (o) => o === "succeeded" ? h("span", { class: "chip ok" }, "hat geklappt") : h("span", { class: "chip bad" }, "hat nicht geklappt");
+function guessDeviceLabel() {
+  const ua = navigator.userAgent;
+  const b = /Edg\//.test(ua) ? "Edge" : /Firefox\//.test(ua) ? "Firefox" : /Chrome\//.test(ua) ? "Chrome" : /Safari\//.test(ua) ? "Safari" : "Browser";
+  const o = /Windows/.test(ua) ? "Windows" : /Android/.test(ua) ? "Android" : /iPhone|iPad/.test(ua) ? "iOS" : /Mac OS/.test(ua) ? "macOS" : /Linux/.test(ua) ? "Linux" : "";
+  return o ? `${b} auf ${o}` : b;
+}
+async function copy(text, btn) {
+  try { await navigator.clipboard.writeText(text); }
+  catch { const t = h("textarea", {}, text); document.body.append(t); t.select(); document.execCommand("copy"); t.remove(); }
+  if (btn) { const old = btn.textContent; btn.textContent = "Kopiert ✓"; setTimeout(() => (btn.textContent = old), 1500); }
+}
+
+// ------------------------------------------------------------------ API
+let CONFIG = { app_name: "Portal-Download", api: "api/" };
+let seq = 0;
+async function rpc(method, params = {}, headers = {}) {
+  const res = await fetch(CONFIG.api, {
+    method: "POST", credentials: "same-origin",
+    headers: { "Content-Type": "application/json", ...headers },
+    body: JSON.stringify({ jsonrpc: "2.0", method, params, id: ++seq }),
+  });
+  let body;
+  try { body = await res.json(); } catch { throw new Error(`Der Dienst antwortet nicht verständlich (HTTP ${res.status}).`); }
+  if (body.error) { const e = new Error(body.error.message); e.code = body.error.code; e.type = body.error.data && body.error.data.type; throw e; }
+  return body.result;
+}
+
+// ------------------------------------------------------------------ vault (browser only)
+const enc = new TextEncoder(), dec = new TextDecoder();
+const b64 = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf)));
+const unb64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+const VERIFIER_TEXT = "portal-download vault check";
+const vault = { meta: null, key: null };
+
+function idb() {
+  return new Promise((resolve, reject) => {
+    const r = indexedDB.open("portal-download", 1);
+    r.onupgradeneeded = () => r.result.createObjectStore("keys");
+    r.onsuccess = () => resolve(r.result);
+    r.onerror = () => reject(r.error);
+  });
+}
+async function idbDo(mode, fn) {
+  const db = await idb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("keys", mode);
+    const req = fn(tx.objectStore("keys"));
+    tx.oncomplete = () => resolve(req && req.result);
+    tx.onerror = () => reject(tx.error);
+  });
+}
+async function deriveKey(passphrase, saltB64, iterations) {
+  const base = await crypto.subtle.importKey("raw", enc.encode(passphrase), "PBKDF2", false, ["deriveKey"]);
+  return crypto.subtle.deriveKey({ name: "PBKDF2", hash: "SHA-256", salt: unb64(saltB64), iterations }, base, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
+}
+async function seal(key, purpose, plain) {
+  if (!plain) return "";
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = await crypto.subtle.encrypt({ name: "AES-GCM", iv, additionalData: enc.encode(purpose) }, key, enc.encode(plain));
+  return JSON.stringify({ v: 1, iv: b64(iv), ct: b64(ct) });
+}
+async function unseal(key, purpose, sealed) {
+  if (!sealed) return "";
+  const o = JSON.parse(sealed);
+  const pt = await crypto.subtle.decrypt({ name: "AES-GCM", iv: unb64(o.iv), additionalData: enc.encode(purpose) }, key, unb64(o.ct));
+  return dec.decode(pt);
+}
+async function keyFits(key) {
+  try { return (await unseal(key, "verifier", vault.meta.verifier)) === VERIFIER_TEXT; } catch { return false; }
+}
+async function loadVault() {
+  vault.meta = await rpc("vault.get");
+  vault.key = null;
+  if (!vault.meta.exists) return;
+  try {
+    const stored = await idbDo("readonly", (s) => s.get("vault"));
+    if (stored && stored.salt === vault.meta.salt && (await keyFits(stored.key))) vault.key = stored.key;
+  } catch (e) { console.warn("vault cache unavailable", e); }
+}
+async function rememberKey(key) {
+  try { await idbDo("readwrite", (s) => s.put({ salt: vault.meta.salt, key }, "vault")); }
+  catch (e) { toast("Der Schlüssel konnte in diesem Browser nicht gespeichert werden; nach dem Neuladen muss die Passphrase erneut eingegeben werden.", true); }
+}
+async function lockVault() {
+  vault.key = null;
+  try { await idbDo("readwrite", (s) => s.delete("vault")); } catch {}
+  decrypted.clear();
+  toast("Tresor gesperrt.");
+  render();
+}
+const decrypted = new Map(); // job_id -> {username, password}
+async function credsOf(job) {
+  if (!vault.key) return null;
+  if (decrypted.has(job.job_id)) return decrypted.get(job.job_id);
+  try {
+    const c = { username: await unseal(vault.key, "username", job.username_sealed), password: await unseal(vault.key, "password", job.password_sealed) };
+    decrypted.set(job.job_id, c);
+    return c;
+  } catch { return { error: true }; }
+}
+
+function modal(build) {
+  const box = $("#modal-box");
+  box.replaceChildren(...build(() => { $("#modal").hidden = true; }));
+  $("#modal").hidden = false;
+  const first = box.querySelector("input"); if (first) first.focus();
+}
+function vaultDialog() {
+  if (!vault.meta) return;
+  if (!vault.meta.exists) {
+    modal((close) => {
+      const p1 = h("input", { type: "password", autocomplete: "new-password" });
+      const p2 = h("input", { type: "password", autocomplete: "new-password" });
+      const go = h("button", { class: "btn primary", type: "submit" }, "Tresor anlegen");
+      return [h("form", { onsubmit: async (ev) => {
+        ev.preventDefault();
+        if (p1.value.length < 12) return toast("Die Passphrase braucht mindestens 12 Zeichen.", true);
+        if (p1.value !== p2.value) return toast("Die beiden Eingaben stimmen nicht überein.", true);
+        go.disabled = true;
+        try {
+          const salt = b64(crypto.getRandomValues(new Uint8Array(16)));
+          const key = await deriveKey(p1.value, salt, 600000);
+          vault.meta = await rpc("vault.create", { salt, iterations: 600000, verifier: await seal(key, "verifier", VERIFIER_TEXT) });
+          vault.key = key; await rememberKey(key); close(); toast("Tresor angelegt."); render();
+        } catch (e) { go.disabled = false; fail(e); }
+      } },
+        h("h1", {}, "Tresor anlegen"),
+        h("p", { class: "muted small" }, "Benutzernamen und Passwörter der Portale werden in diesem Browser mit einem Schlüssel aus dieser Passphrase verschlüsselt. Der Dienst speichert nur Verschlüsseltes und kennt die Passphrase nicht. Alle im Kreis verwenden dieselbe Passphrase – gebt sie persönlich weiter, nicht über diesen Dienst. Geht sie verloren, sind die gespeicherten Zugangsdaten nicht mehr lesbar."),
+        h("label", {}, "Passphrase (mindestens 12 Zeichen)"), p1,
+        h("label", {}, "Passphrase wiederholen"), p2,
+        h("div", { class: "row", style: "margin-top:16px" }, go, h("button", { class: "btn", type: "button", onclick: close }, "Später")))];
+    });
+    return;
+  }
+  modal((close) => {
+    const p = h("input", { type: "password", autocomplete: "current-password" });
+    const go = h("button", { class: "btn primary", type: "submit" }, "Entsperren");
+    return [h("form", { onsubmit: async (ev) => {
+      ev.preventDefault(); go.disabled = true;
+      try {
+        const key = await deriveKey(p.value, vault.meta.salt, vault.meta.iterations);
+        if (!(await keyFits(key))) { go.disabled = false; return toast("Die Passphrase passt nicht zu diesem Tresor.", true); }
+        vault.key = key; await rememberKey(key); close(); render();
+      } catch (e) { go.disabled = false; fail(e); }
+    } },
+      h("h1", {}, "Tresor entsperren"),
+      h("p", { class: "muted small" }, "Gib die gemeinsame Passphrase ein. Dieser Browser merkt sich den daraus abgeleiteten Schlüssel, bis du sperrst oder der Browser seine Daten löscht."),
+      h("label", {}, "Passphrase"), p,
+      h("div", { class: "row", style: "margin-top:16px" }, go, h("button", { class: "btn", type: "button", onclick: close }, "Später")))];
+  });
+}
+
+// ------------------------------------------------------------------ state & routing
+const state = { status: null, me: null, jobs: [], today: null, current: 0, running: null };
+
+function route() {
+  const f = location.hash.replace(/^#/, "");
+  if (f.startsWith("invite=")) return { view: "invite", token: decodeURIComponent(f.slice(7)) };
+  const parts = f.replace(/^\//, "").split("/").filter(Boolean);
+  return { view: parts[0] || "work", id: parts[1] ? Number(parts[1]) : null };
+}
+function go(fragment) { if (location.hash !== fragment) location.hash = fragment; else render(); }
+window.addEventListener("hashchange", () => render());
+
+async function loadJobs() {
+  const r = await rpc("job.list");
+  state.jobs = r.jobs; state.today = r.today;
+  for (const id of [...decrypted.keys()]) if (!state.jobs.some((j) => j.job_id === id)) decrypted.delete(id);
+  if (state.current >= state.jobs.length) state.current = Math.max(0, state.jobs.length - 1);
+}
+const currentJob = () => state.jobs[state.current] || null;
+function selectJob(id) {
+  const i = state.jobs.findIndex((j) => j.job_id === id);
+  if (i >= 0) state.current = i;
+}
+
+// ------------------------------------------------------------------ portal (left side)
+let portalWindow = null;
+function openPortalWindow(url) {
+  const w = Math.round((screen.availWidth || 1280) * 0.75), hgt = screen.availHeight || 800;
+  const win = window.open("", "pd-portal", `popup=yes,width=${w},height=${hgt},left=${screen.availLeft || 0},top=${screen.availTop || 0}`);
+  if (!win) { toast("Das Fenster wurde blockiert. Erlaube Pop-ups für diese Seite und klicke erneut auf „Ausführen“.", true); return; }
+  win.opener = null;
+  win.location.href = url;
+  portalWindow = win;
+}
+function run(job) {
+  state.running = job.job_id;
+  if (!job.embeddable) openPortalWindow(job.entry_url);
+  go(`#/run/${job.job_id}`);
+}
+function showPortal(job) {
+  const strip = $("#portal-strip"), frame = $("#portal");
+  strip.replaceChildren(
+    h("strong", {}, job.title), h("span", { class: "muted grow", style: "overflow:hidden;text-overflow:ellipsis;white-space:nowrap" }, job.entry_url),
+    h("button", { class: "btn link", onclick: () => openPortalWindow(job.entry_url) }, "im eigenen Fenster öffnen"),
+    h("button", { class: "btn link", onclick: () => { state.running = null; go(`#/job/${job.job_id}`); } }, "schließen"));
+  strip.hidden = false; frame.hidden = false;
+  if (frame.dataset.url !== job.entry_url) { frame.src = job.entry_url; frame.dataset.url = job.entry_url; }
+}
+function hidePortal() {
+  $("#portal-strip").hidden = true; const f = $("#portal"); f.hidden = true;
+  if (f.dataset.url) { f.removeAttribute("src"); delete f.dataset.url; }
+}
+
+// ------------------------------------------------------------------ work bar (right side)
+function renderBar() {
+  const bar = $("#bar");
+  const me = state.me;
+  const nav = [
+    h("a", { href: "#/" }, "Übersicht"), " · ", h("a", { href: "#/new" }, "Neuer Vorgang"),
+    me.is_admin ? [" · ", h("a", { href: "#/people" }, "Personen")] : null, " · ", h("a", { href: "#/devices" }, "Meine Geräte"),
+  ];
+  const vaultCtl = !vault.meta ? null : vault.key
+    ? h("button", { class: "btn link small", onclick: lockVault }, "Tresor sperren")
+    : h("button", { class: "btn link small", onclick: vaultDialog }, vault.meta.exists ? "Tresor entsperren" : "Tresor anlegen");
+  const head = h("div", { class: "bar-head" },
+    h("div", { class: "row" }, h("span", { class: "app grow" }, CONFIG.app_name), h("span", { class: "muted small" }, me.name)),
+    h("div", { class: "bar-nav small" }, nav, " · ", vaultCtl));
+  const body = h("div", { class: "bar-body" });
+  const job = currentJob();
+  if (!job) {
+    body.append(h("p", { class: "muted" }, "Noch keine Download-Vorgänge."), h("a", { class: "btn primary", href: "#/new" }, "Ersten Vorgang anlegen"));
+  } else {
+    body.append(renderCurrent(job));
+  }
+  bar.replaceChildren(head, body);
+}
+
+function renderCurrent(job) {
+  const n = state.jobs.length;
+  const pager = h("div", { class: "pager" },
+    h("button", { class: "btn icon", title: "dringlicher", "aria-label": "vorheriger Vorgang", disabled: state.current === 0, onclick: () => { state.current--; go(`#/job/${currentJob().job_id}`); } }, "◀"),
+    h("span", { class: "pos" }, `${state.current + 1} von ${n}`),
+    h("button", { class: "btn icon", title: "weniger dringlich", "aria-label": "nächster Vorgang", disabled: state.current >= n - 1, onclick: () => { state.current++; go(`#/job/${currentJob().job_id}`); } }, "▶"));
+
+  const credsBox = h("div", {}, h("div", { class: "muted small" }, "Zugangsdaten werden entschlüsselt …"));
+  fillCreds(job, credsBox);
+
+  const note = h("textarea", { placeholder: "Notiz (optional), z. B. was gefehlt hat", style: "min-height:60px;font-family:var(--font)" });
+  const finish = async (outcome) => {
+    const what = outcome === "succeeded" ? "als „hat geklappt“" : "als „hat nicht geklappt“";
+    if (!confirm(`„${job.title}“ ${what} abschließen?`)) return;
+    try {
+      const r = await rpc("job.complete", { job_id: job.job_id, outcome, note: note.value });
+      toast(`Abgeschlossen – wieder fällig am ${fmtDate(r.next_due)}.`);
+      if (state.running === job.job_id) state.running = null;
+      await loadJobs(); state.current = 0;
+      go(state.jobs.length ? `#/job/${state.jobs[0].job_id}` : "#/");
+    } catch (e) { fail(e); }
+  };
+  const last = job.last_run;
+  return h("div", {},
+    pager,
+    h("h1", {}, job.title),
+    h("div", { class: "row" }, urgency(job.urgency_days), h("span", { class: "muted small" }, `fällig ${fmtDate(job.next_due)} · alle ${job.interval_weeks} ${job.interval_weeks === 1 ? "Woche" : "Wochen"}`)),
+    last ? h("div", { class: "muted small", style: "margin-top:4px" }, "Zuletzt: ", outcomeChip(last.outcome), ` ${fmtDateTime(last.finished_at)} von ${last.by}`) : null,
+    h("div", { style: "margin:14px 0 8px" },
+      h("button", { class: "btn primary wide", onclick: () => run(job) }, job.embeddable ? "Ausführen" : "Ausführen (öffnet Fenster)")),
+    credsBox,
+    job.instructions_html ? h("div", { class: "instructions", html: job.instructions_html }) : h("p", { class: "muted small" }, "Keine Anleitung hinterlegt."),
+    note,
+    h("div", { class: "finish" },
+      h("button", { class: "btn ok", onclick: () => finish("succeeded") }, "Hat geklappt"),
+      h("button", { class: "btn bad", onclick: () => finish("failed") }, "Hat nicht geklappt")),
+    h("div", { class: "row small", style: "margin-top:14px" },
+      h("a", { href: `#/edit/${job.job_id}` }, "Bearbeiten"), "·", h("a", { href: `#/history/${job.job_id}` }, "Verlauf"),
+      h("span", { class: "muted" }, `· bei Fehlschlag wieder in ${job.retry_days} ${job.retry_days === 1 ? "Tag" : "Tagen"}`)));
+}
+
+async function fillCreds(job, box) {
+  const rows = [];
+  if (!job.username_sealed && !job.password_sealed) {
+    box.replaceChildren(h("p", { class: "muted small" }, "Keine Zugangsdaten hinterlegt."));
+    return;
+  }
+  const c = await credsOf(job);
+  if (!c) {
+    box.replaceChildren(h("div", { class: "row small" }, h("span", { class: "muted grow" }, "Zugangsdaten liegen im gesperrten Tresor."), h("button", { class: "btn", onclick: vaultDialog }, "Entsperren")));
+    return;
+  }
+  if (c.error) {
+    box.replaceChildren(h("p", { class: "small", style: "color:var(--bad)" }, "Die Zugangsdaten lassen sich mit diesem Tresor-Schlüssel nicht entschlüsseln. Bitte unter „Bearbeiten“ neu eingeben."));
+    return;
+  }
+  if (job.username_sealed) {
+    const b = h("button", { class: "btn icon small", onclick: (e) => copy(c.username, e.currentTarget) }, "Kopieren");
+    rows.push(h("div", { class: "field" }, h("span", { class: "k" }, "Benutzer"), h("span", { class: "v", title: c.username }, c.username), b));
+  }
+  if (job.password_sealed) {
+    const v = h("span", { class: "v" }, "••••••••••");
+    let shown = false;
+    const eye = h("button", { class: "btn icon small", title: "anzeigen", onclick: (e) => { shown = !shown; v.textContent = shown ? c.password : "••••••••••"; e.currentTarget.textContent = shown ? "Verbergen" : "Zeigen"; } }, "Zeigen");
+    const b = h("button", { class: "btn icon small", onclick: (e) => copy(c.password, e.currentTarget) }, "Kopieren");
+    rows.push(h("div", { class: "field" }, h("span", { class: "k" }, "Passwort"), v, eye, b));
+  }
+  box.replaceChildren(...rows);
+}
+
+// ------------------------------------------------------------------ stage views (left side)
+function viewOverview() {
+  const rows = state.jobs.map((j, i) => h("tr", { class: "clickable" + (i === state.current ? " current" : ""), onclick: () => { state.current = i; go(`#/job/${j.job_id}`); } },
+    h("td", {}, urgency(j.urgency_days)), h("td", {}, h("strong", {}, j.title), h("div", { class: "muted small" }, j.entry_url)),
+    h("td", { class: "small" }, fmtDate(j.next_due)), h("td", { class: "small" }, `${j.interval_weeks} Wo.`),
+    h("td", { class: "small" }, j.last_run ? [outcomeChip(j.last_run.outcome), h("div", { class: "muted" }, fmtDate(j.last_run.finished_at))] : "–")));
+  return h("div", { class: "pad" },
+    h("div", { class: "row" }, h("h1", { class: "grow" }, "Download-Vorgänge"), h("a", { class: "btn primary", href: "#/new" }, "Neuer Vorgang")),
+    state.jobs.length
+      ? h("table", {}, h("thead", {}, h("tr", {}, h("th", {}, "Dringlichkeit"), h("th", {}, "Vorgang"), h("th", {}, "Fällig"), h("th", {}, "Intervall"), h("th", {}, "Zuletzt"))), h("tbody", {}, rows))
+      : h("p", { class: "muted" }, "Lege den ersten Vorgang an: Einstiegsseite, Zugangsdaten, Zeitplan und was wohin abzulegen ist."),
+    h("p", { class: "muted small", style: "margin-top:20px" }, "Rechts steht immer der dringlichste Vorgang zuerst; mit ◀ ▶ blätterst du. „Ausführen“ lädt das Portal hier links oder – wenn das Portal das Einbetten verbietet – in einem eigenen Fenster."));
+}
+
+function viewRunning(job) {
+  if (job.embeddable) { showPortal(job); return null; }
+  return h("div", { class: "pad" },
+    h("h1", {}, job.title),
+    h("p", {}, "Das Portal ist in einem eigenen Fenster geöffnet, weil es das Einbetten nicht erlaubt. Die Arbeitsleiste rechts bleibt hier sichtbar."),
+    h("div", { class: "row" },
+      h("button", { class: "btn primary", onclick: () => openPortalWindow(job.entry_url) }, "Fenster erneut öffnen"),
+      h("button", { class: "btn", onclick: () => { state.running = null; go(`#/job/${job.job_id}`); } }, "Zurück zur Übersicht")),
+    h("p", { class: "muted small", style: "margin-top:16px" }, "Tipp: Lässt sich ein Portal doch einbetten, setze unter „Bearbeiten“ den Haken „Portal darf links eingebettet werden“."));
+}
+
+async function viewEdit(id) {
+  const job = id ? state.jobs.find((j) => j.job_id === id) : null;
+  if (id && !job) return h("div", { class: "pad" }, h("p", {}, "Diesen Vorgang gibt es nicht mehr."), h("a", { href: "#/" }, "Zur Übersicht"));
+  const c = job ? await credsOf(job) : null;
+  const canCreds = !!vault.key;
+  const f = {
+    title: h("input", { type: "text", required: true, maxlength: 200, value: job ? job.title : "" }),
+    entry_url: h("input", { type: "url", required: true, placeholder: "https://…", value: job ? job.entry_url : "" }),
+    embeddable: h("input", { type: "checkbox", checked: job ? job.embeddable : false }),
+    interval_weeks: h("input", { type: "number", min: 1, max: 520, required: true, value: job ? job.interval_weeks : 4 }),
+    retry_days: h("input", { type: "number", min: 1, max: 365, required: true, value: job ? job.retry_days : 2 }),
+    next_due: h("input", { type: "date", required: true, value: job ? job.next_due : state.today }),
+    username: h("input", { type: "text", autocomplete: "off", disabled: !canCreds, value: c && !c.error ? c.username : "" }),
+    password: h("input", { type: "password", autocomplete: "new-password", disabled: !canCreds, value: c && !c.error ? c.password : "" }),
+    instructions_md: h("textarea", { placeholder: "## Was ist abzulegen?\n- Rechnung als PDF\n\n## Wohin?\n- Finanzen/Telekom/2026/" }, job ? job.instructions_md : ""),
+  };
+  const showPw = h("button", { class: "btn icon small", type: "button", onclick: (e) => { const hide = f.password.type === "text"; f.password.type = hide ? "password" : "text"; e.currentTarget.textContent = hide ? "Zeigen" : "Verbergen"; } }, "Zeigen");
+  const save = h("button", { class: "btn primary", type: "submit" }, job ? "Speichern" : "Anlegen");
+  const form = h("form", { class: "pad", style: "max-width:760px", onsubmit: async (ev) => {
+    ev.preventDefault(); save.disabled = true;
+    try {
+      const p = {
+        title: f.title.value, entry_url: f.entry_url.value.trim(), embeddable: f.embeddable.checked,
+        interval_weeks: Number(f.interval_weeks.value), retry_days: Number(f.retry_days.value), next_due: f.next_due.value,
+        instructions_md: f.instructions_md.value,
+      };
+      if (canCreds) {
+        p.username_sealed = await seal(vault.key, "username", f.username.value);
+        p.password_sealed = await seal(vault.key, "password", f.password.value);
+      }
+      const r = job ? await rpc("job.update", { job_id: job.job_id, ...p }) : await rpc("job.create", p);
+      decrypted.delete(r.job_id);
+      await loadJobs(); selectJob(r.job_id);
+      toast(job ? "Gespeichert." : "Angelegt.");
+      go(`#/job/${r.job_id}`);
+    } catch (e) { save.disabled = false; fail(e); }
+  } },
+    h("h1", {}, job ? `Vorgang bearbeiten: ${job.title}` : "Neuer Download-Vorgang"),
+    h("label", {}, "Titel"), f.title,
+    h("label", {}, "Einstiegsseite (URL)"), f.entry_url,
+    h("label", { style: "color:var(--text)" }, f.embeddable, "Portal darf links eingebettet werden"),
+    h("div", { class: "muted small" }, "Viele Portale verbieten das Einbetten (Sicherheits-Header). Ohne Haken öffnet „Ausführen“ das Portal in einem eigenen Fenster."),
+    h("div", { class: "row" },
+      h("div", { class: "grow" }, h("label", {}, "Alle wie viele Wochen?"), f.interval_weeks),
+      h("div", { class: "grow" }, h("label", {}, "Nach Fehlschlag wieder in … Tagen"), f.retry_days),
+      h("div", { class: "grow" }, h("label", {}, "Nächste Fälligkeit"), f.next_due)),
+    h("h2", {}, "Zugangsdaten"),
+    canCreds ? null : h("div", { class: "row small" }, h("span", { class: "muted grow" }, "Der Tresor ist gesperrt; Zugangsdaten können erst nach dem Entsperren geändert werden. Bestehende bleiben unverändert."), h("button", { class: "btn", type: "button", onclick: vaultDialog }, vault.meta && vault.meta.exists ? "Entsperren" : "Tresor anlegen")),
+    h("label", {}, "Benutzername"), f.username,
+    h("label", {}, "Passwort"), h("div", { class: "row" }, h("div", { class: "grow" }, f.password), showPw),
+    h("h2", {}, "Anleitung: was ist wo abzulegen? (Markdown)"), f.instructions_md,
+    h("div", { class: "row", style: "margin-top:16px" }, save, h("a", { class: "btn", href: job ? `#/job/${job.job_id}` : "#/" }, "Abbrechen"),
+      h("span", { class: "grow" }),
+      job ? h("button", { class: "btn bad", type: "button", onclick: async () => {
+        if (!confirm(`„${job.title}“ samt Verlauf endgültig löschen?`)) return;
+        try { await rpc("job.delete", { job_id: job.job_id }); await loadJobs(); toast("Gelöscht."); go("#/"); } catch (e) { fail(e); }
+      } }, "Löschen") : null));
+  return form;
+}
+
+async function viewHistory(id) {
+  const job = state.jobs.find((j) => j.job_id === id);
+  if (!job) return h("div", { class: "pad" }, h("p", {}, "Diesen Vorgang gibt es nicht mehr."));
+  const r = await rpc("job.history", { job_id: id });
+  return h("div", { class: "pad" },
+    h("h1", {}, `Verlauf: ${job.title}`),
+    r.runs.length ? h("table", {}, h("thead", {}, h("tr", {}, h("th", {}, "Abgeschlossen"), h("th", {}, "Ergebnis"), h("th", {}, "Von"), h("th", {}, "Fällig war"), h("th", {}, "Danach fällig"), h("th", {}, "Notiz"))),
+      h("tbody", {}, r.runs.map((x) => h("tr", {}, h("td", { class: "small" }, fmtDateTime(x.finished_at)), h("td", {}, outcomeChip(x.outcome)), h("td", { class: "small" }, x.by),
+        h("td", { class: "small" }, fmtDate(x.due_before)), h("td", { class: "small" }, fmtDate(x.due_after)), h("td", { class: "small" }, x.note)))))
+      : h("p", { class: "muted" }, "Noch kein Lauf abgeschlossen."),
+    h("p", {}, h("a", { href: `#/job/${id}` }, "Zurück")));
+}
+
+async function viewDevices() {
+  const r = await rpc("device.list");
+  return h("div", { class: "pad" },
+    h("h1", {}, "Meine Geräte"),
+    h("p", { class: "muted small" }, "Jedes Gerät, auf dem du deinen Einladungslink geöffnet hast, hat einen eigenen Zugang. Widerrufe ein verlorenes Gerät hier; deine anderen Geräte bleiben angemeldet."),
+    h("table", {}, h("thead", {}, h("tr", {}, h("th", {}, "Gerät"), h("th", {}, "Zuletzt gesehen"), h("th", {}, "Erkennung"), h("th", {}, ""))),
+      h("tbody", {}, r.devices.map((d) => h("tr", {},
+        h("td", {}, d.label, d.device_id === r.current_device_id ? h("span", { class: "chip ok", style: "margin-left:6px" }, "dieses Gerät") : null, d.revoked_at ? h("span", { class: "chip bad", style: "margin-left:6px" }, "widerrufen") : null),
+        h("td", { class: "small" }, fmtDateTime(d.last_seen_at)),
+        h("td", { class: "small muted" }, d.last_address, h("div", {}, d.user_agent.slice(0, 80))),
+        h("td", {}, d.revoked_at ? null : h("button", { class: "btn small", onclick: async () => {
+          const self = d.device_id === r.current_device_id;
+          if (!confirm(self ? "Dieses Gerät abmelden? Danach brauchst du deinen Einladungslink erneut." : `„${d.label}“ widerrufen?`)) return;
+          try { await rpc("device.revoke", { device_id: d.device_id }); if (self) { location.hash = ""; location.reload(); } else render(); } catch (e) { fail(e); }
+        } }, d.device_id === r.current_device_id ? "Abmelden" : "Widerrufen")))))));
+}
+
+function inviteLink(token) { return `${location.origin}${location.pathname}#invite=${encodeURIComponent(token)}`; }
+function showInvitation(name, r) {
+  const link = inviteLink(r.invitation_token);
+  modal((close) => [
+    h("h1", {}, `Einladung für ${name}`),
+    h("p", { class: "small" }, `Dieser Link wird nur jetzt angezeigt. Er gilt bis ${fmtDateTime(r.expires_at)} und kann auf jedem Gerät der Person einmal geöffnet werden. Gib ihn über einen vertraulichen Kanal weiter.`),
+    h("div", { class: "secret-once" }, link),
+    h("div", { class: "row", style: "margin-top:14px" }, h("button", { class: "btn primary", onclick: (e) => copy(link, e.currentTarget) }, "Link kopieren"), h("button", { class: "btn", onclick: () => { close(); render(); } }, "Fertig")),
+  ]);
+}
+
+async function viewPeople() {
+  if (!state.me.is_admin) return h("div", { class: "pad" }, h("p", {}, "Personen verwalten darf nur, wer das Recht dazu hat."));
+  const [r, mk] = await Promise.all([rpc("user.list"), rpc("machinekey.list")]);
+  const act = (fn, msg) => async () => { if (msg && !confirm(msg)) return; try { await fn(); render(); } catch (e) { fail(e); } };
+  const name = h("input", { type: "text", required: true }), email = h("input", { type: "email" }), admin = h("input", { type: "checkbox" });
+  const inviteForm = h("form", { class: "card", onsubmit: async (ev) => {
+    ev.preventDefault();
+    try { const x = await rpc("user.create", { name: name.value, email: email.value, is_admin: admin.checked }); showInvitation(name.value, x); } catch (e) { fail(e); }
+  } }, h("h3", {}, "Person einladen"),
+    h("div", { class: "row" }, h("div", { class: "grow" }, h("label", {}, "Name"), name), h("div", { class: "grow" }, h("label", {}, "E-Mail (optional)"), email)),
+    h("label", { style: "color:var(--text)" }, admin, "darf Personen verwalten (einladen, widerrufen, deaktivieren)"),
+    h("div", { style: "margin-top:10px" }, h("button", { class: "btn primary", type: "submit" }, "Einladung erzeugen")));
+
+  const people = r.users.map((u) => h("div", { class: "card" },
+    h("div", { class: "row" },
+      h("h3", { class: "grow" }, u.name, " ", u.is_admin ? h("span", { class: "chip ok" }, "verwaltet Personen") : null, " ", u.active ? null : h("span", { class: "chip bad" }, "deaktiviert")),
+      h("span", { class: "muted small" }, u.email)),
+    h("div", { class: "row small", style: "margin-top:8px" },
+      h("button", { class: "btn small", onclick: async () => { try { showInvitation(u.name, await rpc("user.reinvite", { user_id: u.user_id })); } catch (e) { fail(e); } } }, "Neue Einladung"),
+      h("button", { class: "btn small", onclick: act(() => rpc("user.setAdmin", { user_id: u.user_id, is_admin: !u.is_admin }), u.is_admin ? `${u.name} das Recht zum Verwalten entziehen?` : `${u.name} das Recht zum Verwalten geben?`) }, u.is_admin ? "Verwaltungsrecht entziehen" : "Verwaltungsrecht geben"),
+      h("button", { class: "btn small", onclick: act(() => rpc("user.setActive", { user_id: u.user_id, active: !u.active }), u.active ? `${u.name} auf allen Geräten deaktivieren?` : null) }, u.active ? "Deaktivieren" : "Reaktivieren")),
+    h("table", { class: "small", style: "margin-top:8px" },
+      h("tbody", {},
+        u.devices.map((d) => h("tr", {}, h("td", {}, "Gerät"), h("td", {}, d.label, d.revoked_at ? h("span", { class: "chip bad", style: "margin-left:6px" }, "widerrufen") : null),
+          h("td", { class: "muted" }, `zuletzt ${fmtDateTime(d.last_seen_at)} · ${d.last_address} · aus Einladung ${d.invitation_id}`),
+          h("td", {}, d.revoked_at ? null : h("button", { class: "btn small", onclick: act(() => rpc("device.revoke", { device_id: d.device_id }), `Gerät „${d.label}“ von ${u.name} widerrufen?`) }, "Widerrufen")))),
+        u.invitations.map((i) => h("tr", {}, h("td", {}, "Einladung"), h("td", {}, `Nr. ${i.invitation_id} `, h("span", { class: "chip" + (i.state === "open" ? " ok" : "") }, { open: "offen", expired: "abgelaufen", withdrawn: "zurückgezogen" }[i.state])),
+          h("td", { class: "muted" }, `erstellt ${fmtDateTime(i.created_at)} · gültig bis ${fmtDateTime(i.expires_at)}`),
+          h("td", {}, i.state === "open" ? h("button", { class: "btn small", onclick: act(() => rpc("invitation.withdraw", { invitation_id: i.invitation_id }), "Einladung zurückziehen? Bereits angemeldete Geräte bleiben angemeldet.") }, "Zurückziehen") : null)))))));
+
+  const keys = mk.machine_keys.length ? h("table", { class: "small" }, h("tbody", {}, mk.machine_keys.map((k) => h("tr", {},
+    h("td", {}, k.machine), h("td", {}, k.task), h("td", {}, h("code", {}, k.display)), h("td", { class: "muted" }, k.last_used_at ? `zuletzt ${fmtDateTime(k.last_used_at)}` : "nie benutzt"),
+    h("td", {}, k.revoked_at ? h("span", { class: "chip bad" }, "abgeschaltet") : h("button", { class: "btn small", onclick: act(() => rpc("machinekey.revoke", { machine_key_id: k.machine_key_id }), `Maschinenschlüssel ${k.display} sofort abschalten?`) }, "Abschalten"))))))
+    : h("p", { class: "muted small" }, "Keine. Maschinenschlüssel entstehen nur im Setup-Fenster auf dem Server.");
+  return h("div", { class: "pad", style: "max-width:900px" }, h("h1", {}, "Personen"), inviteForm, people, h("h2", {}, "Maschinenschlüssel"), keys);
+}
+
+// ------------------------------------------------------------------ entry states without access
+function viewInvite(token) {
+  const label = h("input", { type: "text", required: true, maxlength: 80, value: guessDeviceLabel() });
+  const btn = h("button", { class: "btn primary", type: "submit" }, "Einladung auf diesem Gerät annehmen");
+  return h("form", { class: "pad", style: "max-width:520px", onsubmit: async (ev) => {
+    ev.preventDefault(); btn.disabled = true;
+    try {
+      const r = await rpc("invitation.redeem", { token, label: label.value });
+      history.replaceState(null, "", location.pathname + "#/");
+      toast(`Willkommen, ${r.name}.`);
+      await boot();
+    } catch (e) { btn.disabled = false; fail(e); }
+  } },
+    h("h1", {}, "Einladung annehmen"),
+    h("p", {}, "Dieses Gerät bekommt einen eigenen Zugang. Den Link kannst du auf jedem deiner Geräte öffnen."),
+    h("label", {}, "Wie soll dieses Gerät heißen?"), label,
+    h("div", { style: "margin-top:16px" }, btn));
+}
+
+function viewSetup() {
+  const secret = h("input", { type: "password", required: true, autocomplete: "off" }), name = h("input", { type: "text", required: true }), email = h("input", { type: "email" });
+  return h("form", { class: "pad", style: "max-width:560px", onsubmit: async (ev) => {
+    ev.preventDefault();
+    try {
+      const r = await rpc("setup.createAdmin", { name: name.value, email: email.value }, { "X-Setup-Secret": secret.value.trim() });
+      location.hash = "#invite=" + encodeURIComponent(r.invitation_token);
+    } catch (e) { fail(e); }
+  } },
+    h("h1", {}, "Einrichtung"),
+    h("p", {}, "Portal-Download ist noch nicht eingerichtet. Das Setup-Geheimnis steht in der Datei bootstrap.toml im Zustandsverzeichnis des Dienstes und in der Log-Zeile beim Start. Es gilt 30 Minuten; ein Neustart oder „portal-download bootstrap“ erzeugt ein neues."),
+    h("label", {}, "Setup-Geheimnis"), secret,
+    h("label", {}, "Dein Name"), name,
+    h("label", {}, "E-Mail (optional)"), email,
+    h("div", { style: "margin-top:16px" }, h("button", { class: "btn primary", type: "submit" }, "Ersten Zugang anlegen")));
+}
+
+function viewNoAccess(err) {
+  return h("div", { class: "pad", style: "max-width:560px" },
+    h("h1", {}, CONFIG.app_name),
+    h("p", {}, "Auf diesem Gerät besteht kein Zugang. Öffne den Einladungslink, den du bekommen hast; er funktioniert auf jedem deiner Geräte."),
+    err ? h("p", { class: "muted small" }, err) : null,
+    h("p", { class: "muted small" }, "Keinen Link (mehr)? Frag eine Person im Kreis, die Personen verwalten darf, nach einer neuen Einladung."));
+}
+
+// ------------------------------------------------------------------ render
+let renderSeq = 0;
+async function render() {
+  const mySeq = ++renderSeq;
+  const r = route();
+  const view = $("#view");
+  if (r.view === "invite") { hidePortal(); $("#bar").replaceChildren(); view.replaceChildren(viewInvite(r.token)); return; }
+  if (!state.me) {
+    hidePortal(); $("#bar").replaceChildren();
+    view.replaceChildren(state.status && state.status.setup_required ? viewSetup() : viewNoAccess(state.authError));
+    return;
+  }
+  if (r.id && ["job", "run", "edit", "history"].includes(r.view)) selectJob(r.id);
+  renderBar();
+  let content = null;
+  try {
+    if (r.view === "run") {
+      const job = state.jobs.find((j) => j.job_id === r.id);
+      content = job ? viewRunning(job) : viewOverview();
+      if (!job || !job.embeddable) hidePortal();
+    } else {
+      hidePortal();
+      if (r.view === "new") content = await viewEdit(null);
+      else if (r.view === "edit") content = await viewEdit(r.id);
+      else if (r.view === "history") content = await viewHistory(r.id);
+      else if (r.view === "people") content = await viewPeople();
+      else if (r.view === "devices") content = await viewDevices();
+      else content = viewOverview();
+    }
+  } catch (e) {
+    if (e.code === 401) { state.me = null; state.authError = e.message; return render(); }
+    fail(e); content = viewOverview();
+  }
+  if (mySeq !== renderSeq) return; // a newer render has started
+  view.replaceChildren(...(content ? [content] : []));
+}
+
+async function boot() {
+  try {
+    try { CONFIG = { ...CONFIG, ...(await (await fetch("config.json", { cache: "no-cache" })).json()) }; } catch {}
+    document.title = CONFIG.app_name;
+    state.status = await rpc("service.status");
+    state.me = state.status.me && state.status.me.kind === "person" ? state.status.me : null;
+    if (state.me) {
+      await Promise.all([loadJobs(), loadVault()]);
+      if (vault.meta && (!vault.meta.exists || !vault.key)) vaultDialog();
+    }
+  } catch (e) {
+    state.authError = e.message;
+    fail(e);
+  } finally {
+    $("#loading").hidden = true;
+  }
+  await render();
+}
+
+if (!window.isSecureContext || !window.crypto || !crypto.subtle) {
+  $("#loading").replaceChildren("Diese Seite braucht HTTPS (oder localhost), damit Verschlüsselung und Zwischenablage im Browser funktionieren. Bitte über die HTTPS-Adresse des Dienstes öffnen.");
+} else {
+  boot();
+}
+</script>
+</body>
+</html>

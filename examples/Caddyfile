@@ -1,0 +1,7 @@
+# Reverse proxy in front of portal-download on an intranet host.
+# `tls internal` makes Caddy issue a certificate from its own local CA;
+# distribute that CA to the circle's devices, or use your intranet CA instead.
+downloads.intra.example {
+	tls internal
+	reverse_proxy 127.0.0.1:8080
+}

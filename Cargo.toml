@@ -1,0 +1,33 @@
+[package]
+name = "portal-download"
+version = "0.1.0"
+edition = "2021"
+description = "Intranet workbench that walks a small circle through due portal downloads"
+publish = false
+
+[dependencies]
+axum = "0.8"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+getrandom = "0.2"
+sha2 = "0.10"
+hex = "0.4"
+base64 = "0.22"
+subtle = "2"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std", "serde"] }
+pulldown-cmark = { version = "0.12", default-features = false, features = ["html"] }
+ammonia = "4"
+toml = "0.8"
+clap = { version = "4", features = ["derive"] }
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"
+regex = "1"
+tempfile = "3"
+
+[profile.release]
+strip = true
+lto = "thin"

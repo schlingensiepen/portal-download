@@ -1,0 +1,12 @@
+# portal-download configuration. One file holds all values; select it with
+# --config PATH or PORTAL_DOWNLOAD_CONFIG=PATH, or place it at
+# ~/.config/portal-download/config.toml or /etc/portal-download/config.toml.
+# Run `portal-download check` to see every value with where it came from.
+
+# Address and port the service listens on. Keep it local; a reverse proxy in
+# front holds the public name and the TLS certificate. Empty means the default.
+listen = "127.0.0.1:8080"
+
+# Directory for the store (portal-download.sqlite) and the setup file
+# (bootstrap.toml). Must be writable for the service user. Empty aborts the start.
+state_dir = "/var/lib/portal-download"

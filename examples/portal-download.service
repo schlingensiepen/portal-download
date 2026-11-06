@@ -1,0 +1,20 @@
+# systemd unit. The service user owns the state directory and nothing else;
+# the configuration file is owned by root and only readable for the service.
+[Unit]
+Description=portal-download intranet workbench
+After=network-online.target
+
+[Service]
+User=portal-download
+Group=portal-download
+ExecStart=/usr/local/bin/portal-download --config /etc/portal-download/config.toml serve
+StateDirectory=portal-download
+StateDirectoryMode=0700
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
