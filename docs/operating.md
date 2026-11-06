@@ -32,11 +32,26 @@ The service writes only the state directory and never its configuration. Run the
   ```
 
   The response holds `invitation_token`. Open `https://downloads.intra.example/#invite=<invitation_token>` with the token from that response.
-- **A machine key:** while the setup window is open, call `machinekey.create` with `{"machine":"nas","task":"job.list"}` and the header `X-Setup-Secret`. Put the returned key into that machine's environment as `PORTAL_DOWNLOAD_MACHINE_KEY`. The key goes in the header `Authorization: Bearer`. Shut it down under **Personen** at any time.
+- **An agent or a script:** it registers itself through the API and names an eight-letter display string. Under **Personen → Agenten**, check that the display string and the introduction match what the agent said, and grant exactly one ability. Reject registrations you do not recognise. A script that only needs the due list gets *Jobs lesen*. The token lives in that machine's environment as `PORTAL_DOWNLOAD_AGENT_TOKEN`. Revoke it there at any time.
 
 ## Backup
 
-Back up the state directory while the service is stopped, or use `sqlite3 portal-download.sqlite ".backup copy.sqlite"`. The backup contains no readable portal login, because those are sealed with the vault key. It does contain the hashes of device credentials and the history of runs.
+The backup is one JSONL file: a head line, then one record per line (vault, people, invitations, devices, agent tokens, jobs, runs). There are two ways to get it, and they write the same file:
+
+- **With `curl`, from any machine:** under **Personen → Agenten**, create a token with the ability *Backup holen*. The application shows the complete line once, for example as a nightly cron job:
+
+  ```sh
+  curl -fsS -H "Authorization: Bearer pda_…" https://downloads.intra.example/backup -o portal-download-$(date +%F).jsonl
+  ```
+
+  A person with the right to administer people can also click **Backup herunterladen** under **Personen**.
+- **On the server:** `portal-download backup /some/dir/portal-download-$(date +%F).jsonl`. It never overwrites a file and makes it readable by its owner only.
+
+**Restoring is adding.** Under **Personen → Backup**, a person with the right to administer people uploads the file. Nothing is overwritten. A job with the same title and entry address, or a person with the same name or e-mail, comes in a second time as "… (Import YYYY-MM-DD)". The application then lists those copies with a delete button each. *Personen und Zugänge weglassen* imports only jobs, their history and the vault.
+
+**On a fresh instance**, set up with a name such as "Setup", upload the backup with people and accesses, and delete "Setup" afterwards. Devices and tokens from the backup keep working when the instance runs under the same address. If the instance has no vault yet, it adopts the one from the backup, and the old passphrase applies. If it has a different vault, jobs come without their logins.
+
+**Without the vault passphrase the logins in a backup cannot be read.** Keep the passphrase safe apart from the backup, for example in a password manager. Keep the backup file as carefully as a token anyway: it holds the sealed logins and the hashes of all accesses.
 
 ## Upgrading
 

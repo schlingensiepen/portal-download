@@ -40,7 +40,9 @@ pub fn app(store: Store, state_dir: PathBuf) -> Router {
         .route("/describe/skill", get(skill))
         .route("/describe/api", get(contract))
         .route("/healthz", get(|| async { ([(header::CONTENT_TYPE, "text/plain; charset=utf-8")], "running\n") }))
-        .route("/api/", any(api))
+        // A backup upload travels in one request.
+        .route("/api/", any(api).layer(axum::extract::DefaultBodyLimit::max(32 * 1024 * 1024)))
+        .route("/backup", get(backup))
         .fallback(fallback)
         .with_state(state)
 }
@@ -197,6 +199,52 @@ fn client_address(h: &HeaderMap, peer: SocketAddr) -> String {
     peer.ip().to_string()
 }
 
+fn bearer(h: &HeaderMap) -> Option<String> {
+    h.get(header::AUTHORIZATION).and_then(|v| v.to_str().ok()).and_then(|s| s.strip_prefix("Bearer ")).map(|s| s.trim().to_string())
+}
+
+/// The caller from the device cookie, or else from an agent token; None without either.
+fn authenticate(store: &Store, h: &HeaderMap, user_agent: &str, address: &str) -> Option<Result<Principal, OpError>> {
+    match (cookie_value(h, COOKIE), bearer(h)) {
+        (Some(c), _) => Some(store.authenticate_device(&c, user_agent, address)),
+        (None, Some(k)) => Some(store.authenticate_agent(&k)),
+        (None, None) => None,
+    }
+}
+
+/// The backup as a file, for `curl -o` and for the download button of the application.
+async fn backup(State(st): State<Arc<AppState>>, ConnectInfo(peer): ConnectInfo<SocketAddr>, h: HeaderMap) -> Response {
+    let user_agent = h.get(header::USER_AGENT).and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
+    let address = client_address(&h, peer);
+    let store = lock(&st);
+    let text_error = |e: &OpError| {
+        let status = StatusCode::from_u16(e.code).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+        let mut r = (status, [(header::CONTENT_TYPE, "text/plain; charset=utf-8")], format!("{}\n", e.message)).into_response();
+        r.headers_mut().insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+        r
+    };
+    let principal = match authenticate(&store, &h, &user_agent, &address) {
+        Some(Ok(p)) => p,
+        Some(Err(e)) => return text_error(&e),
+        None => {
+            return text_error(&OpError::unauthorized(
+                "credential_missing",
+                "The backup needs an agent token granted backup.read in the header Authorization: Bearer, or the browser of a person with the right to administer people.",
+            ))
+        }
+    };
+    match store.backup_export(&principal) {
+        Ok(text) => {
+            let name = format!("attachment; filename=\"portal-download-{}.jsonl\"", store::today().format("%Y-%m-%d"));
+            let mut r = (StatusCode::OK, [(header::CONTENT_TYPE, "application/jsonl; charset=utf-8")], text).into_response();
+            r.headers_mut().insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+            r.headers_mut().insert(header::CONTENT_DISPOSITION, HeaderValue::from_str(&name).expect("ascii"));
+            r
+        }
+        Err(e) => text_error(&e),
+    }
+}
+
 async fn api(State(st): State<Arc<AppState>>, ConnectInfo(peer): ConnectInfo<SocketAddr>, method: Method, h: HeaderMap, body: Bytes) -> Response {
     if method != Method::POST {
         return protocol_error(StatusCode::METHOD_NOT_ALLOWED, -32600, "Invalid Request: the API accepts only POST with a JSON-RPC 2.0 body.", Value::Null);
@@ -231,20 +279,10 @@ async fn api(State(st): State<Arc<AppState>>, ConnectInfo(peer): ConnectInfo<Soc
     let address = client_address(&h, peer);
     let setup_secret = h.get("x-setup-secret").and_then(|v| v.to_str().ok()).map(str::to_string);
     let device_cred = cookie_value(&h, COOKIE);
-    let machine_key = h
-        .get(header::AUTHORIZATION)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|s| s.strip_prefix("Bearer "))
-        .map(|s| s.trim().to_string());
-
     let store = lock(&st);
 
     // Establish the caller in one place, before any method runs.
-    let auth = match (&device_cred, &machine_key) {
-        (Some(c), _) => Some(store.authenticate_device(c, &user_agent, &address)),
-        (None, Some(k)) => Some(store.authenticate_machine(k)),
-        (None, None) => None,
-    };
+    let auth = authenticate(&store, &h, &user_agent, &address);
     let principal = match auth {
         Some(Ok(p)) => Some(p),
         Some(Err(e)) if !matches!(m.access, Access::Open | Access::Setup) => return app_error(&e, id),
@@ -410,5 +448,37 @@ mod tests {
         let remote = SocketAddr::from(([10, 0, 0, 9], 1));
         assert_eq!(base_url(&h, local), "https://downloads.intra.test");
         assert_eq!(base_url(&h, remote), "http://127.0.0.1:8080", "forwarding headers from elsewhere are ignored");
+    }
+
+    #[tokio::test]
+    async fn backup_download_needs_a_backup_token_and_comes_as_a_file() {
+        let t = setup();
+        let get = |auth: Option<String>| {
+            let mut b = Request::get("/backup");
+            if let Some(a) = auth {
+                b = b.header(header::AUTHORIZATION, format!("Bearer {a}"));
+            }
+            b.body(Body::empty()).unwrap()
+        };
+        let (s, _, b) = send(&t, get(None)).await;
+        assert_eq!(s, StatusCode::UNAUTHORIZED);
+        assert!(String::from_utf8(b).unwrap().contains("backup.read"));
+        let token = {
+            let st = Store::open(t.dir.path()).unwrap();
+            let r = st.setup_create_admin("Ada", "").unwrap();
+            let (c, _) = st.redeem_invitation(r["invitation_token"].as_str().unwrap(), "Laptop", "", "").unwrap();
+            let a = st.authenticate_device(&c, "", "").unwrap();
+            let reader = st.agent_create(&a, "NAS nightly backup", "backup.read").unwrap()["token"].as_str().unwrap().to_string();
+            let other = st.agent_create(&a, "job reader", "jobs.read").unwrap()["token"].as_str().unwrap().to_string();
+            (reader, other)
+        };
+        let (s, _, _) = send(&t, get(Some(token.1))).await;
+        assert_eq!(s, StatusCode::FORBIDDEN);
+        let (s, h, b) = send(&t, get(Some(token.0))).await;
+        assert_eq!(s, StatusCode::OK);
+        assert!(h[header::CONTENT_DISPOSITION].to_str().unwrap().contains(".jsonl"));
+        assert_eq!(h[header::CACHE_CONTROL], "no-store");
+        let first = String::from_utf8(b).unwrap().lines().next().unwrap().to_string();
+        assert!(first.contains("portal-download-backup"));
     }
 }

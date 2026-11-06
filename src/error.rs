@@ -3,7 +3,7 @@
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OpError {
-    /// HTTP status semantics: 400, 401, 403, 404, 409, 410, 500.
+    /// HTTP status semantics: 400, 401, 403, 404, 409, 410, 415, 429, 500.
     pub code: u16,
     /// Stable machine-readable identifier.
     pub kind: &'static str,

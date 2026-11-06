@@ -1,9 +1,9 @@
 //! The bootstrap window: a file next to the store holding the setup secret and an expiry.
 //!
 //! Every start of the service opens the window; `portal-download bootstrap` opens it
-//! without a restart. While it is open, the setup secret allows two things only: creating a
+//! without a restart. While it is open, the setup secret allows one thing only: creating a
 //! person with the right to administer people (the first one, or a new one after all
-//! administrators lost their devices) and creating a machine key. The file is read on every
+//! administrators lost their devices). The file is read on every
 //! use; once the expiry has passed the window is closed, nobody has to delete anything.
 
 use crate::error::{OpError, OpResult};

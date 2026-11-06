@@ -310,7 +310,7 @@ function vaultDialog() {
 }
 
 // ------------------------------------------------------------------ state & routing
-const state = { status: null, me: null, jobs: [], today: null, current: 0, running: null };
+const state = { status: null, me: null, jobs: [], today: null, current: 0, running: null, importReport: null };
 
 function route() {
   const f = location.hash.replace(/^#/, "");
@@ -604,9 +604,33 @@ function showInvitation(name, r) {
   ]);
 }
 
+const backupUrl = () => new URL("backup", location.href.split("#")[0]).href;
+const curlLine = (token) => `curl -fsS -H "Authorization: Bearer ${token}" ${backupUrl()} -o portal-download-$(date +%F).jsonl`;
+/** Shows a token once; for the backup ability with the ready curl line. */
+function showToken(r) {
+  const line = r.ability === "backup.read" ? curlLine(r.token) : `export PORTAL_DOWNLOAD_AGENT_TOKEN=${r.token}`;
+  modal((close) => [
+    h("h1", {}, `Token ${r.display}`),
+    h("p", { class: "small" }, r.ability === "backup.read"
+      ? "Diese Zeile holt das Backup. Sie enthält das Token und wird nur jetzt angezeigt. Trag sie z. B. als nächtlichen Cron-Job auf dem Rechner ein, der sichern soll."
+      : "Das Token wird nur jetzt angezeigt. Leg es auf dem Rechner, der es benutzt, in die Umgebungsvariable PORTAL_DOWNLOAD_AGENT_TOKEN."),
+    h("div", { class: "secret-once" }, line),
+    h("div", { class: "row", style: "margin-top:14px" }, h("button", { class: "btn primary", onclick: (e) => copy(line, e.currentTarget) }, "Zeile kopieren"), h("button", { class: "btn", onclick: () => { close(); render(); } }, "Fertig")),
+  ]);
+}
+function showBackupLine(display) {
+  const line = curlLine("$PORTAL_DOWNLOAD_AGENT_TOKEN");
+  modal((close) => [
+    h("h1", {}, `${display} darf das Backup holen`),
+    h("p", { class: "small" }, "Mit dieser Zeile holt der Agent das Backup; das Token liegt bei ihm in der Umgebungsvariable PORTAL_DOWNLOAD_AGENT_TOKEN."),
+    h("div", { class: "secret-once" }, line),
+    h("div", { class: "row", style: "margin-top:14px" }, h("button", { class: "btn primary", onclick: (e) => copy(line, e.currentTarget) }, "Zeile kopieren"), h("button", { class: "btn", onclick: () => { close(); render(); } }, "Fertig")),
+  ]);
+}
+
 async function viewPeople() {
   if (!state.me.is_admin) return h("div", { class: "pad" }, h("p", {}, "Personen verwalten darf nur, wer das Recht dazu hat."));
-  const [r, mk] = await Promise.all([rpc("user.list"), rpc("machinekey.list")]);
+  const [r, ag] = await Promise.all([rpc("user.list"), rpc("agent.list")]);
   const act = (fn, msg) => async () => { if (msg && !confirm(msg)) return; try { await fn(); render(); } catch (e) { fail(e); } };
   const name = h("input", { type: "text", required: true }), email = h("input", { type: "email" }), admin = h("input", { type: "checkbox" });
   const inviteForm = h("form", { class: "card", onsubmit: async (ev) => {
@@ -634,11 +658,89 @@ async function viewPeople() {
           h("td", { class: "muted" }, `erstellt ${fmtDateTime(i.created_at)} · gültig bis ${fmtDateTime(i.expires_at)}`),
           h("td", {}, i.state === "open" ? h("button", { class: "btn small", onclick: act(() => rpc("invitation.withdraw", { invitation_id: i.invitation_id }), "Einladung zurückziehen? Bereits angemeldete Geräte bleiben angemeldet.") }, "Zurückziehen") : null)))))));
 
-  const keys = mk.machine_keys.length ? h("table", { class: "small" }, h("tbody", {}, mk.machine_keys.map((k) => h("tr", {},
-    h("td", {}, k.machine), h("td", {}, k.task), h("td", {}, h("code", {}, k.display)), h("td", { class: "muted" }, k.last_used_at ? `zuletzt ${fmtDateTime(k.last_used_at)}` : "nie benutzt"),
-    h("td", {}, k.revoked_at ? h("span", { class: "chip bad" }, "abgeschaltet") : h("button", { class: "btn small", onclick: act(() => rpc("machinekey.revoke", { machine_key_id: k.machine_key_id }), `Maschinenschlüssel ${k.display} sofort abschalten?`) }, "Abschalten"))))))
-    : h("p", { class: "muted small" }, "Keine. Maschinenschlüssel entstehen nur im Setup-Fenster auf dem Server.");
-  return h("div", { class: "pad", style: "max-width:900px" }, h("h1", {}, "Personen"), inviteForm, people, h("h2", {}, "Maschinenschlüssel"), keys);
+  const abilityName = { "jobs.read": "Jobs lesen", "jobs.write": "Jobs bearbeiten", "jobs.complete": "Läufe abschließen", "backup.read": "Backup holen" };
+  const stateChip = (st) => h("span", { class: "chip" + (st === "granted" ? " ok" : st === "pending" ? "" : " bad") },
+    { pending: "wartet auf Freigabe", granted: "freigegeben", expired: "abgelaufen", revoked: "widerrufen" }[st] || st);
+  const agentCard = (a) => {
+    let controls = null;
+    if (a.state === "pending") {
+      const pick = h("select", {}, ag.abilities.map((x) => h("option", { value: x.ability, title: x.permits }, abilityName[x.ability] || x.ability)));
+      controls = h("div", { class: "row small", style: "margin-top:8px" }, pick,
+        h("button", { class: "btn small primary", onclick: async () => {
+          const ab = pick.value;
+          if (!confirm(`Agent ${a.display} das Recht „${abilityName[ab] || ab}“ geben?\n\nGib es nur frei, wenn dir der Agent genau diese Kennung genannt hat.`)) return;
+          try { await rpc("agent.grant", { agent_id: a.agent_id, ability: ab }); if (ab === "backup.read") showBackupLine(a.display); else render(); } catch (e) { fail(e); }
+        } }, "Freigeben"),
+        h("button", { class: "btn small", onclick: act(() => rpc("agent.revoke", { agent_id: a.agent_id }), `Anmeldung ${a.display} ablehnen?`) }, "Ablehnen"));
+    } else if (a.state === "granted") {
+      controls = h("div", { class: "row small", style: "margin-top:8px" },
+        h("button", { class: "btn small", onclick: act(() => rpc("agent.revoke", { agent_id: a.agent_id }), `Agent ${a.display} sofort widerrufen?`) }, "Widerrufen"));
+    }
+    return h("div", { class: "card" },
+      h("div", { class: "row" },
+        h("h3", { class: "grow" }, h("code", {}, a.display), " ", stateChip(a.state), " ", a.ability ? h("span", { class: "chip" }, abilityName[a.ability] || a.ability) : null),
+        h("span", { class: "muted small" }, a.state === "pending" || a.state === "granted" ? `verfällt ${fmtDateTime(a.expires_at)}` : "")),
+      h("p", { class: "small", style: "margin:6px 0 0" }, a.introduction),
+      h("p", { class: "muted small", style: "margin:4px 0 0" },
+        `angemeldet ${fmtDateTime(a.created_at)}`, a.granted_by ? ` · freigegeben von ${a.granted_by}` : "", ` · ${a.last_used_at ? "zuletzt " + fmtDateTime(a.last_used_at) : "nie benutzt"}`),
+      controls);
+  };
+  const live = ag.agents.filter((a) => a.state === "pending" || a.state === "granted"), done = ag.agents.filter((a) => !live.includes(a));
+  const purpose = h("input", { type: "text", placeholder: "z. B. NAS: nächtliches Backup" });
+  const newAbility = h("select", {}, ag.abilities.map((x) => h("option", { value: x.ability, title: x.permits, selected: x.ability === "backup.read" }, abilityName[x.ability] || x.ability)));
+  const createForm = h("form", { class: "card", onsubmit: async (ev) => {
+    ev.preventDefault();
+    if (!confirm(`Token mit dem Recht „${abilityName[newAbility.value] || newAbility.value}“ anlegen?`)) return;
+    try { showToken(await rpc("agent.create", { introduction: purpose.value, ability: newAbility.value })); } catch (e) { fail(e); }
+  } }, h("h3", {}, "Token anlegen"),
+    h("p", { class: "muted small", style: "margin-top:0" }, "Für ein Skript, das sich nicht selbst anmelden kann, z. B. das nächtliche Backup."),
+    h("div", { class: "row" }, h("div", { class: "grow" }, h("label", {}, "Wofür"), purpose), h("div", {}, h("label", {}, "Recht"), newAbility)),
+    h("div", { style: "margin-top:10px" }, h("button", { class: "btn primary", type: "submit" }, "Token anlegen")));
+  const agents = [
+    h("p", { class: "muted small" }, "Agenten melden sich selbst an und nennen dir eine Kennung aus acht Buchstaben. Gib jeder Anmeldung genau ein Recht. Portal-Logins sieht kein Agent; nur das Recht „Backup holen“ bekommt sie versiegelt mit."),
+    createForm,
+    live.length ? live.map(agentCard) : h("p", { class: "muted small" }, "Keine aktiven Agenten."),
+    done.length ? h("details", {}, h("summary", { class: "small muted" }, `${done.length} abgelaufen oder widerrufen`), done.map(agentCard)) : null,
+  ];
+  const file = h("input", { type: "file", accept: ".jsonl,application/jsonl,text/plain" }), omit = h("input", { type: "checkbox" });
+  const backup = h("div", { class: "card" },
+    h("p", { class: "small", style: "margin-top:0" }, "Das Backup enthält alles: Vorgänge mit Verlauf, Tresor, Personen und Zugänge. Logins nur versiegelt – ohne die Tresor-Passphrase sind sie unlesbar."),
+    h("a", { class: "btn", href: backupUrl(), download: "" }, "Backup herunterladen"),
+    h("form", { style: "margin-top:14px", onsubmit: async (ev) => {
+      ev.preventDefault();
+      const f = file.files[0]; if (!f) { toast("Wähle zuerst eine Backup-Datei.", true); return; }
+      if (!confirm("Backup einlesen? Es wird nichts überschrieben: Vorhandenes kommt als „… (Import Datum)“ dazu.")) return;
+      try { state.importReport = await rpc("backup.import", { jsonl: await f.text(), include_access: !omit.checked }); go("#/import"); } catch (e) { fail(e); }
+    } },
+      h("label", {}, "Backup einlesen (wird hinzugefügt)"), file,
+      h("label", { style: "color:var(--text)" }, omit, "Personen und Zugänge weglassen (nur Vorgänge, Verlauf und Tresor)"),
+      h("div", { style: "margin-top:10px" }, h("button", { class: "btn primary", type: "submit" }, "Einlesen"))));
+  return h("div", { class: "pad", style: "max-width:900px" }, h("h1", {}, "Personen"), inviteForm, people, h("h2", {}, "Agenten"), agents, h("h2", {}, "Backup"), backup);
+}
+
+function viewImport() {
+  const r = state.importReport;
+  if (!r) return h("div", { class: "pad" }, h("h1", {}, "Import"), h("p", { class: "muted" }, "In dieser Sitzung wurde nichts eingelesen. Eingelesene Doppel tragen „(Import Datum)“ im Namen."));
+  const vault = { adopted: "Tresor aus dem Backup übernommen – es gilt dessen Passphrase.", same: "Gleicher Tresor – die Logins funktionieren.", different: "Anderer Tresor – Logins aus dem Backup wurden weggelassen.", none: "Kein Tresor im Backup." }[r.vault] || r.vault;
+  const rows = r.renamed.map((x) => {
+    const tr = h("tr", {}, h("td", {}, x.kind === "job" ? "Vorgang" : "Person"), h("td", {}, x.name));
+    const del = h("button", { class: "btn small", onclick: async () => {
+      if (!confirm(`„${x.name}“ löschen?`)) return;
+      try {
+        if (x.kind === "job") await rpc("job.delete", { job_id: x.job_id }); else await rpc("user.delete", { user_id: x.user_id });
+        x.deleted = true; tr.lastChild.replaceChildren(h("span", { class: "chip" }, "gelöscht")); await loadJobs(); renderBar();
+      } catch (e) { fail(e); }
+    } }, "Löschen");
+    tr.append(h("td", {}, x.deleted ? h("span", { class: "chip" }, "gelöscht") : del));
+    return tr;
+  });
+  return h("div", { class: "pad", style: "max-width:900px" },
+    h("h1", {}, "Import"),
+    h("p", {}, `${r.jobs_added} Vorgänge, ${r.runs_added} Läufe, ${r.people_added} Personen, ${r.devices_added} Geräte, ${r.agents_added} Tokens hinzugefügt.`),
+    h("p", { class: "small" }, vault, r.logins_dropped ? ` ${r.logins_dropped} Logins weggelassen.` : ""),
+    r.renamed.length
+      ? [h("h2", {}, "Schon vorhanden – als Kopie hinzugefügt"), h("p", { class: "muted small" }, "Lösche, was du nicht brauchst."), h("table", { class: "small" }, h("tbody", {}, rows))]
+      : h("p", { class: "muted" }, "Nichts davon war schon vorhanden."));
 }
 
 // ------------------------------------------------------------------ entry states without access
@@ -718,6 +820,7 @@ async function render() {
       else if (r.view === "edit") content = await viewEdit(r.id);
       else if (r.view === "history") content = await viewHistory(r.id);
       else if (r.view === "people") content = await viewPeople();
+      else if (r.view === "import") content = viewImport();
       else if (r.view === "devices") content = await viewDevices();
       else content = viewOverview();
     }

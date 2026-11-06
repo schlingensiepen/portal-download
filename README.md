@@ -18,10 +18,14 @@ Every job has an interval in weeks and a retry period in days.
 
 - **Portal logins are sealed in the browser.** The circle shares one *vault passphrase*. The browser derives an AES-256-GCM key from it (PBKDF2-SHA-256, 600 000 iterations) and keeps that key, non-extractable, in IndexedDB. The service stores only sealed values, the salt and a sealed check value. It never sees the passphrase or the key, so a copy of the server or its backup reveals no portal password. The price: **if the passphrase is lost, the stored logins cannot be read any more.** If a browser clears its storage, enter the passphrase again. The vault is optional: jobs work without it, but then hold no logins. The exact sealed format is stated in the API contract at `vault.create`.
 - **Access to the service comes by invitation, with no passwords.** A person with the right to administer people creates an invitation link. It can be opened on each of the invited person's devices within seven days. Every device gets its own credential as an `HttpOnly; Secure; SameSite=Lax` cookie, renewed on every visit. The server stores only its hash. A lost device is revoked on its own, without touching the person's other devices.
-- **Machines get a key for one task** (`job.list`, the due list without logins), never a person's access. Keys can only be created while the setup window is open, and they can be shut down at any time.
+- **Agents work with a token for one ability**, never with a person's access. An agent registers itself with a short introduction and receives a token without any ability plus an eight-letter display string. It tells its user only the display string. A person with the right to administer people then grants exactly one ability under **Personen**: reading jobs, changing jobs, closing runs, or taking the backup. They can also create a token directly for a script that cannot register itself. No agent sets a portal login or administers people, devices, the vault or tokens. Only the backup ability receives the logins, sealed as stored. A token nobody grants expires after 24 hours, a granted one after 180 days without use, and any token can be revoked at once. At most ten registrations wait at the same time.
 - **The setup window** is the file `bootstrap.toml` in the state directory. It holds a setup secret and an expiry 30 minutes ahead. Every start writes a fresh one, and `portal-download bootstrap` opens it without a restart. It is the only way to create the first person who administers people, or a new one when all of them have lost their devices. Nobody has to delete it; it closes by itself.
 
 The service has **no start secret** of its own, so there is nothing to set before the first start.
+
+## Backup
+
+`curl -fsS -H "Authorization: Bearer <token>" https://<host>/backup -o backup.jsonl` fetches everything as one JSONL file. The token is one with the ability *Backup holen*; the application shows this line, with the token filled in, when the token is created. Uploading a backup in the application adds it to what is there and overwrites nothing. Details are in [docs/operating.md](docs/operating.md#backup).
 
 ## Running it
 
@@ -47,6 +51,7 @@ Put a reverse proxy with TLS on the same host in front, see [`examples/Caddyfile
 | `check` | Prints every configuration value with its source, and whether the store is usable (JSON). |
 | `status` | Prints counts of people, devices and jobs, the jobs due and the store's structure version (JSON). |
 | `version` | Prints version and the source revision the binary was built from (JSON). |
+| `backup FILE` | Writes the backup (JSONL, the same file as `GET /backup`) to a new file, also while the service runs. Never overwrites. |
 | `bootstrap [--minutes N]` | Opens the setup window without a restart and prints the setup secret once. |
 
 Exit codes: `0` success · `1` runtime error · `2` wrong arguments · `3` configuration invalid · `4` state directory or store unusable.
@@ -57,7 +62,7 @@ There is one TOML file with two keys, `listen` and `state_dir` (see [`examples/c
 
 ## For agents and scripts
 
-The service describes itself. `GET /` without `Accept: text/html` returns a short plain-text entry page that links to the usage description (`/describe/usage`), the machine contract in OpenRPC form (`/describe/api`) and an anchor skill (`/describe/skill`). Every URL there is rendered with the host the request arrived on. The API is JSON-RPC 2.0 at `POST /api/`.
+The service describes itself. `GET /` without `Accept: text/html` returns a short plain-text entry page that links to the usage description (`/describe/usage`), the machine contract in OpenRPC form (`/describe/api`) and an anchor skill (`/describe/skill`). Every URL there is rendered with the host the request arrived on. The API is JSON-RPC 2.0 at `POST /api/`. An agent finds there how to register, where to keep its token (`PORTAL_DOWNLOAD_AGENT_TOKEN`) and the rules for handling it.
 
 ## Embedding portals
 

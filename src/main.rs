@@ -43,6 +43,11 @@ enum Command {
     Status,
     /// Print version and the source revision this artifact was built from, as JSON.
     Version,
+    /// Write the backup (JSONL, the same as the download) to a new file, also while the service runs.
+    Backup {
+        /// The file to write; it must not exist yet.
+        target: PathBuf,
+    },
     /// Open the setup window without a restart and print the setup secret once.
     Bootstrap {
         /// How long the window stays open.
@@ -93,6 +98,19 @@ fn main() -> ExitCode {
             }
             Err(e) => fail(EXIT_STATE, e.message),
         },
+        Command::Backup { target } => {
+            let store = match store::Store::open(&cfg.state_dir.value) {
+                Ok(s) => s,
+                Err(e) => return fail(EXIT_STATE, e.message),
+            };
+            match store.backup_to_file(&target) {
+                Ok(v) => {
+                    println!("{v}");
+                    ExitCode::SUCCESS
+                }
+                Err(e) => fail(EXIT_RUNTIME, e.message),
+            }
+        }
         Command::Bootstrap { minutes } => {
             if !(1..=24 * 60).contains(&minutes) {
                 return fail(2, "--minutes must lie between 1 and 1440.");
