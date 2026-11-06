@@ -68,7 +68,7 @@ pub const METHODS: &[Method] = &[
         access: Access::Open,
         ability: None,
         summary: "Register an agent: receive a token without any ability, and its display string.",
-        description: "introduction says whose agent this is and what for, in 10 to 500 characters; the person who grants the token reads it. The token is shown only in this response: store it at once outside the conversation, in the environment variable PORTAL_DOWNLOAD_AGENT_TOKEN, and send it as Authorization: Bearer with the token taken from this response. Tell the user only the display string and the one ability needed, and ask them to have a person with the right to administer people grant it in the application under Personen. Until then every call with the token is refused with agent_pending; service.status shows the token's ability once granted. A token nobody grants expires after 24 hours. At most 10 registrations wait at the same time.",
+        description: "introduction says whose agent this is and what for, in 10 to 500 characters; the person who grants the token reads it. The token is shown only in this response: store it at once outside the conversation, in the environment variable PORTAL_DOWNLOAD_AGENT_TOKEN, and send it as Authorization: Bearer with the token taken from this response. Tell the user only the display string and the one ability needed, and ask them to have a person with the right to administer people grant it in the application under Personen. Until then every call to a method the ability would open is refused with agent_pending; service.status shows the token's ability once granted. A token nobody grants expires after 24 hours. At most 10 registrations wait at the same time.",
         params: r#"{"introduction":"Agent of Ada; purpose: add new portals to the job list"}"#,
         result: r#"{"agent_id":4,"display":"kluvmoth","token":"pda_…","state":"pending","ability":null,"expires_at":"2026-11-07T10:00:00Z"}"#,
     },
@@ -461,6 +461,11 @@ fn admit(m: &Method, c: &Call) -> OpResult<()> {
 pub fn dispatch(name: &str, params: &Value, c: &Call) -> OpResult<(Value, Effect)> {
     let m = method(name).expect("dispatch is only called for known methods");
     admit(m, c)?;
+    if let Some(pr) = &c.principal {
+        if m.access != Access::Open {
+            c.store.agent_touch(pr)?;
+        }
+    }
     let s = c.store;
     let pr = || c.principal.as_ref().expect("admitted calls carry a principal");
     let none = |v: Value| Ok((v, Effect::None));
@@ -644,6 +649,18 @@ mod tests {
         for (a, _) in crate::store::ABILITIES {
             assert!(METHODS.iter().any(|m| m.ability == Some(a)), "ability {a} opens no method");
         }
+    }
+
+    /// Only calls an agent was admitted to count as use and keep its token from idling out.
+    #[test]
+    fn refused_calls_do_not_count_as_use() {
+        let d = tempfile::tempdir().unwrap();
+        let store = Store::open_in_memory().unwrap();
+        let tok = store.agent_register("Agent of Ada; purpose: testing").unwrap()["token"].as_str().unwrap().to_string();
+        let pr = store.authenticate_agent(&tok).unwrap();
+        let c = Call { store: &store, state_dir: d.path(), principal: Some(pr), setup_secret: None, user_agent: "", address: "", today: crate::store::today() };
+        assert!(dispatch("job.list", &json!({}), &c).is_err());
+        assert!(store.agent_list_unchecked()[0]["last_used_at"].is_null());
     }
 
     #[test]

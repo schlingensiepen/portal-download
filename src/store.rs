@@ -452,10 +452,7 @@ PRAGMA user_version = 1;
                 "agent_token_expired",
                 format!("This agent token has expired: tokens without a grant expire after {AGENT_PENDING_HOURS} hours, granted ones after {AGENT_IDLE_DAYS} days without use. Register a new one."),
             )),
-            _ => {
-                self.conn.execute("UPDATE agents SET last_used_at = ?1 WHERE id = ?2", params![now(), a.id])?;
-                Ok(Principal::Agent { agent_id: a.id, display: a.display, ability: a.ability })
-            }
+            _ => Ok(Principal::Agent { agent_id: a.id, display: a.display, ability: a.ability }),
         }
     }
 
@@ -672,6 +669,15 @@ PRAGMA user_version = 1;
 
     // ---------------------------------------------------------------- agents
 
+    /// Records that an agent token was used for a call it was admitted to; refused calls do
+    /// not keep a token alive.
+    pub fn agent_touch(&self, p: &Principal) -> OpResult<()> {
+        if let Principal::Agent { agent_id, .. } = p {
+            self.conn.execute("UPDATE agents SET last_used_at = ?1 WHERE id = ?2", params![now(), agent_id])?;
+        }
+        Ok(())
+    }
+
     /// Open self-registration: a token without any ability, its display string, and the
     /// self-introduction kept as the basis for the grant. The clear text is returned once.
     pub fn agent_register(&self, introduction: &str) -> OpResult<Value> {
@@ -733,6 +739,13 @@ PRAGMA user_version = 1;
             "abilities": ABILITIES.iter().map(|(n, d)| json!({ "ability": n, "permits": d })).collect::<Vec<_>>(),
             "agents": agents.iter().map(AgentRow::to_json).collect::<Vec<_>>(),
         }))
+    }
+
+    #[cfg(test)]
+    pub fn agent_list_unchecked(&self) -> Vec<Value> {
+        let mut st = self.conn.prepare(&format!("SELECT {} FROM agents a LEFT JOIN users u ON u.id = a.granted_by ORDER BY a.id", AGENT_COLS)).unwrap();
+        let rows: Vec<AgentRow> = st.query_map([], agent_row).unwrap().collect::<Result<_, _>>().unwrap();
+        rows.iter().map(AgentRow::to_json).collect()
     }
 
     fn agent_get(&self, agent_id: i64) -> OpResult<AgentRow> {

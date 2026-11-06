@@ -217,12 +217,24 @@ async fn backup(State(st): State<Arc<AppState>>, ConnectInfo(peer): ConnectInfo<
     let user_agent = h.get(header::USER_AGENT).and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
     let address = client_address(&h, peer);
     let store = lock(&st);
-    let text_error = |e: &OpError| {
-        let status = StatusCode::from_u16(e.code).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
-        let mut r = (status, [(header::CONTENT_TYPE, "text/plain; charset=utf-8")], format!("{}\n", e.message)).into_response();
-        r.headers_mut().insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    let harden = |mut r: Response| {
+        let h = r.headers_mut();
+        h.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+        h.insert(header::X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"));
+        h.insert(header::X_FRAME_OPTIONS, HeaderValue::from_static("DENY"));
+        h.insert(header::REFERRER_POLICY, HeaderValue::from_static("no-referrer"));
         r
     };
+    let text_error = |e: &OpError| {
+        let status = StatusCode::from_u16(e.code).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+        harden((status, [(header::CONTENT_TYPE, "text/plain; charset=utf-8")], format!("{}\n", e.message)).into_response())
+    };
+    // With the browser's cookie, only the application's own button may start the download;
+    // another site navigating here would otherwise drop the backup into the Downloads folder.
+    let fetch_site = h.get("sec-fetch-site").and_then(|v| v.to_str().ok());
+    if cookie_value(&h, COOKIE).is_some() && fetch_site.is_some_and(|s| s != "same-origin") {
+        return text_error(&OpError::forbidden("Start the download from the application's own button under Personen, or use an agent token with curl."));
+    }
     let principal = match authenticate(&store, &h, &user_agent, &address) {
         Some(Ok(p)) => p,
         Some(Err(e)) => return text_error(&e),
@@ -233,11 +245,10 @@ async fn backup(State(st): State<Arc<AppState>>, ConnectInfo(peer): ConnectInfo<
             ))
         }
     };
-    match store.backup_export(&principal) {
+    match store.backup_export(&principal).and_then(|t| store.agent_touch(&principal).map(|_| t)) {
         Ok(text) => {
             let name = format!("attachment; filename=\"portal-download-{}.jsonl\"", store::today().format("%Y-%m-%d"));
-            let mut r = (StatusCode::OK, [(header::CONTENT_TYPE, "application/jsonl; charset=utf-8")], text).into_response();
-            r.headers_mut().insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+            let mut r = harden((StatusCode::OK, [(header::CONTENT_TYPE, "application/jsonl; charset=utf-8")], text).into_response());
             r.headers_mut().insert(header::CONTENT_DISPOSITION, HeaderValue::from_str(&name).expect("ascii"));
             r
         }
@@ -485,8 +496,13 @@ mod tests {
             let a = st.authenticate_device(&c, "", "").unwrap();
             let reader = st.agent_create(&a, "NAS nightly backup", "backup.read").unwrap()["token"].as_str().unwrap().to_string();
             let other = st.agent_create(&a, "job reader", "jobs.read").unwrap()["token"].as_str().unwrap().to_string();
-            (reader, other)
+            (reader, other, c)
         };
+        // With the cookie, another site cannot start the download; the application's own button can.
+        for (site, expect) in [("cross-site", StatusCode::FORBIDDEN), ("same-origin", StatusCode::OK)] {
+            let req = Request::get("/backup").header(header::COOKIE, format!("{COOKIE}={}", token.2)).header("sec-fetch-site", site).body(Body::empty()).unwrap();
+            assert_eq!(send(&t, req).await.0, expect, "{site}");
+        }
         let (s, _, _) = send(&t, get(Some(token.1))).await;
         assert_eq!(s, StatusCode::FORBIDDEN);
         let (s, h, b) = send(&t, get(Some(token.0))).await;
@@ -501,8 +517,22 @@ mod tests {
     async fn only_administrators_may_send_large_bodies() {
         let t = setup();
         let big = format!("{{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"agent.register\",\"params\":{{\"introduction\":\"{}\"}}}}", "x".repeat(2 * 1024 * 1024));
-        let req = Request::post("/api/").header(header::CONTENT_TYPE, "application/json").body(Body::from(big)).unwrap();
-        let (s, _, _) = send(&t, req).await;
-        assert_eq!(s, StatusCode::PAYLOAD_TOO_LARGE);
+        let (admin, person) = {
+            let st = Store::open(t.dir.path()).unwrap();
+            let r = st.setup_create_admin("Ada", "").unwrap();
+            let (a, _) = st.redeem_invitation(r["invitation_token"].as_str().unwrap(), "Laptop", "", "").unwrap();
+            let pa = st.authenticate_device(&a, "", "").unwrap();
+            let r = st.user_create(&pa, "Bob", "", false).unwrap();
+            let (b, _) = st.redeem_invitation(r["invitation_token"].as_str().unwrap(), "Phone", "", "").unwrap();
+            (a, b)
+        };
+        for (cookie, expect_too_large) in [(None, true), (Some(person), true), (Some(admin), false)] {
+            let mut b = Request::post("/api/").header(header::CONTENT_TYPE, "application/json");
+            if let Some(c) = cookie {
+                b = b.header(header::COOKIE, format!("{COOKIE}={c}"));
+            }
+            let (s, _, _) = send(&t, b.body(Body::from(big.clone())).unwrap()).await;
+            assert_eq!(s == StatusCode::PAYLOAD_TOO_LARGE, expect_too_large);
+        }
     }
 }
