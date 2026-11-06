@@ -99,6 +99,10 @@ fn main() -> ExitCode {
             Err(e) => fail(EXIT_STATE, e.message),
         },
         Command::Backup { target } => {
+            // Opening would create an empty store; a backup of nothing helps nobody.
+            if !cfg.state_dir.value.join(store::STORE_FILE).exists() {
+                return fail(EXIT_STATE, format!("There is no store in {} ({}). Check `state_dir` in the configuration.", cfg.state_dir.value.display(), cfg.state_dir.source));
+            }
             let store = match store::Store::open(&cfg.state_dir.value) {
                 Ok(s) => s,
                 Err(e) => return fail(EXIT_STATE, e.message),

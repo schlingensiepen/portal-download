@@ -40,8 +40,8 @@ pub fn app(store: Store, state_dir: PathBuf) -> Router {
         .route("/describe/skill", get(skill))
         .route("/describe/api", get(contract))
         .route("/healthz", get(|| async { ([(header::CONTENT_TYPE, "text/plain; charset=utf-8")], "running\n") }))
-        // A backup upload travels in one request.
-        .route("/api/", any(api).layer(axum::extract::DefaultBodyLimit::max(32 * 1024 * 1024)))
+        // The body limit is set per caller in `api`.
+        .route("/api/", any(api).layer(axum::extract::DefaultBodyLimit::disable()))
         .route("/backup", get(backup))
         .fallback(fallback)
         .with_state(state)
@@ -245,10 +245,25 @@ async fn backup(State(st): State<Arc<AppState>>, ConnectInfo(peer): ConnectInfo<
     }
 }
 
-async fn api(State(st): State<Arc<AppState>>, ConnectInfo(peer): ConnectInfo<SocketAddr>, method: Method, h: HeaderMap, body: Bytes) -> Response {
+/// Requests are small, except a backup upload by a person with the right to administer
+/// people; anyone else is held to the small limit before the body is read.
+const BODY_LIMIT: usize = 1024 * 1024;
+const BODY_LIMIT_ADMIN: usize = 32 * 1024 * 1024;
+
+async fn api(State(st): State<Arc<AppState>>, ConnectInfo(peer): ConnectInfo<SocketAddr>, method: Method, h: HeaderMap, body: axum::body::Body) -> Response {
     if method != Method::POST {
         return protocol_error(StatusCode::METHOD_NOT_ALLOWED, -32600, "Invalid Request: the API accepts only POST with a JSON-RPC 2.0 body.", Value::Null);
     }
+    let limit = match cookie_value(&h, COOKIE) {
+        Some(c) => match lock(&st).authenticate_device(&c, h.get(header::USER_AGENT).and_then(|v| v.to_str().ok()).unwrap_or(""), &client_address(&h, peer)) {
+            Ok(Principal::Device { is_admin: true, .. }) => BODY_LIMIT_ADMIN,
+            _ => BODY_LIMIT,
+        },
+        None => BODY_LIMIT,
+    };
+    let Ok(body): Result<Bytes, _> = axum::body::to_bytes(body, limit).await else {
+        return protocol_error(StatusCode::PAYLOAD_TOO_LARGE, -32600, "Invalid Request: the body is too large.", Value::Null);
+    };
     let Ok(req) = serde_json::from_slice::<Value>(&body) else {
         return protocol_error(StatusCode::BAD_REQUEST, -32700, "Parse error", Value::Null);
     };
@@ -480,5 +495,14 @@ mod tests {
         assert_eq!(h[header::CACHE_CONTROL], "no-store");
         let first = String::from_utf8(b).unwrap().lines().next().unwrap().to_string();
         assert!(first.contains("portal-download-backup"));
+    }
+
+    #[tokio::test]
+    async fn only_administrators_may_send_large_bodies() {
+        let t = setup();
+        let big = format!("{{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"agent.register\",\"params\":{{\"introduction\":\"{}\"}}}}", "x".repeat(2 * 1024 * 1024));
+        let req = Request::post("/api/").header(header::CONTENT_TYPE, "application/json").body(Body::from(big)).unwrap();
+        let (s, _, _) = send(&t, req).await;
+        assert_eq!(s, StatusCode::PAYLOAD_TOO_LARGE);
     }
 }

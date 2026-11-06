@@ -27,6 +27,8 @@ pub const AGENT_IDLE_DAYS: i64 = 180;
 pub const AGENT_PENDING_MAX: i64 = 10;
 
 const SCHEMA_VERSION: i64 = 1;
+/// The store file inside the state directory.
+pub const STORE_FILE: &str = "portal-download.sqlite";
 
 pub struct Store {
     conn: Connection,
@@ -255,7 +257,7 @@ impl Store {
         std::fs::create_dir_all(state_dir).map_err(|e| {
             OpError::internal(format!("The state directory {} cannot be created: {e}. Create it and make it writable for the service user.", state_dir.display()))
         })?;
-        let conn = Connection::open(state_dir.join("portal-download.sqlite"))?;
+        let conn = Connection::open(state_dir.join(STORE_FILE))?;
         Self::from_conn(conn)
     }
 
@@ -349,9 +351,21 @@ PRAGMA user_version = 1;
                 o.mode(0o600);
             }
             let mut f = o.open(&partial).map_err(|e| failed(&e))?;
-            f.write_all(text.as_bytes()).and_then(|_| f.sync_all()).map_err(|e| failed(&e))?;
+            if let Err(e) = f.write_all(text.as_bytes()).and_then(|_| f.sync_all()) {
+                let _ = std::fs::remove_file(&partial);
+                return Err(failed(&e));
+            }
         }
-        std::fs::rename(&partial, target).map_err(|e| failed(&e))?;
+        // A hard link never replaces an existing file, also one created meanwhile.
+        let linked = std::fs::hard_link(&partial, target);
+        let _ = std::fs::remove_file(&partial);
+        linked.map_err(|e| {
+            if e.kind() == std::io::ErrorKind::AlreadyExists {
+                OpError::conflict("backup_exists", format!("{} exists already. Name a new file; a backup never overwrites.", target.display()))
+            } else {
+                failed(&e)
+            }
+        })?;
         Ok(json!({ "backup": target.display().to_string(), "bytes": text.len(), "lines": text.lines().count() }))
     }
 
@@ -1043,7 +1057,14 @@ pub struct ImportReport {
     pub jobs_added: usize,
     pub runs_added: usize,
     pub logins_dropped: usize,
-    pub skipped: usize,
+    /// People and accesses left out on request.
+    pub skipped_left_out: usize,
+    /// Credentials or tokens that exist here already.
+    pub skipped_existing: usize,
+    /// Records whose person, invitation or job is not in the file.
+    pub skipped_unrelated: usize,
+    /// People with the right to administer people that the file brought in: check them.
+    pub admins_added: Vec<Value>,
     pub renamed: Vec<Value>,
 }
 
@@ -1059,9 +1080,13 @@ fn opt_s(v: &Value, k: &str) -> Option<String> {
 fn i_of(v: &Value, k: &str) -> Option<i64> {
     field(v, k).as_i64()
 }
-/// "Title (Import 2026-11-06)", shortened so it still fits the field.
-fn import_name(base: &str, max: usize, today: NaiveDate) -> String {
-    let suffix = format!(" (Import {})", today.format("%Y-%m-%d"));
+/// A time stamp in the one form the store compares as text: RFC 3339, UTC, whole seconds.
+fn canonical_ts(s: &str) -> Option<String> {
+    chrono::DateTime::parse_from_rfc3339(s).ok().map(|t| t.with_timezone(&Utc).to_rfc3339_opts(SecondsFormat::Secs, true))
+}
+/// "Title (Import 2026-11-06)", or "(Import 2026-11-06, 2)" from the second on, shortened so it fits.
+fn import_name(base: &str, max: usize, today: NaiveDate, k: usize) -> String {
+    let suffix = if k == 1 { format!(" (Import {})", today.format("%Y-%m-%d")) } else { format!(" (Import {}, {k})", today.format("%Y-%m-%d")) };
     let keep = max.saturating_sub(suffix.chars().count());
     format!("{}{suffix}", base.chars().take(keep).collect::<String>().trim_end())
 }
@@ -1083,6 +1108,9 @@ impl Store {
 
     /// Everything the service keeps, as JSONL: a head line, then one typed record per line.
     pub fn backup_text(&self) -> OpResult<String> {
+        // One read transaction: every record comes from the same moment, also while the
+        // service keeps writing through another connection.
+        let tx = self.conn.unchecked_transaction()?;
         let mut out = Vec::new();
         out.push(json!({ "type": "backup", "format": BACKUP_FORMAT, "version": BACKUP_VERSION, "created_at": now(), "app_version": env!("CARGO_PKG_VERSION") }));
         let mut each = |sql: &str, f: &dyn Fn(&rusqlite::Row) -> rusqlite::Result<Value>| -> OpResult<()> {
@@ -1098,21 +1126,23 @@ impl Store {
         each("SELECT id, name, email, is_admin, deactivated_at, created_at FROM users ORDER BY id", &|r| {
             Ok(json!({ "type": "person", "id": r.get::<_, i64>(0)?, "name": r.get::<_, String>(1)?, "email": r.get::<_, String>(2)?, "is_admin": r.get::<_, bool>(3)?, "deactivated_at": r.get::<_, Option<String>>(4)?, "created_at": r.get::<_, String>(5)? }))
         })?;
-        each("SELECT id, user_id, token_hash, created_at, expires_at, withdrawn_at FROM invitations ORDER BY id", &|r| {
-            Ok(json!({ "type": "invitation", "id": r.get::<_, i64>(0)?, "person_id": r.get::<_, i64>(1)?, "token_hash": r.get::<_, String>(2)?, "created_at": r.get::<_, String>(3)?, "expires_at": r.get::<_, String>(4)?, "withdrawn_at": r.get::<_, Option<String>>(5)? }))
+        each("SELECT id, user_id, token_hash, created_at, expires_at, withdrawn_at, created_by FROM invitations ORDER BY id", &|r| {
+            Ok(json!({ "type": "invitation", "id": r.get::<_, i64>(0)?, "person_id": r.get::<_, i64>(1)?, "token_hash": r.get::<_, String>(2)?, "created_at": r.get::<_, String>(3)?, "expires_at": r.get::<_, String>(4)?, "withdrawn_at": r.get::<_, Option<String>>(5)?, "created_by": r.get::<_, Option<i64>>(6)? }))
         })?;
         each("SELECT id, user_id, invitation_id, credential_hash, label, user_agent, last_address, created_at, last_seen_at, revoked_at FROM devices ORDER BY id", &|r| {
             Ok(json!({ "type": "device", "id": r.get::<_, i64>(0)?, "person_id": r.get::<_, i64>(1)?, "invitation_id": r.get::<_, i64>(2)?, "credential_hash": r.get::<_, String>(3)?, "label": r.get::<_, String>(4)?, "user_agent": r.get::<_, String>(5)?, "last_address": r.get::<_, String>(6)?, "created_at": r.get::<_, String>(7)?, "last_seen_at": r.get::<_, String>(8)?, "revoked_at": r.get::<_, Option<String>>(9)? }))
         })?;
-        each("SELECT id, token_hash, display, introduction, ability, granted_at, created_at, last_used_at, revoked_at FROM agents ORDER BY id", &|r| {
-            Ok(json!({ "type": "agent", "id": r.get::<_, i64>(0)?, "token_hash": r.get::<_, String>(1)?, "display": r.get::<_, String>(2)?, "introduction": r.get::<_, String>(3)?, "ability": r.get::<_, Option<String>>(4)?, "granted_at": r.get::<_, Option<String>>(5)?, "created_at": r.get::<_, String>(6)?, "last_used_at": r.get::<_, Option<String>>(7)?, "revoked_at": r.get::<_, Option<String>>(8)? }))
+        each("SELECT id, token_hash, display, introduction, ability, granted_at, created_at, last_used_at, revoked_at, granted_by FROM agents ORDER BY id", &|r| {
+            Ok(json!({ "type": "agent", "id": r.get::<_, i64>(0)?, "token_hash": r.get::<_, String>(1)?, "display": r.get::<_, String>(2)?, "introduction": r.get::<_, String>(3)?, "ability": r.get::<_, Option<String>>(4)?, "granted_at": r.get::<_, Option<String>>(5)?, "created_at": r.get::<_, String>(6)?, "last_used_at": r.get::<_, Option<String>>(7)?, "revoked_at": r.get::<_, Option<String>>(8)?, "granted_by": r.get::<_, Option<i64>>(9)? }))
         })?;
         each("SELECT id, title, entry_url, embeddable, interval_weeks, retry_days, next_due, username_sealed, password_sealed, instructions_md, created_at, updated_at FROM jobs ORDER BY id", &|r| {
             Ok(json!({ "type": "job", "id": r.get::<_, i64>(0)?, "title": r.get::<_, String>(1)?, "entry_url": r.get::<_, String>(2)?, "embeddable": r.get::<_, bool>(3)?, "interval_weeks": r.get::<_, i64>(4)?, "retry_days": r.get::<_, i64>(5)?, "next_due": r.get::<_, String>(6)?, "username_sealed": r.get::<_, String>(7)?, "password_sealed": r.get::<_, String>(8)?, "instructions_md": r.get::<_, String>(9)?, "created_at": r.get::<_, String>(10)?, "updated_at": r.get::<_, String>(11)? }))
         })?;
-        each("SELECT id, job_id, user_id, agent_id, by_name, outcome, note, finished_at, due_before, due_after FROM runs ORDER BY id", &|r| {
-            Ok(json!({ "type": "run", "id": r.get::<_, i64>(0)?, "job_id": r.get::<_, i64>(1)?, "person_id": r.get::<_, Option<i64>>(2)?, "agent_id": r.get::<_, Option<i64>>(3)?, "by": r.get::<_, String>(4)?, "outcome": r.get::<_, String>(5)?, "note": r.get::<_, String>(6)?, "finished_at": r.get::<_, String>(7)?, "due_before": r.get::<_, String>(8)?, "due_after": r.get::<_, String>(9)? }))
+        each("SELECT id, job_id, user_id, agent_id, by_name, outcome, note, finished_at, due_before, due_after, device_id FROM runs ORDER BY id", &|r| {
+            Ok(json!({ "type": "run", "id": r.get::<_, i64>(0)?, "job_id": r.get::<_, i64>(1)?, "person_id": r.get::<_, Option<i64>>(2)?, "agent_id": r.get::<_, Option<i64>>(3)?, "by": r.get::<_, String>(4)?, "outcome": r.get::<_, String>(5)?, "note": r.get::<_, String>(6)?, "finished_at": r.get::<_, String>(7)?, "due_before": r.get::<_, String>(8)?, "due_after": r.get::<_, String>(9)?, "device_id": r.get::<_, Option<i64>>(10)? }))
         })?;
+        drop(each);
+        tx.commit()?;
         let mut text = String::new();
         for v in out {
             text.push_str(&v.to_string());
@@ -1122,7 +1152,8 @@ impl Store {
     }
 
     /// Adds a backup to what is there. Nothing is overwritten: a job or person that exists
-    /// already comes in a second time with "(Import <date>)" after its name.
+    /// already comes in a second time with "(Import <date>)" after its name. The file is
+    /// checked like input from the API, since an administrator may be handed a file by others.
     pub fn backup_import(&self, p: &Principal, jsonl: &str, include_access: bool, today: NaiveDate) -> OpResult<Value> {
         p.require_admin()?;
         let mut records = Vec::new();
@@ -1138,81 +1169,130 @@ impl Store {
             return Err(OpError::bad("backup_invalid", format!("The first line must be the head of a {BACKUP_FORMAT} file of version {BACKUP_VERSION}. Upload a file this service wrote.")));
         }
         let bad = |n: usize, what: &str| OpError::bad("backup_invalid", format!("Line {n} of the backup: {what}. Upload the file exactly as it was downloaded."));
+        let ts = |n: usize, v: &Value, k: &str| -> OpResult<String> { canonical_ts(&s_of(v, k)).ok_or_else(|| bad(n, &format!("`{k}` is not a time stamp"))) };
+        let opt_ts = |n: usize, v: &Value, k: &str| -> OpResult<Option<String>> {
+            match field(v, k) {
+                Value::Null => Ok(None),
+                _ => ts(n, v, k).map(Some),
+            }
+        };
+        let txt = |n: usize, v: &Value, k: &str, min: usize, max: usize| -> OpResult<String> { text(k, &s_of(v, k), min, max).map_err(|e| bad(n, &e.message)) };
+        let hash = |n: usize, v: &Value, k: &str| -> OpResult<String> {
+            let h = s_of(v, k);
+            if h.len() == 64 && h.bytes().all(|c| c.is_ascii_hexdigit()) { Ok(h) } else { Err(bad(n, &format!("`{k}` is not a hash"))) }
+        };
+
         let mut rep = ImportReport { vault: "none", ..Default::default() };
         let tx = self.conn.unchecked_transaction()?;
+
+        // The vault decides first whether the logins in the file can be opened here.
+        let target_vault: Option<(String, i64, String)> = tx.query_row("SELECT salt, iterations, verifier FROM vault WHERE id = 1", [], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).optional()?;
+        let vaults: Vec<&(usize, Value)> = records.iter().skip(1).filter(|(_, v)| s_of(v, "type") == "vault").collect();
+        if vaults.len() > 1 {
+            return Err(bad(vaults[1].0, "a second vault"));
+        }
+        let keep_logins = match (vaults.first(), &target_vault) {
+            (Some((n, v)), None) => {
+                let n = *n;
+                let salt = s_of(v, "salt");
+                use base64::Engine;
+                if !base64::engine::general_purpose::STANDARD.decode(&salt).is_ok_and(|b| b.len() >= 16) || salt.len() > 200 {
+                    return Err(bad(n, "the vault salt is not Base64 of at least 16 bytes"));
+                }
+                let iterations = i_of(v, "iterations").filter(|i| (100_000..=10_000_000).contains(i)).ok_or_else(|| bad(n, "the vault iterations lie outside 100000 to 10000000"))?;
+                let verifier = s_of(v, "verifier");
+                check_sealed("verifier", &verifier).map_err(|_| bad(n, "the vault check value is not a sealed value"))?;
+                if verifier.is_empty() {
+                    return Err(bad(n, "the vault has no check value"));
+                }
+                tx.execute("INSERT INTO vault(id, salt, iterations, verifier, created_at) VALUES (1, ?1, ?2, ?3, ?4)", params![salt, iterations, verifier, ts(n, v, "created_at")?])?;
+                rep.vault = "adopted";
+                true
+            }
+            (Some((_, v)), Some((salt, iterations, verifier))) => {
+                let same = *salt == s_of(v, "salt") && Some(*iterations) == i_of(v, "iterations") && *verifier == s_of(v, "verifier");
+                rep.vault = if same { "same" } else { "different" };
+                same
+            }
+            // Logins without the vault they were sealed with can never be opened.
+            (None, _) => false,
+        };
+
         let mut people = std::collections::HashMap::new();
         let mut invitations = std::collections::HashMap::new();
+        let mut devices = std::collections::HashMap::new();
         let mut agents = std::collections::HashMap::new();
         let mut jobs = std::collections::HashMap::new();
-        let mut drop_logins = false;
-        let mut backup_has_vault = false;
-        let target_vault: Option<(String, String)> = tx.query_row("SELECT salt, verifier FROM vault WHERE id = 1", [], |r| Ok((r.get(0)?, r.get(1)?))).optional()?;
+        let mapped = |m: &std::collections::HashMap<i64, i64>, v: &Value, k: &str| i_of(v, k).and_then(|i| m.get(&i)).copied();
         for (n, v) in records.iter().skip(1) {
             let n = *n;
             match s_of(v, "type").as_str() {
-                "vault" => {
-                    backup_has_vault = true;
-                    let (salt, verifier) = (s_of(v, "salt"), s_of(v, "verifier"));
-                    match &target_vault {
-                        None => {
-                            check_sealed("verifier", &verifier).map_err(|_| bad(n, "the vault check value is not a sealed value"))?;
-                            let iterations = i_of(v, "iterations").filter(|i| (100_000..=10_000_000).contains(i)).ok_or_else(|| bad(n, "iterations out of range"))?;
-                            tx.execute("INSERT INTO vault(id, salt, iterations, verifier, created_at) VALUES (1, ?1, ?2, ?3, ?4)", params![salt, iterations, verifier, s_of(v, "created_at")])?;
-                            rep.vault = "adopted";
-                        }
-                        Some((ts, tv)) if *ts == salt && *tv == verifier => rep.vault = "same",
-                        Some(_) => {
-                            rep.vault = "different";
-                            drop_logins = true;
-                        }
-                    }
-                }
-                "person" | "invitation" | "device" | "agent" if !include_access => rep.skipped += 1,
+                "vault" => {}
+                "person" | "invitation" | "device" | "agent" if !include_access => rep.skipped_left_out += 1,
                 "person" => {
-                    let name = text("name", &s_of(v, "name"), 1, 120).map_err(|_| bad(n, "a person without a usable name"))?;
-                    let email = s_of(v, "email");
-                    let exists: bool = tx.query_row(
-                        "SELECT EXISTS(SELECT 1 FROM users WHERE lower(name) = lower(?1) OR (?2 <> '' AND lower(email) = lower(?2)))",
-                        params![name, email],
-                        |r| r.get(0),
-                    )?;
-                    let final_name = if exists { import_name(&name, 120, today) } else { name };
+                    let name = txt(n, v, "name", 1, 120)?;
+                    let email = txt(n, v, "email", 0, 200)?;
+                    let exists = self.person_exists(&tx, &name, &email)?;
+                    let final_name = if exists { self.free_name(&tx, "users", "name", &name, 120, today)? } else { name };
+                    let is_admin = field(v, "is_admin").as_bool().unwrap_or(false);
                     tx.execute(
                         "INSERT INTO users(name, email, is_admin, deactivated_at, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
-                        params![final_name, email, field(v, "is_admin").as_bool().unwrap_or(false), opt_s(v, "deactivated_at"), s_of(v, "created_at")],
+                        params![final_name, email, is_admin, opt_ts(n, v, "deactivated_at")?, ts(n, v, "created_at")?],
                     )?;
                     let id = tx.last_insert_rowid();
                     if exists {
                         rep.renamed.push(json!({ "kind": "person", "user_id": id, "name": final_name }));
                     }
+                    if is_admin {
+                        rep.admins_added.push(json!({ "user_id": id, "name": final_name }));
+                    }
                     people.insert(i_of(v, "id").ok_or_else(|| bad(n, "a person without id"))?, id);
                     rep.people_added += 1;
                 }
                 "invitation" => {
-                    let Some(&user) = i_of(v, "person_id").and_then(|i| people.get(&i)) else { rep.skipped += 1; continue };
+                    let Some(user) = mapped(&people, v, "person_id") else { rep.skipped_unrelated += 1; continue };
                     let n_ins = tx.execute(
-                        "INSERT OR IGNORE INTO invitations(user_id, token_hash, created_at, expires_at, withdrawn_at) VALUES (?1, ?2, ?3, ?4, ?5)",
-                        params![user, s_of(v, "token_hash"), s_of(v, "created_at"), s_of(v, "expires_at"), opt_s(v, "withdrawn_at")],
+                        "INSERT INTO invitations(user_id, token_hash, created_by, created_at, expires_at, withdrawn_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6) ON CONFLICT(token_hash) DO NOTHING",
+                        params![user, hash(n, v, "token_hash")?, mapped(&people, v, "created_by"), ts(n, v, "created_at")?, ts(n, v, "expires_at")?, opt_ts(n, v, "withdrawn_at")?],
                     )?;
-                    if n_ins == 0 { rep.skipped += 1; continue; }
+                    if n_ins == 0 { rep.skipped_existing += 1; continue; }
                     invitations.insert(i_of(v, "id").ok_or_else(|| bad(n, "an invitation without id"))?, tx.last_insert_rowid());
                     rep.invitations_added += 1;
                 }
                 "device" => {
-                    let (Some(&user), Some(&inv)) = (i_of(v, "person_id").and_then(|i| people.get(&i)), i_of(v, "invitation_id").and_then(|i| invitations.get(&i))) else { rep.skipped += 1; continue };
+                    let (Some(user), Some(inv)) = (mapped(&people, v, "person_id"), mapped(&invitations, v, "invitation_id")) else { rep.skipped_unrelated += 1; continue };
                     let n_ins = tx.execute(
-                        "INSERT OR IGNORE INTO devices(user_id, invitation_id, credential_hash, label, user_agent, last_address, created_at, last_seen_at, revoked_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
-                        params![user, inv, s_of(v, "credential_hash"), s_of(v, "label"), s_of(v, "user_agent"), s_of(v, "last_address"), s_of(v, "created_at"), s_of(v, "last_seen_at"), opt_s(v, "revoked_at")],
+                        "INSERT INTO devices(user_id, invitation_id, credential_hash, label, user_agent, last_address, created_at, last_seen_at, revoked_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9) ON CONFLICT(credential_hash) DO NOTHING",
+                        params![user, inv, hash(n, v, "credential_hash")?, txt(n, v, "label", 1, 80)?, txt(n, v, "user_agent", 0, 400)?, txt(n, v, "last_address", 0, 100)?, ts(n, v, "created_at")?, ts(n, v, "last_seen_at")?, opt_ts(n, v, "revoked_at")?],
                     )?;
-                    if n_ins == 0 { rep.skipped += 1; } else { rep.devices_added += 1; }
+                    if n_ins == 0 { rep.skipped_existing += 1; continue; }
+                    devices.insert(i_of(v, "id").ok_or_else(|| bad(n, "a device without id"))?, tx.last_insert_rowid());
+                    rep.devices_added += 1;
                 }
                 "agent" => {
-                    let ability = opt_s(v, "ability").filter(|a| ABILITIES.iter().any(|(n, _)| n == a));
+                    let ability = match opt_s(v, "ability") {
+                        None => None,
+                        Some(a) => {
+                            Self::check_ability(&a).map_err(|e| bad(n, &e.message))?;
+                            Some(a)
+                        }
+                    };
+                    let created = ts(n, v, "created_at")?;
+                    // An ability and its grant time belong together; without both the token waits.
+                    let (ability, granted_at) = match (ability, opt_ts(n, v, "granted_at")?) {
+                        (Some(a), Some(g)) => (Some(a), Some(g)),
+                        (Some(a), None) => (Some(a), Some(created.clone())),
+                        (None, _) => (None, None),
+                    };
+                    let display = s_of(v, "display");
+                    if display.len() != 8 || !display.bytes().all(|c| c.is_ascii_lowercase()) {
+                        return Err(bad(n, "`display` is not a display string"));
+                    }
                     let n_ins = tx.execute(
-                        "INSERT OR IGNORE INTO agents(token_hash, display, introduction, ability, granted_at, created_at, last_used_at, revoked_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
-                        params![s_of(v, "token_hash"), s_of(v, "display"), s_of(v, "introduction"), ability, opt_s(v, "granted_at"), s_of(v, "created_at"), opt_s(v, "last_used_at"), opt_s(v, "revoked_at")],
+                        "INSERT INTO agents(token_hash, display, introduction, ability, granted_by, granted_at, created_at, last_used_at, revoked_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9) ON CONFLICT(token_hash) DO NOTHING",
+                        params![hash(n, v, "token_hash")?, display, txt(n, v, "introduction", 1, 500)?, ability, mapped(&people, v, "granted_by"), granted_at, created, opt_ts(n, v, "last_used_at")?, opt_ts(n, v, "revoked_at")?],
                     )?;
-                    if n_ins == 0 { rep.skipped += 1; continue; }
+                    if n_ins == 0 { rep.skipped_existing += 1; continue; }
                     agents.insert(i_of(v, "id").ok_or_else(|| bad(n, "an agent without id"))?, tx.last_insert_rowid());
                     rep.agents_added += 1;
                 }
@@ -1224,17 +1304,16 @@ impl Store {
                     }))
                     .map_err(|e| bad(n, &format!("a job does not fit ({e})")))?;
                     Self::validate_job(&input, true).map_err(|e| bad(n, &e.message))?;
-                    // Without the vault the logins were sealed with, they cannot be read here.
                     let has_login = |s: &Option<String>| s.as_deref().is_some_and(|x| !x.is_empty());
-                    if (drop_logins || (!backup_has_vault && target_vault.is_some())) && (has_login(&input.username_sealed) || has_login(&input.password_sealed)) {
+                    if !keep_logins && (has_login(&input.username_sealed) || has_login(&input.password_sealed)) {
                         input.username_sealed = None;
                         input.password_sealed = None;
                         rep.logins_dropped += 1;
                     }
                     let title = input.title.clone().unwrap_or_default().trim().to_string();
                     let url = input.entry_url.clone().unwrap_or_default().trim().to_string();
-                    let exists: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM jobs WHERE lower(title) = lower(?1) AND entry_url = ?2)", params![title, url], |r| r.get(0))?;
-                    let final_title = if exists { import_name(&title, 200, today) } else { title };
+                    let exists = self.job_exists(&tx, &title, &url)?;
+                    let final_title = if exists { self.free_name(&tx, "jobs", "title", &title, 200, today)? } else { title };
                     tx.execute(
                         "INSERT INTO jobs(title, entry_url, embeddable, interval_weeks, retry_days, next_due, username_sealed, password_sealed, instructions_md, created_at, updated_at)
                          VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
@@ -1242,7 +1321,7 @@ impl Store {
                             final_title, url, input.embeddable.unwrap_or(false), input.interval_weeks, input.retry_days.unwrap_or(2),
                             input.next_due.unwrap_or_else(|| today.format("%Y-%m-%d").to_string()),
                             input.username_sealed.unwrap_or_default(), input.password_sealed.unwrap_or_default(), input.instructions_md.unwrap_or_default(),
-                            s_of(v, "created_at"), now()
+                            ts(n, v, "created_at")?, now()
                         ],
                     )?;
                     let id = tx.last_insert_rowid();
@@ -1253,15 +1332,16 @@ impl Store {
                     rep.jobs_added += 1;
                 }
                 "run" => {
-                    let Some(&job) = i_of(v, "job_id").and_then(|i| jobs.get(&i)) else { rep.skipped += 1; continue };
+                    let Some(job) = mapped(&jobs, v, "job_id") else { rep.skipped_unrelated += 1; continue };
                     if Outcome::parse(&s_of(v, "outcome")).is_none() {
                         return Err(bad(n, "a run with an unknown outcome"));
                     }
-                    let user = i_of(v, "person_id").and_then(|i| people.get(&i)).copied();
-                    let agent = i_of(v, "agent_id").and_then(|i| agents.get(&i)).copied();
+                    for k in ["due_before", "due_after"] {
+                        parse_date(k, &s_of(v, k)).map_err(|e| bad(n, &e.message))?;
+                    }
                     tx.execute(
-                        "INSERT INTO runs(job_id, user_id, agent_id, by_name, outcome, note, finished_at, due_before, due_after) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
-                        params![job, user, agent, s_of(v, "by"), s_of(v, "outcome"), s_of(v, "note"), s_of(v, "finished_at"), s_of(v, "due_before"), s_of(v, "due_after")],
+                        "INSERT INTO runs(job_id, user_id, device_id, agent_id, by_name, outcome, note, finished_at, due_before, due_after) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
+                        params![job, mapped(&people, v, "person_id"), mapped(&devices, v, "device_id"), mapped(&agents, v, "agent_id"), txt(n, v, "by", 1, 140)?, s_of(v, "outcome"), txt(n, v, "note", 0, 2000)?, ts(n, v, "finished_at")?, s_of(v, "due_before"), s_of(v, "due_after")],
                     )?;
                     rep.runs_added += 1;
                 }
@@ -1271,8 +1351,34 @@ impl Store {
         tx.commit()?;
         Ok(serde_json::to_value(rep).expect("report serializes"))
     }
-}
 
+    /// Same name or e-mail, compared without regard to case in any script.
+    fn person_exists(&self, tx: &rusqlite::Transaction, name: &str, email: &str) -> OpResult<bool> {
+        let (name, email) = (name.to_lowercase(), email.to_lowercase());
+        let mut st = tx.prepare("SELECT name, email FROM users")?;
+        let rows: Vec<(String, String)> = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<Result<_, _>>()?;
+        Ok(rows.iter().any(|(n, e)| n.to_lowercase() == name || (!email.is_empty() && e.to_lowercase() == email)))
+    }
+
+    fn job_exists(&self, tx: &rusqlite::Transaction, title: &str, url: &str) -> OpResult<bool> {
+        let title = title.to_lowercase();
+        let mut st = tx.prepare("SELECT title FROM jobs WHERE entry_url = ?1")?;
+        let rows: Vec<String> = st.query_map([url], |r| r.get(0))?.collect::<Result<_, _>>()?;
+        Ok(rows.iter().any(|t| t.to_lowercase() == title))
+    }
+
+    /// "Name (Import <date>)", or with a counter when that name is taken too.
+    fn free_name(&self, tx: &rusqlite::Transaction, table: &str, column: &str, base: &str, max: usize, today: NaiveDate) -> OpResult<String> {
+        for k in 1..1000 {
+            let candidate = import_name(base, max, today, k);
+            let taken: bool = tx.query_row(&format!("SELECT EXISTS(SELECT 1 FROM {table} WHERE {column} = ?1)"), [&candidate], |r| r.get(0))?;
+            if !taken {
+                return Ok(candidate);
+            }
+        }
+        Err(OpError::conflict("import_names_exhausted", "This backup was imported too often today. Delete the copies first."))
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -1611,6 +1717,51 @@ mod tests {
         let u = s.user_create(&a, "Bob", "", false).unwrap();
         let (c, _) = s.redeem_invitation(u["invitation_token"].as_str().unwrap(), "Phone", "", "").unwrap();
         assert_eq!(s.backup_export(&s.authenticate_device(&c, "", "").unwrap()).unwrap_err().code, 403);
+    }
+
+    #[test]
+    fn import_checks_the_file_like_api_input() {
+        let src = Store::open_in_memory().unwrap();
+        let a = admin(&src);
+        src.vault_create(&a, "c2FsdHNhbHRzYWx0c2FsdA==", 600_000, SEALED).unwrap();
+        job_with_login(&src, &a);
+        src.agent_create(&a, "NAS nightly backup", "backup.read").unwrap();
+        let text = src.backup_text().unwrap();
+        let lines: Vec<&str> = text.lines().collect();
+        let dst = Store::open_in_memory().unwrap();
+        let b = admin_named(&dst, "Setup");
+
+        // The vault line after the jobs still decides about the logins.
+        let vault = lines.iter().find(|l| l.contains("\"type\":\"vault\"")).unwrap();
+        let mut moved: Vec<&str> = lines.iter().filter(|l| *l != vault).copied().collect();
+        moved.push(vault);
+        dst.vault_create(&b, "b3RoZXJzYWx0b3RoZXJzYQ==", 600_000, SEALED).unwrap();
+        let rep = dst.backup_import(&b, &moved.join("\n"), false, d("2026-11-07")).unwrap();
+        assert_eq!(rep["logins_dropped"], 1);
+        // Without any vault line, logins cannot be opened anywhere.
+        let no_vault: Vec<&str> = lines.iter().filter(|l| *l != vault).copied().collect();
+        let fresh = Store::open_in_memory().unwrap();
+        let f = admin_named(&fresh, "Setup");
+        assert_eq!(fresh.backup_import(&f, &no_vault.join("\n"), false, d("2026-11-07")).unwrap()["logins_dropped"], 1);
+
+        // A time stamp the store could not compare is refused, and nothing is kept.
+        let jobs_before = dst.job_list(&b, d("2026-11-07")).unwrap()["jobs"].as_array().unwrap().len();
+        let garbled = text.replace("\"created_at\":\"20", "\"created_at\":\"zz20");
+        assert_eq!(dst.backup_import(&b, &garbled, true, d("2026-11-07")).unwrap_err().kind, "backup_invalid");
+        assert_eq!(dst.job_list(&b, d("2026-11-07")).unwrap()["jobs"].as_array().unwrap().len(), jobs_before);
+
+        // People with the right to administer people are named in the report, and a second
+        // import on the same day gets a counter.
+        let rep = dst.backup_import(&b, &text, true, d("2026-11-07")).unwrap();
+        assert_eq!(rep["admins_added"][0]["name"], "Ada");
+        assert_eq!(rep["agents_added"], 1);
+        let rep = dst.backup_import(&b, &text, true, d("2026-11-07")).unwrap();
+        assert_eq!(rep["admins_added"][0]["name"], "Ada (Import 2026-11-07)");
+        // Invitation and token exist; the device hangs on that existing invitation.
+        assert_eq!(rep["skipped_existing"], 2);
+        assert_eq!(rep["skipped_unrelated"], 1);
+        let rep = dst.backup_import(&b, &text, true, d("2026-11-07")).unwrap();
+        assert_eq!(rep["admins_added"][0]["name"], "Ada (Import 2026-11-07, 2)");
     }
 
     fn admin_named(store: &Store, name: &str) -> Principal {

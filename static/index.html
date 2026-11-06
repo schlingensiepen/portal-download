@@ -713,6 +713,7 @@ async function viewPeople() {
       try { state.importReport = await rpc("backup.import", { jsonl: await f.text(), include_access: !omit.checked }); go("#/import"); } catch (e) { fail(e); }
     } },
       h("label", {}, "Backup einlesen (wird hinzugefügt)"), file,
+      h("p", { class: "muted small", style: "margin:4px 0" }, "Lies nur ein Backup ein, das du selbst aus diesem Dienst geholt hast: Mit Personen und Zugängen bringt es auch Verwaltungsrechte und gültige Zugänge mit."),
       h("label", { style: "color:var(--text)" }, omit, "Personen und Zugänge weglassen (nur Vorgänge, Verlauf und Tresor)"),
       h("div", { style: "margin-top:10px" }, h("button", { class: "btn primary", type: "submit" }, "Einlesen"))));
   return h("div", { class: "pad", style: "max-width:900px" }, h("h1", {}, "Personen"), inviteForm, people, h("h2", {}, "Agenten"), agents, h("h2", {}, "Backup"), backup);
@@ -738,6 +739,10 @@ function viewImport() {
     h("h1", {}, "Import"),
     h("p", {}, `${r.jobs_added} Vorgänge, ${r.runs_added} Läufe, ${r.people_added} Personen, ${r.devices_added} Geräte, ${r.agents_added} Tokens hinzugefügt.`),
     h("p", { class: "small" }, vault, r.logins_dropped ? ` ${r.logins_dropped} Logins weggelassen.` : ""),
+    (r.skipped_left_out || r.skipped_existing || r.skipped_unrelated)
+      ? h("p", { class: "muted small" }, `Nicht übernommen: ${r.skipped_left_out} weggelassen, ${r.skipped_existing} schon vorhanden, ${r.skipped_unrelated} ohne Bezug.`) : null,
+    r.admins_added.length
+      ? h("div", { class: "card", style: "border-color:var(--bad)" }, h("strong", {}, "Mit Verwaltungsrecht eingelesen – bitte prüfen: "), r.admins_added.map((x) => x.name).join(", ")) : null,
     r.renamed.length
       ? [h("h2", {}, "Schon vorhanden – als Kopie hinzugefügt"), h("p", { class: "muted small" }, "Lösche, was du nicht brauchst."), h("table", { class: "small" }, h("tbody", {}, rows))]
       : h("p", { class: "muted" }, "Nichts davon war schon vorhanden."));
