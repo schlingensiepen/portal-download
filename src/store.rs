@@ -324,6 +324,31 @@ PRAGMA user_version = 1;
             )?;
             tx.commit()?;
         }
+        self.check_structure()
+    }
+
+    /// The structure version alone does not prove the structure: a store written by a
+    /// development build can carry the same number. Every table and column the operations
+    /// use must be there, or the store is refused at start instead of failing on first use.
+    fn check_structure(&self) -> OpResult<()> {
+        const EXPECTED: &[(&str, &[&str])] = &[
+            ("users", &["id", "name", "email", "is_admin", "deactivated_at", "created_at"]),
+            ("invitations", &["id", "user_id", "token_hash", "created_by", "created_at", "expires_at", "withdrawn_at"]),
+            ("devices", &["id", "user_id", "invitation_id", "credential_hash", "label", "user_agent", "last_address", "created_at", "last_seen_at", "revoked_at"]),
+            ("agents", &["id", "token_hash", "display", "introduction", "ability", "granted_by", "granted_at", "created_at", "last_used_at", "revoked_at"]),
+            ("vault", &["id", "salt", "iterations", "verifier", "created_by", "created_at"]),
+            ("jobs", &["id", "title", "entry_url", "embeddable", "interval_weeks", "retry_days", "next_due", "username_sealed", "password_sealed", "instructions_md", "created_at", "updated_at"]),
+            ("runs", &["id", "job_id", "user_id", "device_id", "agent_id", "by_name", "outcome", "note", "finished_at", "due_before", "due_after"]),
+        ];
+        for (table, columns) in EXPECTED {
+            let mut st = self.conn.prepare("SELECT name FROM pragma_table_info(?1)")?;
+            let have: Vec<String> = st.query_map([table], |r| r.get(0))?.collect::<Result<_, _>>()?;
+            if let Some(missing) = columns.iter().find(|c| !have.iter().any(|h| h == *c)) {
+                return Err(OpError::internal(format!(
+                    "The store does not have the structure this program needs: table {table} lacks {missing}. It was written by a different build of the same structure version. Take a backup with that build if you need the data, move the store away, start this program on an empty state directory and upload the backup."
+                )));
+            }
+        }
         Ok(())
     }
 
@@ -338,34 +363,27 @@ PRAGMA user_version = 1;
         }
         let text = self.backup_text()?;
         let failed = |e: &dyn std::fmt::Display| OpError::internal(format!("The backup to {} failed: {e}. Check that the directory is writable and has room.", target.display()));
-        let name = target.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-        let partial = dir.join(format!(".{name}.partial"));
-        let _ = std::fs::remove_file(&partial);
+        use std::io::Write;
+        let mut o = std::fs::OpenOptions::new();
+        // create_new never replaces a file, also one created meanwhile, on every file system.
+        o.write(true).create_new(true);
+        #[cfg(unix)]
         {
-            use std::io::Write;
-            let mut o = std::fs::OpenOptions::new();
-            o.write(true).create_new(true);
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::OpenOptionsExt;
-                o.mode(0o600);
-            }
-            let mut f = o.open(&partial).map_err(|e| failed(&e))?;
-            if let Err(e) = f.write_all(text.as_bytes()).and_then(|_| f.sync_all()) {
-                let _ = std::fs::remove_file(&partial);
-                return Err(failed(&e));
-            }
+            use std::os::unix::fs::OpenOptionsExt;
+            o.mode(0o600);
         }
-        // A hard link never replaces an existing file, also one created meanwhile.
-        let linked = std::fs::hard_link(&partial, target);
-        let _ = std::fs::remove_file(&partial);
-        linked.map_err(|e| {
+        let mut f = o.open(target).map_err(|e| {
             if e.kind() == std::io::ErrorKind::AlreadyExists {
                 OpError::conflict("backup_exists", format!("{} exists already. Name a new file; a backup never overwrites.", target.display()))
             } else {
                 failed(&e)
             }
         })?;
+        if let Err(e) = f.write_all(text.as_bytes()).and_then(|_| f.sync_all()) {
+            drop(f);
+            let _ = std::fs::remove_file(target);
+            return Err(failed(&e));
+        }
         Ok(json!({ "backup": target.display().to_string(), "bytes": text.len(), "lines": text.lines().count() }))
     }
 
@@ -719,7 +737,7 @@ PRAGMA user_version = 1;
     pub fn agent_create(&self, p: &Principal, introduction: &str, ability: &str) -> OpResult<Value> {
         let by = p.require_admin()?;
         Self::check_ability(ability)?;
-        let introduction = text("introduction", introduction, 3, 500)?;
+        let introduction = text("introduction", introduction, 10, 500)?;
         let tok = token::generate("pda_");
         let ts = now();
         self.conn.execute(
@@ -1192,7 +1210,7 @@ impl Store {
         let txt = |n: usize, v: &Value, k: &str, min: usize, max: usize| -> OpResult<String> { text(k, &s_of(v, k), min, max).map_err(|e| bad(n, &e.message)) };
         let hash = |n: usize, v: &Value, k: &str| -> OpResult<String> {
             let h = s_of(v, k);
-            if h.len() == 64 && h.bytes().all(|c| c.is_ascii_hexdigit()) { Ok(h) } else { Err(bad(n, &format!("`{k}` is not a hash"))) }
+            if h.len() == 64 && h.bytes().all(|c| matches!(c, b'0'..=b'9' | b'a'..=b'f')) { Ok(h) } else { Err(bad(n, &format!("`{k}` is not a hash"))) }
         };
 
         let mut rep = ImportReport { vault: "none", ..Default::default() };
@@ -1785,6 +1803,14 @@ mod tests {
 
     fn rep_user(s: &Store, name: &str) -> i64 {
         s.conn.query_row("SELECT id FROM users WHERE name = ?1", [name], |r| r.get(0)).unwrap()
+    }
+
+    #[test]
+    fn a_store_with_the_same_version_but_another_structure_is_refused() {
+        let c = Connection::open_in_memory().unwrap();
+        c.execute_batch("CREATE TABLE users(id INTEGER PRIMARY KEY); PRAGMA user_version = 1;").unwrap();
+        let e = Store::from_conn(c).err().unwrap();
+        assert!(e.message.contains("table users lacks name"), "{}", e.message);
     }
 
     #[test]

@@ -32,7 +32,7 @@ The service writes only the state directory and never its configuration. Run the
   ```
 
   The response holds `invitation_token`. Open `https://downloads.intra.example/#invite=<invitation_token>` with the token from that response.
-- **An agent or a script:** it registers itself through the API and names an eight-letter display string. Under **Personen → Agenten**, check that the display string and the introduction match what the agent said, and grant exactly one ability. Reject registrations you do not recognise. A script that only needs the due list gets *Jobs lesen*. The token lives in that machine's environment as `PORTAL_DOWNLOAD_AGENT_TOKEN`. Revoke it there at any time.
+- **An agent or a script** works with an agent token in the header `Authorization: Bearer`, not with a person's cookie. It registers itself through the API and names an eight-letter display string. Under **Personen → Agenten**, check that the display string and the introduction match what the agent said, and grant exactly one ability. Reject registrations you do not recognise. A script that only needs the due list gets *Jobs lesen*. The token lives in that machine's environment as `PORTAL_DOWNLOAD_AGENT_TOKEN`. Revoke it there at any time.
 
 ## Backup
 
