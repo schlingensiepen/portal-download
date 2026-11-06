@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="de">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -41,7 +41,7 @@ h3 { font-size: 15px; margin: 0; }
 .small { font-size: 13px; }
 .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .grow { flex: 1; min-width: 0; }
-.btn { border: 1px solid var(--line); background: var(--panel); border-radius: var(--radius); padding: 7px 12px; cursor: pointer; }
+.btn { border: 1px solid var(--line); background: var(--panel); border-radius: var(--radius); padding: 7px 12px; cursor: pointer; text-decoration: none; color: inherit; display: inline-block; }
 .btn:hover { border-color: var(--accent); }
 .btn:disabled { opacity: .5; cursor: not-allowed; }
 .btn.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
@@ -55,11 +55,15 @@ h3 { font-size: 15px; margin: 0; }
 .chip.warn { background: var(--chip-warn); color: var(--warn); }
 .chip.ok { background: var(--chip-ok); color: var(--ok); }
 label { display: block; font-size: 13px; color: var(--muted); margin: 12px 0 4px; }
+label.check { color: var(--text); }
 input[type=text], input[type=url], input[type=number], input[type=date], input[type=password], input[type=email], textarea {
   width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg);
 }
 textarea { min-height: 140px; resize: vertical; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px; }
+textarea.note { min-height: 60px; font-family: var(--font); }
 input[type=checkbox] { transform: scale(1.15); margin-right: 6px; }
+select { padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg); }
+select.lang { padding: 2px 4px; font-size: 12px; }
 table { width: 100%; border-collapse: collapse; }
 th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
 th { font-size: 12px; color: var(--muted); font-weight: 600; }
@@ -67,6 +71,13 @@ tr.clickable { cursor: pointer; }
 tr.clickable:hover td { background: var(--chip); }
 tr.current td { background: var(--chip); }
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; margin: 0 0 12px; }
+.card.alert { border-color: var(--bad); }
+.space { margin-top: 16px; }
+.narrow { max-width: 560px; }
+.medium { max-width: 760px; }
+.wide-page { max-width: 900px; }
+.pre { white-space: pre-line; }
+.ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* work bar */
 .bar-head { padding: 12px 16px; border-bottom: 1px solid var(--line); }
@@ -89,14 +100,13 @@ tr.current td { background: var(--chip); }
 /* stage */
 #portal { position: absolute; inset: 36px 0 0 0; width: 100%; height: calc(100% - 36px); border: 0; background: #fff; }
 #portal-strip { position: absolute; top: 0; left: 0; right: 0; height: 36px; display: flex; align-items: center; gap: 10px; padding: 0 12px; border-bottom: 1px solid var(--line); background: var(--panel); font-size: 13px; }
-#loading { display: flex; align-items: center; justify-content: center; height: 100%; color: var(--muted); }
-.spinner { width: 18px; height: 18px; border: 3px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: spin 1s linear infinite; margin-right: 10px; }
+#loading { display: flex; align-items: center; justify-content: center; height: 100%; color: var(--muted); padding: 24px; }
+.spinner { width: 18px; height: 18px; border: 3px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: spin 1s linear infinite; margin-right: 10px; flex: none; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .secret-once { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px; word-break: break-all; background: var(--chip-warn); padding: 10px; border-radius: var(--radius); }
 
 /* modal */
 #modal { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: flex; align-items: center; justify-content: center; z-index: 20; padding: 16px; }
-#modal[hidden] { display: none; }
 #modal .box { background: var(--panel); border-radius: 12px; padding: 22px 24px; width: min(460px, 100%); max-height: 90vh; overflow: auto; }
 [hidden] { display: none !important; }
 </style>
@@ -104,9 +114,9 @@ tr.current td { background: var(--chip); }
 <body>
 <div id="app">
   <main id="stage">
-    <div id="loading"><div class="spinner"></div>Lädt …</div>
+    <div id="loading"><div class="spinner"></div><span data-ref="text" data-i18n="app.loading">Loading …</span></div>
     <div id="portal-strip" hidden></div>
-    <iframe id="portal" hidden title="Portal"
+    <iframe id="portal" hidden title="Portal" data-i18n-title="portal.frame_title"
       sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads allow-modals"
       referrerpolicy="no-referrer"></iframe>
     <section id="view"></section>
@@ -115,58 +125,649 @@ tr.current td { background: var(--chip); }
 </div>
 <div id="modal" hidden><div class="box" id="modal-box"></div></div>
 <div id="toast" aria-live="polite"></div>
+
+<!-- ================================================================ building blocks
+     Every piece of the interface is here, in English. The script clones a block, fills
+     [data-field] with textContent, shows or hides [data-ref] parts and binds [data-action].
+     A text carries a data-i18n attribute naming its key; other languages replace the
+     text from i18n/<code>.json. -->
+
+<!-- texts the script needs on its own: toasts, questions, chips, short phrases -->
+<template id="messages"><div>
+  <span data-msg="app.insecure" data-i18n="app.insecure">This page needs HTTPS (or localhost) so that encryption and the clipboard work in the browser. Open it through the service's HTTPS address.</span>
+  <span data-msg="app.unreadable" data-i18n="app.unreadable">The service answers unintelligibly (HTTP <span data-field="status"></span>).</span>
+  <span data-msg="copy.done" data-i18n="copy.done">Copied ✓</span>
+  <span data-msg="device.guess" data-i18n="device.guess"><span data-field="browser"></span> on <span data-field="os"></span></span>
+  <span data-msg="urgency.overdue.one" class="chip bad" data-i18n="urgency.overdue.one">overdue by 1 day</span>
+  <span data-msg="urgency.overdue.other" class="chip bad" data-i18n="urgency.overdue.other">overdue by <span data-field="n"></span> days</span>
+  <span data-msg="urgency.today" class="chip warn" data-i18n="urgency.today">due today</span>
+  <span data-msg="urgency.tomorrow" class="chip warn" data-i18n="urgency.tomorrow">due tomorrow</span>
+  <span data-msg="urgency.in" class="chip" data-i18n="urgency.in">due in <span data-field="n"></span> days</span>
+  <span data-msg="outcome.succeeded" class="chip ok" data-i18n="outcome.succeeded">succeeded</span>
+  <span data-msg="outcome.failed" class="chip bad" data-i18n="outcome.failed">failed</span>
+  <span data-msg="schedule.one" data-i18n="schedule.one">due <span data-field="date"></span> · every week</span>
+  <span data-msg="schedule.other" data-i18n="schedule.other">due <span data-field="date"></span> · every <span data-field="n"></span> weeks</span>
+  <span data-msg="retry.one" data-i18n="retry.one">· after a failure, due again in 1 day</span>
+  <span data-msg="retry.other" data-i18n="retry.other">· after a failure, due again in <span data-field="n"></span> days</span>
+  <span data-msg="last.by" data-i18n="last.by"><span data-field="when"></span> by <span data-field="by"></span></span>
+  <span data-msg="weeks.short" data-i18n="weeks.short"><span data-field="n"></span> wk.</span>
+  <span data-msg="toast.completed" data-i18n="toast.completed">Closed – due again on <span data-field="date"></span>.</span>
+  <span data-msg="toast.saved" data-i18n="toast.saved">Saved.</span>
+  <span data-msg="toast.created" data-i18n="toast.created">Created.</span>
+  <span data-msg="toast.deleted" data-i18n="toast.deleted">Deleted.</span>
+  <span data-msg="toast.welcome" data-i18n="toast.welcome">Welcome, <span data-field="name"></span>.</span>
+  <span data-msg="toast.popup_blocked" data-i18n="toast.popup_blocked">The window was blocked. Allow pop-ups for this page and click “Run” again.</span>
+  <span data-msg="toast.popup_redirect" data-i18n="toast.popup_redirect">The portal window could not be redirected; close it and click “Run” again.</span>
+  <span data-msg="toast.choose_file" data-i18n="toast.choose_file">Choose a backup file first.</span>
+  <span data-msg="vault.toast.key_not_kept" data-i18n="vault.toast.key_not_kept">This browser could not keep the key; after reloading, the passphrase has to be entered again.</span>
+  <span data-msg="vault.toast.locked" data-i18n="vault.toast.locked">Vault locked.</span>
+  <span data-msg="vault.toast.created" data-i18n="vault.toast.created">Vault created.</span>
+  <span data-msg="vault.toast.exists_meanwhile" data-i18n="vault.toast.exists_meanwhile">Somebody else has created the vault meanwhile; enter their passphrase.</span>
+  <span data-msg="vault.toast.too_short" data-i18n="vault.toast.too_short">The passphrase needs at least 12 characters.</span>
+  <span data-msg="vault.toast.mismatch" data-i18n="vault.toast.mismatch">The two entries do not match.</span>
+  <span data-msg="vault.toast.wrong" data-i18n="vault.toast.wrong">The passphrase does not fit this vault.</span>
+  <span data-msg="confirm.finish.succeeded" data-i18n="confirm.finish.succeeded">Close “<span data-field="title"></span>” as “succeeded”?</span>
+  <span data-msg="confirm.finish.failed" data-i18n="confirm.finish.failed">Close “<span data-field="title"></span>” as “failed”?</span>
+  <span data-msg="confirm.job.delete" data-i18n="confirm.job.delete">Delete “<span data-field="title"></span>” and its history for good?</span>
+  <span data-msg="confirm.device.self" data-i18n="confirm.device.self">Sign this device out? Afterwards you need your invitation link again.</span>
+  <span data-msg="confirm.device.other" data-i18n="confirm.device.other">Revoke “<span data-field="label"></span>”?</span>
+  <span data-msg="confirm.person.device" data-i18n="confirm.person.device">Revoke the device “<span data-field="label"></span>” of <span data-field="name"></span>?</span>
+  <span data-msg="confirm.person.admin_take" data-i18n="confirm.person.admin_take">Take the right to administer people from <span data-field="name"></span>?</span>
+  <span data-msg="confirm.person.admin_give" data-i18n="confirm.person.admin_give">Give <span data-field="name"></span> the right to administer people?</span>
+  <span data-msg="confirm.person.deactivate" data-i18n="confirm.person.deactivate">Deactivate <span data-field="name"></span> on all devices?</span>
+  <span data-msg="confirm.invitation.withdraw" data-i18n="confirm.invitation.withdraw">Withdraw the invitation? Devices already signed in stay signed in.</span>
+  <span data-msg="confirm.agent.grant" data-i18n="confirm.agent.grant">Give agent <span data-field="display"></span> the right “<span data-field="ability"></span>”? Grant it only if the agent told you exactly this display string.</span>
+  <span data-msg="confirm.agent.reject" data-i18n="confirm.agent.reject">Reject the registration <span data-field="display"></span>?</span>
+  <span data-msg="confirm.agent.revoke" data-i18n="confirm.agent.revoke">Revoke agent <span data-field="display"></span> at once?</span>
+  <span data-msg="confirm.token.create" data-i18n="confirm.token.create">Create a token with the right “<span data-field="ability"></span>”?</span>
+  <span data-msg="confirm.import" data-i18n="confirm.import">Import the backup? Nothing is overwritten: what exists already comes in as “… (Import date)”.</span>
+  <span data-msg="confirm.import.delete" data-i18n="confirm.import.delete">Delete “<span data-field="name"></span>”?</span>
+  <span data-msg="ability.jobs.read" data-i18n="ability.jobs.read">Read jobs</span>
+  <span data-msg="ability.jobs.write" data-i18n="ability.jobs.write">Change jobs</span>
+  <span data-msg="ability.jobs.complete" data-i18n="ability.jobs.complete">Close runs</span>
+  <span data-msg="ability.backup.read" data-i18n="ability.backup.read">Take the backup</span>
+  <span data-msg="agent.state.pending" class="chip" data-i18n="agent.state.pending">waiting for a grant</span>
+  <span data-msg="agent.state.granted" class="chip ok" data-i18n="agent.state.granted">granted</span>
+  <span data-msg="agent.state.expired" class="chip bad" data-i18n="agent.state.expired">expired</span>
+  <span data-msg="agent.state.revoked" class="chip bad" data-i18n="agent.state.revoked">revoked</span>
+  <span data-msg="agent.expires" data-i18n="agent.expires">expires <span data-field="date"></span></span>
+  <span data-msg="agent.registered" data-i18n="agent.registered">registered <span data-field="date"></span></span>
+  <span data-msg="agent.granted_by" data-i18n="agent.granted_by">· granted by <span data-field="name"></span></span>
+  <span data-msg="agent.last_used" data-i18n="agent.last_used">· last used <span data-field="date"></span></span>
+  <span data-msg="agent.never_used" data-i18n="agent.never_used">· never used</span>
+  <span data-msg="agent.done" data-i18n="agent.done"><span data-field="n"></span> expired or revoked</span>
+  <span data-msg="invitation.state.open" class="chip ok" data-i18n="invitation.state.open">open</span>
+  <span data-msg="invitation.state.expired" class="chip" data-i18n="invitation.state.expired">expired</span>
+  <span data-msg="invitation.state.withdrawn" class="chip" data-i18n="invitation.state.withdrawn">withdrawn</span>
+  <span data-msg="import.vault.adopted" data-i18n="import.vault.adopted">Vault taken from the backup – its passphrase applies.</span>
+  <span data-msg="import.vault.same" data-i18n="import.vault.same">Same vault – the logins work.</span>
+  <span data-msg="import.vault.different" data-i18n="import.vault.different">Different vault – logins from the backup were left out.</span>
+  <span data-msg="import.vault.none" data-i18n="import.vault.none">No vault in the backup.</span>
+  <span data-msg="import.logins_dropped" data-i18n="import.logins_dropped"><span data-field="n"></span> logins left out.</span>
+  <span data-msg="import.kind.job" data-i18n="import.kind.job">Job</span>
+  <span data-msg="import.kind.person" data-i18n="import.kind.person">Person</span>
+  <span data-msg="line.curl" translate="no">curl -fsS -H "Authorization: Bearer <span data-field="token"></span>" <span data-field="url"></span> -o portal-download-$(date +%F).jsonl</span>
+  <span data-msg="line.env" translate="no">export PORTAL_DOWNLOAD_AGENT_TOKEN=<span data-field="token"></span></span>
+</div></template>
+
+<template id="tpl-toast"><div></div></template>
+<template id="tpl-muted-line"><div class="muted" data-field="text"></div></template>
+<template id="tpl-copy-area"><textarea></textarea></template>
+<template id="tpl-option"><option></option></template>
+
+<template id="tpl-confirm"><div>
+  <p class="pre" data-field="text"></p>
+  <div class="row space">
+    <button class="btn primary" type="button" data-action="yes" data-i18n="confirm.yes">OK</button>
+    <button class="btn" type="button" data-action="no" data-i18n="confirm.no">Cancel</button>
+  </div>
+</div></template>
+
+<!-- work bar, right side -->
+<template id="tpl-bar-head"><div class="bar-head">
+  <div class="row">
+    <span class="app grow" data-field="app_name"></span>
+    <span class="muted small" data-field="me_name"></span>
+    <select class="lang" data-ref="lang" data-action="lang" aria-label="Language" data-i18n-aria-label="lang.label"></select>
+  </div>
+  <div class="bar-nav small" data-ref="nav">
+    <a href="#/" data-i18n="nav.overview">Overview</a> ·
+    <a href="#/new" data-i18n="nav.new">New job</a>
+    <span data-ref="nav-people">· <a href="#/people" data-i18n="nav.people">People</a></span> ·
+    <a href="#/devices" data-i18n="nav.devices">My devices</a>
+    <span data-ref="vault-ctl">·
+      <button class="btn link small" type="button" data-ref="vault-lock" data-action="vault-lock" data-i18n="vault.lock">Lock vault</button>
+      <button class="btn link small" type="button" data-ref="vault-unlock" data-action="vault-open" data-i18n="vault.unlock">Unlock vault</button>
+      <button class="btn link small" type="button" data-ref="vault-create" data-action="vault-open" data-i18n="vault.create">Create vault</button>
+    </span>
+  </div>
+</div></template>
+
+<template id="tpl-bar-body"><div class="bar-body"></div></template>
+
+<template id="tpl-bar-empty"><div>
+  <p class="muted" data-i18n="bar.empty">No download jobs yet.</p>
+  <a class="btn primary" href="#/new" data-i18n="bar.first">Create the first job</a>
+</div></template>
+
+<template id="tpl-current"><div>
+  <div class="pager">
+    <button class="btn icon" type="button" data-action="prev" title="more urgent" data-i18n-title="pager.prev_title" aria-label="previous job" data-i18n-aria-label="pager.prev">◀</button>
+    <span class="pos" data-i18n="pager.pos"><span data-field="pos"></span> of <span data-field="n"></span></span>
+    <button class="btn icon" type="button" data-action="next" title="less urgent" data-i18n-title="pager.next_title" aria-label="next job" data-i18n-aria-label="pager.next">▶</button>
+  </div>
+  <h1 data-field="title"></h1>
+  <div class="row"><span data-ref="urgency"></span><span class="muted small" data-ref="schedule"></span></div>
+  <div class="muted small" style="margin-top:4px" data-ref="last"><span data-i18n="current.last">Last:</span> <span data-ref="last-outcome"></span> <span data-ref="last-text"></span></div>
+  <div style="margin:14px 0 8px">
+    <button class="btn primary wide" type="button" data-action="run"><span data-ref="run-frame" data-i18n="current.run">Run</span><span data-ref="run-window" data-i18n="current.run_window">Run (opens a window)</span></button>
+  </div>
+  <div data-ref="creds"></div>
+  <div data-ref="instructions"></div>
+  <textarea class="note" data-ref="note" placeholder="Note (optional), e.g. what was missing" data-i18n-placeholder="current.note"></textarea>
+  <div class="finish">
+    <button class="btn ok" type="button" data-action="succeeded" data-i18n="current.succeeded">Succeeded</button>
+    <button class="btn bad" type="button" data-action="failed" data-i18n="current.failed">Failed</button>
+  </div>
+  <div class="row small" style="margin-top:14px">
+    <a data-ref="edit" data-i18n="current.edit">Edit</a> · <a data-ref="history" data-i18n="current.history">History</a>
+    <span class="muted" data-ref="retry"></span>
+  </div>
+</div></template>
+
+<template id="tpl-instructions"><div class="instructions"></div></template>
+<template id="tpl-no-instructions"><p class="muted small" data-i18n="current.no_instructions">No instructions stored.</p></template>
+<template id="tpl-creds-decrypting"><div class="muted small" data-i18n="creds.decrypting">Decrypting the login …</div></template>
+<template id="tpl-creds-none"><p class="muted small" data-i18n="creds.none">No login stored.</p></template>
+<template id="tpl-creds-locked"><div class="row small">
+  <span class="muted grow" data-i18n="creds.locked">The login is in the locked vault.</span>
+  <button class="btn" type="button" data-action="unlock" data-i18n="creds.unlock">Unlock</button>
+</div></template>
+<template id="tpl-creds-error"><p class="small" style="color:var(--bad)" data-i18n="creds.error">The login cannot be decrypted with this vault key. Enter it again under “Edit”.</p></template>
+<template id="tpl-creds-user"><div class="field">
+  <span class="k" data-i18n="creds.username">Username</span>
+  <span class="v" data-field="value"></span>
+  <button class="btn icon small" type="button" data-action="copy" data-i18n="creds.copy">Copy</button>
+</div></template>
+<template id="tpl-creds-password"><div class="field">
+  <span class="k" data-i18n="creds.password">Password</span>
+  <span class="v" data-ref="value">••••••••••</span>
+  <button class="btn icon small" type="button" data-action="toggle" title="show" data-i18n-title="creds.show_title"><span data-ref="show" data-i18n="creds.show">Show</span><span data-ref="hide" data-i18n="creds.hide" hidden>Hide</span></button>
+  <button class="btn icon small" type="button" data-action="copy" data-i18n="creds.copy">Copy</button>
+</div></template>
+
+<!-- stage, left side -->
+<template id="tpl-overview"><div class="pad">
+  <div class="row"><h1 class="grow" data-i18n="overview.title">Download jobs</h1><a class="btn primary" href="#/new" data-i18n="overview.new">New job</a></div>
+  <table data-ref="table">
+    <thead><tr>
+      <th data-i18n="overview.col.urgency">Urgency</th><th data-i18n="overview.col.job">Job</th><th data-i18n="overview.col.due">Due</th>
+      <th data-i18n="overview.col.interval">Interval</th><th data-i18n="overview.col.last">Last</th>
+    </tr></thead>
+    <tbody data-ref="rows"></tbody>
+  </table>
+  <p class="muted" data-ref="empty" data-i18n="overview.empty">Create the first job: entry page, login, schedule, and what to file where.</p>
+  <p class="muted small" style="margin-top:20px" data-i18n="overview.hint">The most urgent job is always first on the right; ◀ ▶ pages through. “Run” loads the portal here on the left or, when the portal forbids embedding, in a window of its own.</p>
+</div></template>
+<template id="tpl-overview-row"><tr class="clickable">
+  <td data-ref="urgency"></td>
+  <td><strong data-field="title"></strong><div class="muted small" data-field="url"></div></td>
+  <td class="small" data-field="due"></td>
+  <td class="small" data-ref="interval"></td>
+  <td class="small" data-ref="last"></td>
+</tr></template>
+
+<template id="tpl-portal-strip"><div class="row grow" style="flex-wrap:nowrap">
+  <strong data-field="title"></strong>
+  <span class="muted grow ellipsis" data-field="url"></span>
+  <button class="btn link" type="button" data-action="window" data-i18n="portal.open_window">open in a window of its own</button>
+  <button class="btn link" type="button" data-action="close" data-i18n="portal.close">close</button>
+</div></template>
+
+<template id="tpl-running"><div class="pad">
+  <h1 data-field="title"></h1>
+  <p data-i18n="running.text">The portal is open in a window of its own, because it does not allow embedding. The work bar on the right stays visible here.</p>
+  <div class="row">
+    <button class="btn primary" type="button" data-action="reopen" data-i18n="running.reopen">Open the window again</button>
+    <button class="btn" type="button" data-action="back" data-i18n="running.back">Back to the overview</button>
+  </div>
+  <p class="muted small" style="margin-top:16px" data-i18n="running.tip">Tip: if a portal can be embedded after all, tick “The portal may be embedded on the left” under “Edit”.</p>
+</div></template>
+
+<template id="tpl-gone"><div class="pad">
+  <p data-i18n="gone.text">This job no longer exists.</p>
+  <a href="#/" data-i18n="gone.back">To the overview</a>
+</div></template>
+
+<template id="tpl-edit"><form class="pad medium" data-action="save">
+  <h1><span data-ref="head-new" data-i18n="edit.title_new">New download job</span><span data-ref="head-edit" data-i18n="edit.title_edit">Edit job: <span data-field="title"></span></span></h1>
+  <label data-i18n="edit.title">Title</label>
+  <input type="text" required maxlength="200" data-ref="title">
+  <label data-i18n="edit.url">Entry page (URL)</label>
+  <input type="url" required placeholder="https://…" data-ref="entry_url">
+  <label class="check"><input type="checkbox" data-ref="embeddable"><span data-i18n="edit.embeddable">The portal may be embedded on the left</span></label>
+  <div class="muted small" data-i18n="edit.embeddable_hint">Many portals forbid embedding (security headers). Without the tick, “Run” opens the portal in a window of its own.</div>
+  <div class="row">
+    <div class="grow"><label data-i18n="edit.interval">Every how many weeks?</label><input type="number" min="1" max="520" required data-ref="interval_weeks"></div>
+    <div class="grow"><label data-i18n="edit.retry">After a failure, due again in … days</label><input type="number" min="1" max="365" required data-ref="retry_days"></div>
+    <div class="grow"><label data-i18n="edit.next_due">Next due date</label><input type="date" required data-ref="next_due"></div>
+  </div>
+  <h2 data-i18n="edit.login">Login</h2>
+  <div class="row small" data-ref="locked">
+    <span class="muted grow" data-i18n="edit.locked">The vault is locked; the login can be changed only after unlocking. The stored one stays unchanged.</span>
+    <button class="btn" type="button" data-ref="unlock" data-action="vault-open" data-i18n="edit.unlock">Unlock</button>
+    <button class="btn" type="button" data-ref="create-vault" data-action="vault-open" data-i18n="edit.create_vault">Create vault</button>
+  </div>
+  <label data-i18n="edit.username">Username</label>
+  <input type="text" autocomplete="off" data-ref="username">
+  <label data-i18n="edit.password">Password</label>
+  <div class="row"><div class="grow"><input type="password" autocomplete="new-password" data-ref="password"></div>
+    <button class="btn icon small" type="button" data-action="toggle-password"><span data-ref="pw-show" data-i18n="creds.show">Show</span><span data-ref="pw-hide" data-i18n="creds.hide" hidden>Hide</span></button></div>
+  <h2 data-i18n="edit.instructions">Instructions: what to file where? (Markdown)</h2>
+  <textarea data-ref="instructions_md" placeholder="## What to file?&#10;- Invoice as PDF&#10;&#10;## Where?&#10;- Finance/Utilities/2026/" data-i18n-placeholder="edit.instructions_example"></textarea>
+  <div class="row" style="margin-top:16px">
+    <button class="btn primary" type="submit" data-ref="save"><span data-ref="save-new" data-i18n="edit.create">Create</span><span data-ref="save-edit" data-i18n="edit.save">Save</span></button>
+    <a class="btn" data-ref="cancel" data-i18n="edit.cancel">Cancel</a>
+    <span class="grow"></span>
+    <button class="btn bad" type="button" data-ref="delete" data-action="delete" data-i18n="edit.delete">Delete</button>
+  </div>
+</form></template>
+
+<template id="tpl-history"><div class="pad">
+  <h1 data-i18n="history.title">History: <span data-field="title"></span></h1>
+  <table data-ref="table">
+    <thead><tr>
+      <th data-i18n="history.col.closed">Closed</th><th data-i18n="history.col.outcome">Outcome</th><th data-i18n="history.col.by">By</th>
+      <th data-i18n="history.col.due_before">Was due</th><th data-i18n="history.col.due_after">Due after</th><th data-i18n="history.col.note">Note</th>
+    </tr></thead>
+    <tbody data-ref="rows"></tbody>
+  </table>
+  <p class="muted" data-ref="empty" data-i18n="history.empty">No run closed yet.</p>
+  <p><a data-ref="back" data-i18n="history.back">Back</a></p>
+</div></template>
+<template id="tpl-history-row"><tr>
+  <td class="small" data-field="closed"></td><td data-ref="outcome"></td><td class="small" data-field="by"></td>
+  <td class="small" data-field="before"></td><td class="small" data-field="after"></td><td class="small" data-field="note"></td>
+</tr></template>
+
+<template id="tpl-devices"><div class="pad">
+  <h1 data-i18n="devices.title">My devices</h1>
+  <p class="muted small" data-i18n="devices.hint">Every device on which you opened your invitation link has an access of its own. Revoke a lost device here; your other devices stay signed in.</p>
+  <table>
+    <thead><tr><th data-i18n="devices.col.device">Device</th><th data-i18n="devices.col.seen">Last seen</th><th data-i18n="devices.col.recognition">Recognition</th><th></th></tr></thead>
+    <tbody data-ref="rows"></tbody>
+  </table>
+</div></template>
+<template id="tpl-device-row"><tr>
+  <td><span data-field="label"></span> <span class="chip ok" data-ref="this" data-i18n="devices.this">this device</span> <span class="chip bad" data-ref="revoked" data-i18n="devices.revoked">revoked</span></td>
+  <td class="small" data-field="seen"></td>
+  <td class="small muted"><span data-field="address"></span><div data-field="agent"></div></td>
+  <td><button class="btn small" type="button" data-ref="revoke" data-action="revoke"><span data-ref="sign-out" data-i18n="devices.sign_out">Sign out</span><span data-ref="revoke-other" data-i18n="devices.revoke">Revoke</span></button></td>
+</tr></template>
+
+<template id="tpl-invitation-dialog"><div>
+  <h1 data-i18n="invitation.dialog.title">Invitation for <span data-field="name"></span></h1>
+  <p class="small" data-i18n="invitation.dialog.text">This link is shown only now. It is valid until <span data-field="expires"></span> and can be opened once on each of the person's devices. Pass it on through a confidential channel.</p>
+  <div class="secret-once" data-field="link"></div>
+  <div class="row" style="margin-top:14px">
+    <button class="btn primary" type="button" data-action="copy" data-i18n="invitation.dialog.copy">Copy link</button>
+    <button class="btn" type="button" data-action="done" data-i18n="dialog.done">Done</button>
+  </div>
+</div></template>
+
+<template id="tpl-token-dialog"><div>
+  <h1 data-i18n="token.dialog.title">Token <span data-field="display"></span></h1>
+  <p class="small" data-ref="backup" data-i18n="token.dialog.backup">This line fetches the backup. It holds the token and is shown only now. Enter it, for example, as a nightly cron job on the machine that keeps the backups.</p>
+  <p class="small" data-ref="env" data-i18n="token.dialog.env">The token is shown only now. Put it on the machine that uses it into the environment variable PORTAL_DOWNLOAD_AGENT_TOKEN.</p>
+  <div class="secret-once" data-field="line"></div>
+  <div class="row" style="margin-top:14px">
+    <button class="btn primary" type="button" data-action="copy" data-i18n="token.dialog.copy">Copy line</button>
+    <button class="btn" type="button" data-action="done" data-i18n="dialog.done">Done</button>
+  </div>
+</div></template>
+
+<template id="tpl-backup-line-dialog"><div>
+  <h1 data-i18n="backupline.title"><span data-field="display"></span> may take the backup</h1>
+  <p class="small" data-i18n="backupline.text">With this line the agent fetches the backup; it keeps the token in the environment variable PORTAL_DOWNLOAD_AGENT_TOKEN.</p>
+  <div class="secret-once" data-field="line"></div>
+  <div class="row" style="margin-top:14px">
+    <button class="btn primary" type="button" data-action="copy" data-i18n="token.dialog.copy">Copy line</button>
+    <button class="btn" type="button" data-action="done" data-i18n="dialog.done">Done</button>
+  </div>
+</div></template>
+
+<template id="tpl-people-forbidden"><div class="pad"><p data-i18n="people.forbidden">Only a person with the right to administer people may do this.</p></div></template>
+
+<template id="tpl-people"><div class="pad wide-page">
+  <h1 data-i18n="people.title">People</h1>
+  <form class="card" data-ref="invite" data-action="invite">
+    <h3 data-i18n="people.invite.title">Invite a person</h3>
+    <div class="row">
+      <div class="grow"><label data-i18n="people.invite.name">Name</label><input type="text" required data-ref="name"></div>
+      <div class="grow"><label data-i18n="people.invite.email">E-mail (optional)</label><input type="email" data-ref="email"></div>
+    </div>
+    <label class="check"><input type="checkbox" data-ref="admin"><span data-i18n="people.invite.admin">may administer people (invite, revoke, deactivate)</span></label>
+    <div style="margin-top:10px"><button class="btn primary" type="submit" data-i18n="people.invite.submit">Create invitation</button></div>
+  </form>
+  <div data-ref="people"></div>
+
+  <h2 data-i18n="agents.title">Agents</h2>
+  <p class="muted small" data-i18n="agents.hint">Agents register themselves and tell you a display string of eight letters. Give each registration exactly one right. No agent sees portal logins; only the right “Take the backup” receives them, sealed.</p>
+  <form class="card" data-action="create-token">
+    <h3 data-i18n="agents.create.title">Create a token</h3>
+    <p class="muted small" style="margin-top:0" data-i18n="agents.create.hint">For a script that cannot register itself, for example the nightly backup.</p>
+    <div class="row">
+      <div class="grow"><label data-i18n="agents.create.purpose">What for</label><input type="text" data-ref="purpose" placeholder="e.g. NAS: nightly backup" data-i18n-placeholder="agents.create.purpose_example"></div>
+      <div><label data-i18n="agents.create.ability">Right</label><select data-ref="ability"></select></div>
+    </div>
+    <div style="margin-top:10px"><button class="btn primary" type="submit" data-i18n="agents.create.submit">Create token</button></div>
+  </form>
+  <div data-ref="live"></div>
+  <p class="muted small" data-ref="none" data-i18n="agents.none">No active agents.</p>
+  <details data-ref="done"><summary class="small muted" data-ref="done-summary"></summary><div data-ref="done-list"></div></details>
+
+  <h2 data-i18n="backup.title">Backup</h2>
+  <div class="card">
+    <p class="small" style="margin-top:0" data-i18n="backup.hint">The backup holds everything: jobs with history, vault, people and accesses. Logins only sealed – without the vault passphrase nobody can read them.</p>
+    <a class="btn" download data-ref="download" data-i18n="backup.download">Download backup</a>
+    <form style="margin-top:14px" data-action="import">
+      <label data-i18n="backup.import.label">Import a backup (it is added)</label>
+      <input type="file" accept=".jsonl,application/jsonl,text/plain" data-ref="file">
+      <p class="muted small" style="margin:4px 0" data-i18n="backup.import.warning">Import only a backup you took from this service yourself: with people and accesses it also brings rights to administer and working accesses.</p>
+      <label class="check"><input type="checkbox" data-ref="omit"><span data-i18n="backup.import.omit">Leave people and accesses out (only jobs, history and vault)</span></label>
+      <div style="margin-top:10px"><button class="btn primary" type="submit" data-i18n="backup.import.submit">Import</button></div>
+    </form>
+  </div>
+</div></template>
+
+<template id="tpl-person"><div class="card">
+  <div class="row">
+    <h3 class="grow"><span data-field="name"></span> <span class="chip ok" data-ref="is-admin" data-i18n="person.is_admin">administers people</span> <span class="chip bad" data-ref="inactive" data-i18n="person.inactive">deactivated</span></h3>
+    <span class="muted small" data-field="email"></span>
+  </div>
+  <div class="row small" style="margin-top:8px">
+    <button class="btn small" type="button" data-action="reinvite" data-i18n="person.reinvite">New invitation</button>
+    <button class="btn small" type="button" data-action="admin"><span data-ref="admin-take" data-i18n="person.admin_take">Take the right to administer</span><span data-ref="admin-give" data-i18n="person.admin_give">Give the right to administer</span></button>
+    <button class="btn small" type="button" data-action="active"><span data-ref="deactivate" data-i18n="person.deactivate">Deactivate</span><span data-ref="reactivate" data-i18n="person.reactivate">Reactivate</span></button>
+  </div>
+  <table class="small" style="margin-top:8px"><tbody data-ref="rows"></tbody></table>
+</div></template>
+<template id="tpl-person-device"><tr>
+  <td data-i18n="person.device">Device</td>
+  <td><span data-field="label"></span> <span class="chip bad" data-ref="revoked" data-i18n="devices.revoked">revoked</span></td>
+  <td class="muted" data-i18n="person.device.meta">last seen <span data-field="seen"></span> · <span data-field="address"></span> · from invitation <span data-field="invitation"></span></td>
+  <td><button class="btn small" type="button" data-ref="revoke" data-action="revoke" data-i18n="devices.revoke">Revoke</button></td>
+</tr></template>
+<template id="tpl-person-invitation"><tr>
+  <td data-i18n="person.invitation">Invitation</td>
+  <td><span data-i18n="person.invitation.number">No. <span data-field="id"></span></span> <span data-ref="state"></span></td>
+  <td class="muted" data-i18n="person.invitation.meta">created <span data-field="created"></span> · valid until <span data-field="expires"></span></td>
+  <td><button class="btn small" type="button" data-ref="withdraw" data-action="withdraw" data-i18n="person.invitation.withdraw">Withdraw</button></td>
+</tr></template>
+
+<template id="tpl-agent"><div class="card">
+  <div class="row">
+    <h3 class="grow"><code data-field="display" translate="no"></code> <span data-ref="state"></span> <span class="chip" data-ref="ability"></span></h3>
+    <span class="muted small" data-ref="expires"></span>
+  </div>
+  <p class="small" style="margin:6px 0 0" data-field="introduction"></p>
+  <p class="muted small" style="margin:4px 0 0" data-ref="meta"></p>
+  <div class="row small" style="margin-top:8px" data-ref="pending">
+    <select data-ref="pick"></select>
+    <button class="btn small primary" type="button" data-action="grant" data-i18n="agent.grant">Grant</button>
+    <button class="btn small" type="button" data-action="reject" data-i18n="agent.reject">Reject</button>
+  </div>
+  <div class="row small" style="margin-top:8px" data-ref="granted">
+    <button class="btn small" type="button" data-action="revoke" data-i18n="devices.revoke">Revoke</button>
+  </div>
+</div></template>
+
+<template id="tpl-import"><div class="pad wide-page">
+  <h1 data-i18n="import.title">Import</h1>
+  <div data-ref="report">
+    <p data-i18n="import.summary">Added <span data-field="jobs"></span> jobs, <span data-field="runs"></span> runs, <span data-field="people"></span> people, <span data-field="devices"></span> devices, <span data-field="agents"></span> tokens.</p>
+    <p class="small" data-ref="vault"></p>
+    <p class="muted small" data-ref="skipped" data-i18n="import.skipped">Not taken: <span data-field="left_out"></span> left out, <span data-field="existing"></span> already there, <span data-field="unrelated"></span> without a reference.</p>
+    <div class="card alert" data-ref="admins"><strong data-i18n="import.admins">Imported with the right to administer people – please check:</strong> <span data-field="admins"></span></div>
+    <div data-ref="renamed">
+      <h2 data-i18n="import.renamed.title">Already there – added as a copy</h2>
+      <p class="muted small" data-i18n="import.renamed.hint">Delete what you do not need.</p>
+      <table class="small"><tbody data-ref="rows"></tbody></table>
+    </div>
+    <p class="muted" data-ref="none" data-i18n="import.renamed.none">None of it was there already.</p>
+  </div>
+  <p class="muted" data-ref="nothing" data-i18n="import.nothing">Nothing was imported in this session. Imported copies carry “(Import date)” in their name.</p>
+</div></template>
+<template id="tpl-import-row"><tr>
+  <td data-ref="kind"></td><td data-field="name"></td>
+  <td><button class="btn small" type="button" data-ref="delete" data-action="delete" data-i18n="import.delete">Delete</button><span class="chip" data-ref="deleted" data-i18n="import.deleted" hidden>deleted</span></td>
+</tr></template>
+
+<!-- entry states without access -->
+<template id="tpl-invite"><form class="pad narrow" data-action="accept">
+  <h1 data-i18n="invite.title">Accept the invitation</h1>
+  <p data-i18n="invite.text">This device gets an access of its own. You can open the link on each of your devices.</p>
+  <label data-i18n="invite.label">What should this device be called?</label>
+  <input type="text" required maxlength="80" data-ref="label">
+  <div style="margin-top:16px"><button class="btn primary" type="submit" data-ref="submit" data-i18n="invite.submit">Accept the invitation on this device</button></div>
+</form></template>
+
+<template id="tpl-setup"><form class="pad narrow" data-action="setup">
+  <h1 data-i18n="setup.title">Setup</h1>
+  <p data-i18n="setup.text">Portal-Download is not set up yet. The setup secret is in the file bootstrap.toml in the service's state directory and, while nobody is set up, also in the log line at start. It is valid for 30 minutes; a restart or “portal-download bootstrap” creates a new one.</p>
+  <label data-i18n="setup.secret">Setup secret</label>
+  <input type="password" required autocomplete="off" data-ref="secret">
+  <label data-i18n="setup.name">Your name</label>
+  <input type="text" required data-ref="name">
+  <label data-i18n="setup.email">E-mail (optional)</label>
+  <input type="email" data-ref="email">
+  <div style="margin-top:16px"><button class="btn primary" type="submit" data-i18n="setup.submit">Create the first access</button></div>
+</form></template>
+
+<template id="tpl-no-access"><div class="pad narrow">
+  <h1 data-field="app_name"></h1>
+  <p data-i18n="noaccess.text">This device has no access. Open the invitation link you received; it works on each of your devices.</p>
+  <p class="muted small" data-field="error"></p>
+  <p class="muted small" data-i18n="noaccess.hint">No link (any more)? Ask a person in the circle who may administer people for a new invitation.</p>
+</div></template>
+
+<!-- vault dialogs -->
+<template id="tpl-vault-create"><form data-action="create">
+  <h1 data-i18n="vault.create.title">Create the vault</h1>
+  <p class="muted small" data-i18n="vault.create.text">Usernames and passwords of the portals are encrypted in this browser with a key from this passphrase. The service stores only encrypted values and never knows the passphrase. Everybody in the circle uses the same passphrase – pass it on in person, not through this service. If it is lost, the stored logins cannot be read any more.</p>
+  <label data-i18n="vault.create.passphrase">Passphrase (at least 12 characters)</label>
+  <input type="password" autocomplete="new-password" data-ref="p1">
+  <label data-i18n="vault.create.repeat">Repeat the passphrase</label>
+  <input type="password" autocomplete="new-password" data-ref="p2">
+  <div class="row" style="margin-top:16px">
+    <button class="btn primary" type="submit" data-ref="submit" data-i18n="vault.create">Create vault</button>
+    <button class="btn" type="button" data-action="later" data-i18n="vault.later">Later</button>
+  </div>
+</form></template>
+<template id="tpl-vault-unlock"><form data-action="unlock">
+  <h1 data-i18n="vault.unlock">Unlock vault</h1>
+  <p class="muted small" data-i18n="vault.unlock.text">Enter the shared passphrase. This browser keeps the key derived from it until you lock the vault or the browser clears its data.</p>
+  <label data-i18n="vault.unlock.passphrase">Passphrase</label>
+  <input type="password" autocomplete="current-password" data-ref="p">
+  <div class="row" style="margin-top:16px">
+    <button class="btn primary" type="submit" data-ref="submit" data-i18n="vault.unlock.submit">Unlock</button>
+    <button class="btn" type="button" data-action="later" data-i18n="vault.later">Later</button>
+  </div>
+</form></template>
+
 <script>
 "use strict";
-/* Portal-Download – the whole application. Form and hydration only: every piece of content
-   arrives through the API. Vendored libraries: none. */
+/* Portal-Download – the whole application. The markup above holds every building block as a
+   <template> in English; this script clones the blocks, fills values with textContent only,
+   shows or hides their parts and binds their actions. Another language replaces the texts of
+   the blocks once from i18n/<code>.json. Every piece of content arrives through the API.
+   Vendored libraries: none. */
 
-// ------------------------------------------------------------------ helpers
+// ------------------------------------------------------------------ building blocks
 const $ = (s) => document.querySelector(s);
-function h(tag, attrs, ...kids) {
-  const el = document.createElement(tag);
-  for (const [k, v] of Object.entries(attrs || {})) {
-    if (v === null || v === undefined || v === false) continue;
-    if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
-    else if (k === "class") el.className = v;
-    else if (k === "html") el.innerHTML = v; // only for HTML the service sanitized
-    else if (v === true) el.setAttribute(k, "");
-    else el.setAttribute(k, v);
-  }
-  for (const kid of kids.flat(Infinity)) {
-    if (kid === null || kid === undefined || kid === false) continue;
-    el.append(kid instanceof Node ? kid : document.createTextNode(String(kid)));
-  }
-  return el;
+function T(id) { return document.getElementById(id).content.firstElementChild.cloneNode(true); }
+function ref(root, name) { return root.dataset.ref === name ? root : root.querySelector(`[data-ref="${name}"]`); }
+function put(root, values) {
+  const els = root.dataset.field !== undefined ? [root, ...root.querySelectorAll("[data-field]")] : root.querySelectorAll("[data-field]");
+  for (const el of els) if (el.dataset.field in values) el.textContent = values[el.dataset.field] == null ? "" : String(values[el.dataset.field]);
+  return root;
 }
-function toast(msg, isError) {
-  const d = h("div", { class: isError ? "err" : "" }, msg);
+function bind(root, actions) {
+  for (const el of [root, ...root.querySelectorAll("[data-action]")]) {
+    const fn = el.dataset.action && actions[el.dataset.action];
+    if (!fn) continue;
+    if (el.tagName === "FORM") el.addEventListener("submit", (ev) => { ev.preventDefault(); fn(ev); });
+    else el.addEventListener(el.tagName === "SELECT" ? "change" : "click", fn);
+  }
+  return root;
+}
+const show = (el, on) => { el.hidden = !on; return el; };
+
+// ------------------------------------------------------------------ languages
+const LANG_KEY = "portal-download.lang";
+const I18N = { code: "en", dict: {}, locale: "en" };
+const ORIGINAL = new WeakMap();
+const MSG = {};
+function original(el) {
+  let o = ORIGINAL.get(el);
+  if (!o) {
+    const fields = new Map();
+    let pattern = "";
+    for (const n of el.childNodes) {
+      if (n.nodeType === Node.ELEMENT_NODE && n.dataset.field !== undefined) { fields.set(n.dataset.field, n); pattern += `{${n.dataset.field}}`; }
+      else pattern += n.textContent;
+    }
+    o = { pattern: pattern.replace(/\s+/g, " ").trim(), fields, attrs: {} };
+    for (const a of ["placeholder", "title", "aria-label"]) if (el.hasAttribute(`data-i18n-${a}`)) o.attrs[a] = el.getAttribute(a) || "";
+    ORIGINAL.set(el, o);
+  }
+  return o;
+}
+function translate(root) {
+  for (const el of root.querySelectorAll("[data-i18n],[data-i18n-placeholder],[data-i18n-title],[data-i18n-aria-label]")) {
+    if (el.closest("#view, #bar, #modal-box, #toast, #portal-strip")) continue; // rendered parts are rendered anew instead
+    const o = original(el);
+    if (el.dataset.i18n) {
+      const pattern = I18N.dict[el.dataset.i18n] ?? o.pattern;
+      const nodes = [];
+      pattern.split(/\{(\w+)\}/).forEach((s, i) => {
+        if (i % 2) { const f = o.fields.get(s); if (f) nodes.push(f); }
+        else if (s) nodes.push(document.createTextNode(s));
+      });
+      el.replaceChildren(...nodes);
+    }
+    for (const [a, v] of Object.entries(o.attrs)) el.setAttribute(a, I18N.dict[el.getAttribute(`data-i18n-${a}`)] ?? v);
+  }
+}
+function translateAll() {
+  translate(document.body);
+  for (const t of document.querySelectorAll("template")) translate(t.content);
+  for (const k of Object.keys(MSG)) delete MSG[k];
+  for (const el of document.getElementById("messages").content.querySelectorAll("[data-msg]")) MSG[el.dataset.msg] = el;
+  document.documentElement.lang = I18N.code;
+}
+function msgNode(key, values = {}) {
+  const el = MSG[key].cloneNode(true);
+  el.removeAttribute("data-msg");
+  return put(el, values);
+}
+const msg = (key, values) => msgNode(key, values).textContent;
+const plural = (key, n, values = {}) => msgNode(`${key}.${n === 1 ? "one" : "other"}`, { n, ...values });
+function chosenLanguage() {
+  const codes = CONFIG.languages.map((l) => l.code);
+  let saved = null;
+  try { saved = localStorage.getItem(LANG_KEY); } catch {}
+  if (saved && codes.includes(saved)) return saved;
+  for (const l of navigator.languages || [navigator.language || ""]) {
+    const c = l.toLowerCase().split("-")[0];
+    if (codes.includes(c)) return c;
+  }
+  return codes.includes("en") ? "en" : codes[0] || "en";
+}
+async function setLanguage(code) {
+  let dict = {};
+  if (code !== "en") {
+    try { dict = await (await fetch(`i18n/${code}.json`, { cache: "no-cache" })).json(); }
+    catch (e) { console.error(e); code = "en"; }
+  }
+  I18N.code = code; I18N.dict = dict;
+  I18N.locale = (navigator.languages || []).find((l) => l.toLowerCase().split("-")[0] === code) || code;
+  translateAll();
+}
+async function switchLanguage(code) {
+  try { localStorage.setItem(LANG_KEY, code); } catch {}
+  await setLanguage(code);
+  render();
+}
+function fillLanguages(select) {
+  for (const l of CONFIG.languages) {
+    const o = T("tpl-option");
+    o.value = l.code; o.textContent = l.label; o.selected = l.code === I18N.code;
+    select.append(o);
+  }
+  show(select, CONFIG.languages.length > 1);
+}
+
+// ------------------------------------------------------------------ small helpers
+function toast(text, isError) {
+  const d = T("tpl-toast");
+  d.textContent = text;
+  if (isError) d.className = "err";
   $("#toast").append(d);
   setTimeout(() => d.remove(), isError ? 9000 : 3500);
 }
 function fail(e) { console.error(e); toast(e.message || String(e), true); }
-const fmtDate = (iso) => { if (!iso) return "–"; const d = new Date(iso.length === 10 ? iso + "T00:00:00" : iso); return d.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" }); };
-const fmtDateTime = (iso) => iso ? new Date(iso).toLocaleString("de-DE", { dateStyle: "short", timeStyle: "short" }) : "–";
+const fmtDate = (iso) => { if (!iso) return "–"; const d = new Date(iso.length === 10 ? iso + "T00:00:00" : iso); return d.toLocaleDateString(I18N.locale, { day: "2-digit", month: "2-digit", year: "numeric" }); };
+const fmtDateTime = (iso) => iso ? new Date(iso).toLocaleString(I18N.locale, { dateStyle: "short", timeStyle: "short" }) : "–";
 function urgency(days) {
-  if (days < 0) return h("span", { class: "chip bad" }, `überfällig seit ${-days} ${-days === 1 ? "Tag" : "Tagen"}`);
-  if (days === 0) return h("span", { class: "chip warn" }, "heute fällig");
-  if (days === 1) return h("span", { class: "chip warn" }, "morgen fällig");
-  return h("span", { class: "chip" }, `fällig in ${days} Tagen`);
+  if (days < 0) return plural("urgency.overdue", -days);
+  if (days === 0) return msgNode("urgency.today");
+  if (days === 1) return msgNode("urgency.tomorrow");
+  return msgNode("urgency.in", { n: days });
 }
-const outcomeChip = (o) => o === "succeeded" ? h("span", { class: "chip ok" }, "hat geklappt") : h("span", { class: "chip bad" }, "hat nicht geklappt");
+const outcomeChip = (o) => msgNode(o === "succeeded" ? "outcome.succeeded" : "outcome.failed");
+const abilityName = (a) => MSG[`ability.${a}`] ? msg(`ability.${a}`) : a;
 function guessDeviceLabel() {
   const ua = navigator.userAgent;
   const b = /Edg\//.test(ua) ? "Edge" : /Firefox\//.test(ua) ? "Firefox" : /Chrome\//.test(ua) ? "Chrome" : /Safari\//.test(ua) ? "Safari" : "Browser";
   const o = /Windows/.test(ua) ? "Windows" : /Android/.test(ua) ? "Android" : /iPhone|iPad/.test(ua) ? "iOS" : /Mac OS/.test(ua) ? "macOS" : /Linux/.test(ua) ? "Linux" : "";
-  return o ? `${b} auf ${o}` : b;
+  return o ? msg("device.guess", { browser: b, os: o }) : b;
 }
 async function copy(text, btn) {
   try { await navigator.clipboard.writeText(text); }
-  catch { const t = h("textarea", {}, text); document.body.append(t); t.select(); document.execCommand("copy"); t.remove(); }
-  if (btn) { const old = btn.textContent; btn.textContent = "Kopiert ✓"; setTimeout(() => (btn.textContent = old), 1500); }
+  catch { const t = T("tpl-copy-area"); t.value = text; document.body.append(t); t.select(); document.execCommand("copy"); t.remove(); }
+  if (btn) { const old = [...btn.childNodes]; btn.textContent = msg("copy.done"); setTimeout(() => btn.replaceChildren(...old), 1500); }
+}
+
+// ------------------------------------------------------------------ dialogs
+function openModal(node) {
+  $("#modal-box").replaceChildren(node);
+  $("#modal").hidden = false;
+  const first = node.querySelector("input"); if (first) first.focus();
+}
+function closeModal() { $("#modal").hidden = true; $("#modal-box").replaceChildren(); }
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !$("#modal").hidden) { const no = $('#modal-box [data-action="no"], #modal-box [data-action="later"], #modal-box [data-action="done"]'); if (no) no.click(); }
+});
+/** The page's own question in place of confirm(): resolves to true or false. */
+function ask(text) {
+  return new Promise((resolve) => {
+    const d = put(T("tpl-confirm"), { text });
+    const answer = (v) => () => { closeModal(); resolve(v); };
+    bind(d, { yes: answer(true), no: answer(false) });
+    openModal(d);
+    d.querySelector('[data-action="yes"]').focus();
+  });
+}
+function lineDialog(id, values, line, showRefs = {}) {
+  const d = put(T(id), { ...values, line });
+  for (const [r, on] of Object.entries(showRefs)) show(ref(d, r), on);
+  bind(d, { copy: (e) => copy(line, e.currentTarget), done: () => { closeModal(); render(); } });
+  openModal(d);
 }
 
 // ------------------------------------------------------------------ API
-let CONFIG = { app_name: "Portal-Download", api: "api/" };
+let CONFIG = { app_name: "Portal-Download", api: "api/", languages: [{ code: "en", label: "English" }] };
 let seq = 0;
 async function rpc(method, params = {}, headers = {}) {
   const res = await fetch(CONFIG.api, {
@@ -175,7 +776,7 @@ async function rpc(method, params = {}, headers = {}) {
     body: JSON.stringify({ jsonrpc: "2.0", method, params, id: ++seq }),
   });
   let body;
-  try { body = await res.json(); } catch { throw new Error(`Der Dienst antwortet nicht verständlich (HTTP ${res.status}).`); }
+  try { body = await res.json(); } catch { throw new Error(msg("app.unreadable", { status: res.status })); }
   if (body.error) { const e = new Error(body.error.message); e.code = body.error.code; e.type = body.error.data && body.error.data.type; throw e; }
   return body.result;
 }
@@ -230,17 +831,17 @@ async function loadVault() {
   try {
     const stored = await idbDo("readonly", (s) => s.get("vault"));
     if (stored && stored.salt === vault.meta.salt && (await keyFits(stored.key))) vault.key = stored.key;
-  } catch (e) { console.warn("vault cache unavailable", e); }
+  } catch (e) { console.warn(e); }
 }
 async function rememberKey(key) {
   try { await idbDo("readwrite", (s) => s.put({ salt: vault.meta.salt, key }, "vault")); }
-  catch (e) { toast("Der Schlüssel konnte in diesem Browser nicht gespeichert werden; nach dem Neuladen muss die Passphrase erneut eingegeben werden.", true); }
+  catch { toast(msg("vault.toast.key_not_kept"), true); }
 }
 async function lockVault() {
   vault.key = null;
   try { await idbDo("readwrite", (s) => s.delete("vault")); } catch {}
   decrypted.clear();
-  toast("Tresor gesperrt.");
+  toast(msg("vault.toast.locked"));
   render();
 }
 const decrypted = new Map(); // sealed username + sealed password -> {username, password}
@@ -254,63 +855,50 @@ async function credsOf(job) {
     return c;
   } catch { return { error: true }; }
 }
-
-function modal(build) {
-  const box = $("#modal-box");
-  box.replaceChildren(...build(() => { $("#modal").hidden = true; }));
-  $("#modal").hidden = false;
-  const first = box.querySelector("input"); if (first) first.focus();
-}
 function vaultDialog() {
   if (!vault.meta) return;
   if (!vault.meta.exists) {
-    modal((close) => {
-      const p1 = h("input", { type: "password", autocomplete: "new-password" });
-      const p2 = h("input", { type: "password", autocomplete: "new-password" });
-      const go = h("button", { class: "btn primary", type: "submit" }, "Tresor anlegen");
-      return [h("form", { onsubmit: async (ev) => {
-        ev.preventDefault();
-        if (p1.value.length < 12) return toast("Die Passphrase braucht mindestens 12 Zeichen.", true);
-        if (p1.value !== p2.value) return toast("Die beiden Eingaben stimmen nicht überein.", true);
-        go.disabled = true;
+    const d = T("tpl-vault-create");
+    const submit = ref(d, "submit");
+    bind(d, {
+      later: closeModal,
+      create: async () => {
+        const p1 = ref(d, "p1").value, p2 = ref(d, "p2").value;
+        if (p1.length < 12) return toast(msg("vault.toast.too_short"), true);
+        if (p1 !== p2) return toast(msg("vault.toast.mismatch"), true);
+        submit.disabled = true;
         try {
           const salt = b64(crypto.getRandomValues(new Uint8Array(16)));
-          const key = await deriveKey(p1.value, salt, 600000);
+          const key = await deriveKey(p1, salt, 600000);
           vault.meta = await rpc("vault.create", { salt, iterations: 600000, verifier: await seal(key, "verifier", VERIFIER_TEXT) });
-          vault.key = key; await rememberKey(key); close(); toast("Tresor angelegt."); render();
+          vault.key = key; await rememberKey(key); closeModal(); toast(msg("vault.toast.created")); render();
         } catch (e) {
-          if (e.type === "vault_exists") { close(); toast("Inzwischen hat jemand anderes den Tresor angelegt; gib dessen Passphrase ein.", true); await loadVault(); vaultDialog(); return; }
-          go.disabled = false; fail(e);
+          if (e.type === "vault_exists") { closeModal(); toast(msg("vault.toast.exists_meanwhile"), true); await loadVault(); vaultDialog(); return; }
+          submit.disabled = false; fail(e);
         }
-      } },
-        h("h1", {}, "Tresor anlegen"),
-        h("p", { class: "muted small" }, "Benutzernamen und Passwörter der Portale werden in diesem Browser mit einem Schlüssel aus dieser Passphrase verschlüsselt. Der Dienst speichert nur Verschlüsseltes und kennt die Passphrase nicht. Alle im Kreis verwenden dieselbe Passphrase – gebt sie persönlich weiter, nicht über diesen Dienst. Geht sie verloren, sind die gespeicherten Zugangsdaten nicht mehr lesbar."),
-        h("label", {}, "Passphrase (mindestens 12 Zeichen)"), p1,
-        h("label", {}, "Passphrase wiederholen"), p2,
-        h("div", { class: "row", style: "margin-top:16px" }, go, h("button", { class: "btn", type: "button", onclick: close }, "Später")))];
+      },
     });
+    openModal(d);
     return;
   }
-  modal((close) => {
-    const p = h("input", { type: "password", autocomplete: "current-password" });
-    const go = h("button", { class: "btn primary", type: "submit" }, "Entsperren");
-    return [h("form", { onsubmit: async (ev) => {
-      ev.preventDefault(); go.disabled = true;
+  const d = T("tpl-vault-unlock");
+  const submit = ref(d, "submit");
+  bind(d, {
+    later: closeModal,
+    unlock: async () => {
+      submit.disabled = true;
       try {
-        const key = await deriveKey(p.value, vault.meta.salt, vault.meta.iterations);
-        if (!(await keyFits(key))) { go.disabled = false; return toast("Die Passphrase passt nicht zu diesem Tresor.", true); }
-        vault.key = key; await rememberKey(key); close(); render();
-      } catch (e) { go.disabled = false; fail(e); }
-    } },
-      h("h1", {}, "Tresor entsperren"),
-      h("p", { class: "muted small" }, "Gib die gemeinsame Passphrase ein. Dieser Browser merkt sich den daraus abgeleiteten Schlüssel, bis du sperrst oder der Browser seine Daten löscht."),
-      h("label", {}, "Passphrase"), p,
-      h("div", { class: "row", style: "margin-top:16px" }, go, h("button", { class: "btn", type: "button", onclick: close }, "Später")))];
+        const key = await deriveKey(ref(d, "p").value, vault.meta.salt, vault.meta.iterations);
+        if (!(await keyFits(key))) { submit.disabled = false; return toast(msg("vault.toast.wrong"), true); }
+        vault.key = key; await rememberKey(key); closeModal(); render();
+      } catch (e) { submit.disabled = false; fail(e); }
+    },
   });
+  openModal(d);
 }
 
 // ------------------------------------------------------------------ state & routing
-const state = { status: null, me: null, jobs: [], today: null, current: 0, running: null, importReport: null };
+const state = { status: null, me: null, jobs: [], today: null, current: 0, running: null, importReport: null, authError: null };
 
 function route() {
   const f = location.hash.replace(/^#/, "");
@@ -341,17 +929,15 @@ function selectJob(id) {
 }
 
 // ------------------------------------------------------------------ portal (left side)
-let portalWindow = null;
 function openPortalWindow(url) {
   const w = Math.round((screen.availWidth || 1280) * 0.75), hgt = screen.availHeight || 800;
   const win = window.open("", "pd-portal", `popup=yes,width=${w},height=${hgt},left=${screen.availLeft || 0},top=${screen.availTop || 0}`);
-  if (!win) { toast("Das Fenster wurde blockiert. Erlaube Pop-ups für diese Seite und klicke erneut auf „Ausführen“.", true); return; }
+  if (!win) { toast(msg("toast.popup_blocked"), true); return; }
   // A new window is still about:blank and ours: cut the way back before loading the portal.
   // A window reused from an earlier run is on the portal's origin; there opener is not ours to set.
   try { win.opener = null; } catch {}
-  try { win.location.href = url; } catch { toast("Das Portal-Fenster ließ sich nicht umlenken; schließe es und klicke erneut auf „Ausführen“.", true); return; }
+  try { win.location.href = url; } catch { toast(msg("toast.popup_redirect"), true); return; }
   try { win.focus(); } catch {}
-  portalWindow = win;
 }
 function run(job) {
   state.running = job.job_id;
@@ -360,10 +946,9 @@ function run(job) {
 }
 function showPortal(job) {
   const strip = $("#portal-strip"), frame = $("#portal");
-  strip.replaceChildren(
-    h("strong", {}, job.title), h("span", { class: "muted grow", style: "overflow:hidden;text-overflow:ellipsis;white-space:nowrap" }, job.entry_url),
-    h("button", { class: "btn link", onclick: () => openPortalWindow(job.entry_url) }, "im eigenen Fenster öffnen"),
-    h("button", { class: "btn link", onclick: () => { state.running = null; go(`#/job/${job.job_id}`); } }, "schließen"));
+  const s = put(T("tpl-portal-strip"), { title: job.title, url: job.entry_url });
+  bind(s, { window: () => openPortalWindow(job.entry_url), close: () => { state.running = null; go(`#/job/${job.job_id}`); } });
+  strip.replaceChildren(s);
   strip.hidden = false; frame.hidden = false;
   if (frame.dataset.url !== job.entry_url) { frame.src = job.entry_url; frame.dataset.url = job.entry_url; }
 }
@@ -374,45 +959,49 @@ function hidePortal() {
 
 // ------------------------------------------------------------------ work bar (right side)
 function renderBar() {
-  const bar = $("#bar");
-  const me = state.me;
-  const nav = [
-    h("a", { href: "#/" }, "Übersicht"), " · ", h("a", { href: "#/new" }, "Neuer Vorgang"),
-    me.is_admin ? [" · ", h("a", { href: "#/people" }, "Personen")] : null, " · ", h("a", { href: "#/devices" }, "Meine Geräte"),
-  ];
-  const vaultCtl = !vault.meta ? null : vault.key
-    ? h("button", { class: "btn link small", onclick: lockVault }, "Tresor sperren")
-    : h("button", { class: "btn link small", onclick: vaultDialog }, vault.meta.exists ? "Tresor entsperren" : "Tresor anlegen");
-  const head = h("div", { class: "bar-head" },
-    h("div", { class: "row" }, h("span", { class: "app grow" }, CONFIG.app_name), h("span", { class: "muted small" }, me.name)),
-    h("div", { class: "bar-nav small" }, nav, " · ", vaultCtl));
-  const body = h("div", { class: "bar-body" });
+  const head = put(T("tpl-bar-head"), { app_name: CONFIG.app_name, me_name: state.me ? state.me.name : "" });
+  fillLanguages(ref(head, "lang"));
+  bind(head, { lang: (e) => switchLanguage(e.target.value), "vault-lock": lockVault, "vault-open": vaultDialog });
+  if (!state.me) { show(ref(head, "nav"), false); $("#bar").replaceChildren(head); return; }
+  show(ref(head, "nav-people"), state.me.is_admin);
+  show(ref(head, "vault-ctl"), !!vault.meta);
+  show(ref(head, "vault-lock"), !!vault.key);
+  show(ref(head, "vault-unlock"), !vault.key && !!vault.meta && vault.meta.exists);
+  show(ref(head, "vault-create"), !vault.key && !!vault.meta && !vault.meta.exists);
+  const body = T("tpl-bar-body");
   const job = currentJob();
-  if (!job) {
-    body.append(h("p", { class: "muted" }, "Noch keine Download-Vorgänge."), h("a", { class: "btn primary", href: "#/new" }, "Ersten Vorgang anlegen"));
-  } else {
-    body.append(renderCurrent(job));
-  }
-  bar.replaceChildren(head, body);
+  body.append(job ? renderCurrent(job) : T("tpl-bar-empty"));
+  $("#bar").replaceChildren(head, body);
 }
 
 function renderCurrent(job) {
   const n = state.jobs.length;
-  const pager = h("div", { class: "pager" },
-    h("button", { class: "btn icon", title: "dringlicher", "aria-label": "vorheriger Vorgang", disabled: state.current === 0, onclick: () => { state.current--; go(`#/job/${currentJob().job_id}`); } }, "◀"),
-    h("span", { class: "pos" }, `${state.current + 1} von ${n}`),
-    h("button", { class: "btn icon", title: "weniger dringlich", "aria-label": "nächster Vorgang", disabled: state.current >= n - 1, onclick: () => { state.current++; go(`#/job/${currentJob().job_id}`); } }, "▶"));
-
-  const credsBox = h("div", {}, h("div", { class: "muted small" }, "Zugangsdaten werden entschlüsselt …"));
-  fillCreds(job, credsBox);
-
-  const note = h("textarea", { placeholder: "Notiz (optional), z. B. was gefehlt hat", style: "min-height:60px;font-family:var(--font)" });
+  const d = put(T("tpl-current"), { pos: state.current + 1, n, title: job.title });
+  d.querySelector('[data-action="prev"]').disabled = state.current === 0;
+  d.querySelector('[data-action="next"]').disabled = state.current >= n - 1;
+  ref(d, "urgency").replaceWith(urgency(job.urgency_days));
+  ref(d, "schedule").textContent = plural("schedule", job.interval_weeks, { date: fmtDate(job.next_due) }).textContent;
+  const last = job.last_run;
+  show(ref(d, "last"), !!last);
+  if (last) {
+    ref(d, "last-outcome").replaceWith(outcomeChip(last.outcome));
+    ref(d, "last-text").textContent = msg("last.by", { when: fmtDateTime(last.finished_at), by: last.by });
+  }
+  show(ref(d, "run-frame"), job.embeddable);
+  show(ref(d, "run-window"), !job.embeddable);
+  const creds = ref(d, "creds");
+  creds.replaceChildren(T("tpl-creds-decrypting"));
+  fillCreds(job, creds);
+  ref(d, "instructions").replaceWith(job.instructions_html ? instructionsBlock(job.instructions_html) : T("tpl-no-instructions"));
+  ref(d, "edit").href = `#/edit/${job.job_id}`;
+  ref(d, "history").href = `#/history/${job.job_id}`;
+  ref(d, "retry").textContent = plural("retry", job.retry_days).textContent;
+  const note = ref(d, "note");
   const finish = async (outcome) => {
-    const what = outcome === "succeeded" ? "als „hat geklappt“" : "als „hat nicht geklappt“";
-    if (!confirm(`„${job.title}“ ${what} abschließen?`)) return;
+    if (!(await ask(msg(`confirm.finish.${outcome}`, { title: job.title })))) return;
     try {
       const r = await rpc("job.complete", { job_id: job.job_id, outcome, note: note.value, expected_run_count: job.run_count });
-      toast(`Abgeschlossen – wieder fällig am ${fmtDate(r.next_due)}.`);
+      toast(msg("toast.completed", { date: fmtDate(r.next_due) }));
       if (state.running === job.job_id) state.running = null;
       await loadJobs(); state.current = 0;
       go(state.jobs.length ? `#/job/${state.jobs[0].job_id}` : "#/");
@@ -421,375 +1010,341 @@ function renderCurrent(job) {
       if (e.type === "job_changed") { await loadJobs(); render(); }
     }
   };
-  const last = job.last_run;
-  return h("div", {},
-    pager,
-    h("h1", {}, job.title),
-    h("div", { class: "row" }, urgency(job.urgency_days), h("span", { class: "muted small" }, `fällig ${fmtDate(job.next_due)} · alle ${job.interval_weeks} ${job.interval_weeks === 1 ? "Woche" : "Wochen"}`)),
-    last ? h("div", { class: "muted small", style: "margin-top:4px" }, "Zuletzt: ", outcomeChip(last.outcome), ` ${fmtDateTime(last.finished_at)} von ${last.by}`) : null,
-    h("div", { style: "margin:14px 0 8px" },
-      h("button", { class: "btn primary wide", onclick: () => run(job) }, job.embeddable ? "Ausführen" : "Ausführen (öffnet Fenster)")),
-    credsBox,
-    job.instructions_html ? instructionsBlock(job.instructions_html) : h("p", { class: "muted small" }, "Keine Anleitung hinterlegt."),
-    note,
-    h("div", { class: "finish" },
-      h("button", { class: "btn ok", onclick: () => finish("succeeded") }, "Hat geklappt"),
-      h("button", { class: "btn bad", onclick: () => finish("failed") }, "Hat nicht geklappt")),
-    h("div", { class: "row small", style: "margin-top:14px" },
-      h("a", { href: `#/edit/${job.job_id}` }, "Bearbeiten"), "·", h("a", { href: `#/history/${job.job_id}` }, "Verlauf"),
-      h("span", { class: "muted" }, `· bei Fehlschlag wieder in ${job.retry_days} ${job.retry_days === 1 ? "Tag" : "Tagen"}`)));
+  return bind(d, {
+    prev: () => { state.current--; go(`#/job/${currentJob().job_id}`); },
+    next: () => { state.current++; go(`#/job/${currentJob().job_id}`); },
+    run: () => run(job),
+    succeeded: () => finish("succeeded"),
+    failed: () => finish("failed"),
+  });
 }
 
 function instructionsBlock(html) {
-  const d = h("div", { class: "instructions", html });
+  const d = T("tpl-instructions");
+  d.innerHTML = html; // the only HTML put into the page: Markdown the service rendered and sanitized
   for (const a of d.querySelectorAll("a[href]")) { a.target = "_blank"; a.rel = "noopener noreferrer"; }
   return d;
 }
 
 async function fillCreds(job, box) {
-  const rows = [];
-  if (!job.username_sealed && !job.password_sealed) {
-    box.replaceChildren(h("p", { class: "muted small" }, "Keine Zugangsdaten hinterlegt."));
-    return;
-  }
+  if (!job.username_sealed && !job.password_sealed) { box.replaceChildren(T("tpl-creds-none")); return; }
   const c = await credsOf(job);
-  if (!c) {
-    box.replaceChildren(h("div", { class: "row small" }, h("span", { class: "muted grow" }, "Zugangsdaten liegen im gesperrten Tresor."), h("button", { class: "btn", onclick: vaultDialog }, "Entsperren")));
-    return;
-  }
-  if (c.error) {
-    box.replaceChildren(h("p", { class: "small", style: "color:var(--bad)" }, "Die Zugangsdaten lassen sich mit diesem Tresor-Schlüssel nicht entschlüsseln. Bitte unter „Bearbeiten“ neu eingeben."));
-    return;
-  }
+  if (!c) { box.replaceChildren(bind(T("tpl-creds-locked"), { unlock: vaultDialog })); return; }
+  if (c.error) { box.replaceChildren(T("tpl-creds-error")); return; }
+  const rows = [];
   if (job.username_sealed) {
-    const b = h("button", { class: "btn icon small", onclick: (e) => copy(c.username, e.currentTarget) }, "Kopieren");
-    rows.push(h("div", { class: "field" }, h("span", { class: "k" }, "Benutzer"), h("span", { class: "v", title: c.username }, c.username), b));
+    const r = put(T("tpl-creds-user"), { value: c.username });
+    r.querySelector('[data-field="value"]').title = c.username;
+    rows.push(bind(r, { copy: (e) => copy(c.username, e.currentTarget) }));
   }
   if (job.password_sealed) {
-    const v = h("span", { class: "v" }, "••••••••••");
+    const r = T("tpl-creds-password");
+    const v = ref(r, "value"), masked = v.textContent;
     let shown = false;
-    const eye = h("button", { class: "btn icon small", title: "anzeigen", onclick: (e) => { shown = !shown; v.textContent = shown ? c.password : "••••••••••"; e.currentTarget.textContent = shown ? "Verbergen" : "Zeigen"; } }, "Zeigen");
-    const b = h("button", { class: "btn icon small", onclick: (e) => copy(c.password, e.currentTarget) }, "Kopieren");
-    rows.push(h("div", { class: "field" }, h("span", { class: "k" }, "Passwort"), v, eye, b));
+    rows.push(bind(r, {
+      toggle: () => { shown = !shown; v.textContent = shown ? c.password : masked; show(ref(r, "show"), !shown); show(ref(r, "hide"), shown); },
+      copy: (e) => copy(c.password, e.currentTarget),
+    }));
   }
   box.replaceChildren(...rows);
 }
 
 // ------------------------------------------------------------------ stage views (left side)
 function viewOverview() {
-  const rows = state.jobs.map((j, i) => h("tr", { class: "clickable" + (i === state.current ? " current" : ""), onclick: () => { state.current = i; go(`#/job/${j.job_id}`); } },
-    h("td", {}, urgency(j.urgency_days)), h("td", {}, h("strong", {}, j.title), h("div", { class: "muted small" }, j.entry_url)),
-    h("td", { class: "small" }, fmtDate(j.next_due)), h("td", { class: "small" }, `${j.interval_weeks} Wo.`),
-    h("td", { class: "small" }, j.last_run ? [outcomeChip(j.last_run.outcome), h("div", { class: "muted" }, fmtDate(j.last_run.finished_at))] : "–")));
-  return h("div", { class: "pad" },
-    h("div", { class: "row" }, h("h1", { class: "grow" }, "Download-Vorgänge"), h("a", { class: "btn primary", href: "#/new" }, "Neuer Vorgang")),
-    state.jobs.length
-      ? h("table", {}, h("thead", {}, h("tr", {}, h("th", {}, "Dringlichkeit"), h("th", {}, "Vorgang"), h("th", {}, "Fällig"), h("th", {}, "Intervall"), h("th", {}, "Zuletzt"))), h("tbody", {}, rows))
-      : h("p", { class: "muted" }, "Lege den ersten Vorgang an: Einstiegsseite, Zugangsdaten, Zeitplan und was wohin abzulegen ist."),
-    h("p", { class: "muted small", style: "margin-top:20px" }, "Rechts steht immer der dringlichste Vorgang zuerst; mit ◀ ▶ blätterst du. „Ausführen“ lädt das Portal hier links oder – wenn das Portal das Einbetten verbietet – in einem eigenen Fenster."));
+  const d = T("tpl-overview");
+  const rows = ref(d, "rows");
+  state.jobs.forEach((j, i) => {
+    const tr = put(T("tpl-overview-row"), { title: j.title, url: j.entry_url, due: fmtDate(j.next_due) });
+    if (i === state.current) tr.classList.add("current");
+    ref(tr, "urgency").append(urgency(j.urgency_days));
+    ref(tr, "interval").textContent = msg("weeks.short", { n: j.interval_weeks });
+    const last = ref(tr, "last");
+    if (j.last_run) last.append(outcomeChip(j.last_run.outcome), put(T("tpl-muted-line"), { text: fmtDate(j.last_run.finished_at) }));
+    else last.textContent = "–";
+    tr.addEventListener("click", () => { state.current = i; go(`#/job/${j.job_id}`); });
+    rows.append(tr);
+  });
+  show(ref(d, "table"), state.jobs.length > 0);
+  show(ref(d, "empty"), state.jobs.length === 0);
+  return d;
 }
 
 function viewRunning(job) {
   if (job.embeddable) { showPortal(job); return null; }
-  return h("div", { class: "pad" },
-    h("h1", {}, job.title),
-    h("p", {}, "Das Portal ist in einem eigenen Fenster geöffnet, weil es das Einbetten nicht erlaubt. Die Arbeitsleiste rechts bleibt hier sichtbar."),
-    h("div", { class: "row" },
-      h("button", { class: "btn primary", onclick: () => openPortalWindow(job.entry_url) }, "Fenster erneut öffnen"),
-      h("button", { class: "btn", onclick: () => { state.running = null; go(`#/job/${job.job_id}`); } }, "Zurück zur Übersicht")),
-    h("p", { class: "muted small", style: "margin-top:16px" }, "Tipp: Lässt sich ein Portal doch einbetten, setze unter „Bearbeiten“ den Haken „Portal darf links eingebettet werden“."));
+  return bind(put(T("tpl-running"), { title: job.title }), {
+    reopen: () => openPortalWindow(job.entry_url),
+    back: () => { state.running = null; go(`#/job/${job.job_id}`); },
+  });
 }
 
 async function viewEdit(id) {
   const job = id ? state.jobs.find((j) => j.job_id === id) : null;
-  if (id && !job) return h("div", { class: "pad" }, h("p", {}, "Diesen Vorgang gibt es nicht mehr."), h("a", { href: "#/" }, "Zur Übersicht"));
+  if (id && !job) return T("tpl-gone");
   const c = job ? await credsOf(job) : null;
   const canCreds = !!vault.key;
-  const f = {
-    title: h("input", { type: "text", required: true, maxlength: 200, value: job ? job.title : "" }),
-    entry_url: h("input", { type: "url", required: true, placeholder: "https://…", value: job ? job.entry_url : "" }),
-    embeddable: h("input", { type: "checkbox", checked: job ? job.embeddable : false }),
-    interval_weeks: h("input", { type: "number", min: 1, max: 520, required: true, value: job ? job.interval_weeks : 4 }),
-    retry_days: h("input", { type: "number", min: 1, max: 365, required: true, value: job ? job.retry_days : 2 }),
-    next_due: h("input", { type: "date", required: true, value: job ? job.next_due : state.today }),
-    username: h("input", { type: "text", autocomplete: "off", disabled: !canCreds, value: c && !c.error ? c.username : "" }),
-    password: h("input", { type: "password", autocomplete: "new-password", disabled: !canCreds, value: c && !c.error ? c.password : "" }),
-    instructions_md: h("textarea", { placeholder: "## Was ist abzulegen?\n- Rechnung als PDF\n\n## Wohin?\n- Finanzen/Stadtwerke/2026/" }, job ? job.instructions_md : ""),
-  };
+  const d = put(T("tpl-edit"), { title: job ? job.title : "" });
+  const f = (name) => ref(d, name);
+  show(f("head-new"), !job); show(f("head-edit"), !!job);
+  show(f("save-new"), !job); show(f("save-edit"), !!job);
+  show(f("delete"), !!job);
+  f("title").value = job ? job.title : "";
+  f("entry_url").value = job ? job.entry_url : "";
+  f("embeddable").checked = job ? job.embeddable : false;
+  f("interval_weeks").value = job ? job.interval_weeks : 4;
+  f("retry_days").value = job ? job.retry_days : 2;
+  f("next_due").value = job ? job.next_due : state.today;
+  f("instructions_md").value = job ? job.instructions_md : "";
+  f("username").value = c && !c.error ? c.username : "";
+  f("password").value = c && !c.error ? c.password : "";
+  f("username").disabled = !canCreds; f("password").disabled = !canCreds;
+  show(f("locked"), !canCreds);
+  show(f("unlock"), !!vault.meta && vault.meta.exists);
+  show(f("create-vault"), !vault.meta || !vault.meta.exists);
+  f("cancel").href = job ? `#/job/${job.job_id}` : "#/";
   const touched = { username: false, password: false };
-  f.username.addEventListener("input", () => (touched.username = true));
-  f.password.addEventListener("input", () => (touched.password = true));
-  const showPw = h("button", { class: "btn icon small", type: "button", onclick: (e) => { const hide = f.password.type === "text"; f.password.type = hide ? "password" : "text"; e.currentTarget.textContent = hide ? "Zeigen" : "Verbergen"; } }, "Zeigen");
-  const save = h("button", { class: "btn primary", type: "submit" }, job ? "Speichern" : "Anlegen");
-  const form = h("form", { class: "pad", style: "max-width:760px", onsubmit: async (ev) => {
-    ev.preventDefault(); save.disabled = true;
-    try {
-      const all = {
-        title: f.title.value, entry_url: f.entry_url.value.trim(), embeddable: f.embeddable.checked,
-        interval_weeks: Number(f.interval_weeks.value), retry_days: Number(f.retry_days.value), next_due: f.next_due.value,
-        instructions_md: f.instructions_md.value,
-      };
-      // When editing, send only what was changed, so that a concurrent change by somebody else survives.
-      const p = {};
-      for (const [k, v] of Object.entries(all)) if (!job || job[k] !== v) p[k] = v;
-      if (canCreds && (!job || touched.username)) p.username_sealed = await seal(vault.key, "username", f.username.value);
-      if (canCreds && (!job || touched.password)) p.password_sealed = await seal(vault.key, "password", f.password.value);
-      const r = job ? await rpc("job.update", { job_id: job.job_id, ...p }) : await rpc("job.create", p);
-      await loadJobs(); selectJob(r.job_id);
-      toast(job ? "Gespeichert." : "Angelegt.");
-      go(`#/job/${r.job_id}`);
-    } catch (e) { save.disabled = false; fail(e); }
-  } },
-    h("h1", {}, job ? `Vorgang bearbeiten: ${job.title}` : "Neuer Download-Vorgang"),
-    h("label", {}, "Titel"), f.title,
-    h("label", {}, "Einstiegsseite (URL)"), f.entry_url,
-    h("label", { style: "color:var(--text)" }, f.embeddable, "Portal darf links eingebettet werden"),
-    h("div", { class: "muted small" }, "Viele Portale verbieten das Einbetten (Sicherheits-Header). Ohne Haken öffnet „Ausführen“ das Portal in einem eigenen Fenster."),
-    h("div", { class: "row" },
-      h("div", { class: "grow" }, h("label", {}, "Alle wie viele Wochen?"), f.interval_weeks),
-      h("div", { class: "grow" }, h("label", {}, "Nach Fehlschlag wieder in … Tagen"), f.retry_days),
-      h("div", { class: "grow" }, h("label", {}, "Nächste Fälligkeit"), f.next_due)),
-    h("h2", {}, "Zugangsdaten"),
-    canCreds ? null : h("div", { class: "row small" }, h("span", { class: "muted grow" }, "Der Tresor ist gesperrt; Zugangsdaten können erst nach dem Entsperren geändert werden. Bestehende bleiben unverändert."), h("button", { class: "btn", type: "button", onclick: vaultDialog }, vault.meta && vault.meta.exists ? "Entsperren" : "Tresor anlegen")),
-    h("label", {}, "Benutzername"), f.username,
-    h("label", {}, "Passwort"), h("div", { class: "row" }, h("div", { class: "grow" }, f.password), showPw),
-    h("h2", {}, "Anleitung: was ist wo abzulegen? (Markdown)"), f.instructions_md,
-    h("div", { class: "row", style: "margin-top:16px" }, save, h("a", { class: "btn", href: job ? `#/job/${job.job_id}` : "#/" }, "Abbrechen"),
-      h("span", { class: "grow" }),
-      job ? h("button", { class: "btn bad", type: "button", onclick: async () => {
-        if (!confirm(`„${job.title}“ samt Verlauf endgültig löschen?`)) return;
-        try { await rpc("job.delete", { job_id: job.job_id }); await loadJobs(); toast("Gelöscht."); go("#/"); } catch (e) { fail(e); }
-      } }, "Löschen") : null));
-  return form;
+  f("username").addEventListener("input", () => (touched.username = true));
+  f("password").addEventListener("input", () => (touched.password = true));
+  const save = f("save");
+  return bind(d, {
+    "vault-open": vaultDialog,
+    "toggle-password": () => { const hide = f("password").type === "text"; f("password").type = hide ? "password" : "text"; show(f("pw-show"), hide); show(f("pw-hide"), !hide); },
+    delete: async () => {
+      if (!(await ask(msg("confirm.job.delete", { title: job.title })))) return;
+      try { await rpc("job.delete", { job_id: job.job_id }); await loadJobs(); toast(msg("toast.deleted")); go("#/"); } catch (e) { fail(e); }
+    },
+    save: async () => {
+      save.disabled = true;
+      try {
+        const all = {
+          title: f("title").value, entry_url: f("entry_url").value.trim(), embeddable: f("embeddable").checked,
+          interval_weeks: Number(f("interval_weeks").value), retry_days: Number(f("retry_days").value), next_due: f("next_due").value,
+          instructions_md: f("instructions_md").value,
+        };
+        // When editing, send only what was changed, so that a concurrent change by somebody else survives.
+        const p = {};
+        for (const [k, v] of Object.entries(all)) if (!job || job[k] !== v) p[k] = v;
+        if (canCreds && (!job || touched.username)) p.username_sealed = await seal(vault.key, "username", f("username").value);
+        if (canCreds && (!job || touched.password)) p.password_sealed = await seal(vault.key, "password", f("password").value);
+        const r = job ? await rpc("job.update", { job_id: job.job_id, ...p }) : await rpc("job.create", p);
+        await loadJobs(); selectJob(r.job_id);
+        toast(msg(job ? "toast.saved" : "toast.created"));
+        go(`#/job/${r.job_id}`);
+      } catch (e) { save.disabled = false; fail(e); }
+    },
+  });
 }
 
 async function viewHistory(id) {
   const job = state.jobs.find((j) => j.job_id === id);
-  if (!job) return h("div", { class: "pad" }, h("p", {}, "Diesen Vorgang gibt es nicht mehr."));
+  if (!job) return T("tpl-gone");
   const r = await rpc("job.history", { job_id: id });
-  return h("div", { class: "pad" },
-    h("h1", {}, `Verlauf: ${job.title}`),
-    r.runs.length ? h("table", {}, h("thead", {}, h("tr", {}, h("th", {}, "Abgeschlossen"), h("th", {}, "Ergebnis"), h("th", {}, "Von"), h("th", {}, "Fällig war"), h("th", {}, "Danach fällig"), h("th", {}, "Notiz"))),
-      h("tbody", {}, r.runs.map((x) => h("tr", {}, h("td", { class: "small" }, fmtDateTime(x.finished_at)), h("td", {}, outcomeChip(x.outcome)), h("td", { class: "small" }, x.by),
-        h("td", { class: "small" }, fmtDate(x.due_before)), h("td", { class: "small" }, fmtDate(x.due_after)), h("td", { class: "small" }, x.note)))))
-      : h("p", { class: "muted" }, "Noch kein Lauf abgeschlossen."),
-    h("p", {}, h("a", { href: `#/job/${id}` }, "Zurück")));
+  const d = put(T("tpl-history"), { title: job.title });
+  for (const x of r.runs) {
+    const tr = put(T("tpl-history-row"), { closed: fmtDateTime(x.finished_at), by: x.by, before: fmtDate(x.due_before), after: fmtDate(x.due_after), note: x.note });
+    ref(tr, "outcome").append(outcomeChip(x.outcome));
+    ref(d, "rows").append(tr);
+  }
+  show(ref(d, "table"), r.runs.length > 0);
+  show(ref(d, "empty"), r.runs.length === 0);
+  ref(d, "back").href = `#/job/${id}`;
+  return d;
 }
 
 async function viewDevices() {
   const r = await rpc("device.list");
-  return h("div", { class: "pad" },
-    h("h1", {}, "Meine Geräte"),
-    h("p", { class: "muted small" }, "Jedes Gerät, auf dem du deinen Einladungslink geöffnet hast, hat einen eigenen Zugang. Widerrufe ein verlorenes Gerät hier; deine anderen Geräte bleiben angemeldet."),
-    h("table", {}, h("thead", {}, h("tr", {}, h("th", {}, "Gerät"), h("th", {}, "Zuletzt gesehen"), h("th", {}, "Erkennung"), h("th", {}, ""))),
-      h("tbody", {}, r.devices.map((d) => h("tr", {},
-        h("td", {}, d.label, d.device_id === r.current_device_id ? h("span", { class: "chip ok", style: "margin-left:6px" }, "dieses Gerät") : null, d.revoked_at ? h("span", { class: "chip bad", style: "margin-left:6px" }, "widerrufen") : null),
-        h("td", { class: "small" }, fmtDateTime(d.last_seen_at)),
-        h("td", { class: "small muted" }, d.last_address, h("div", {}, d.user_agent.slice(0, 80))),
-        h("td", {}, d.revoked_at ? null : h("button", { class: "btn small", onclick: async () => {
-          const self = d.device_id === r.current_device_id;
-          if (!confirm(self ? "Dieses Gerät abmelden? Danach brauchst du deinen Einladungslink erneut." : `„${d.label}“ widerrufen?`)) return;
-          try { await rpc("device.revoke", { device_id: d.device_id }); if (self) { location.hash = ""; location.reload(); } else render(); } catch (e) { fail(e); }
-        } }, d.device_id === r.current_device_id ? "Abmelden" : "Widerrufen")))))));
+  const d = T("tpl-devices");
+  for (const dev of r.devices) {
+    const self = dev.device_id === r.current_device_id;
+    const tr = put(T("tpl-device-row"), { label: dev.label, seen: fmtDateTime(dev.last_seen_at), address: dev.last_address, agent: dev.user_agent.slice(0, 80) });
+    show(ref(tr, "this"), self); show(ref(tr, "revoked"), !!dev.revoked_at);
+    show(ref(tr, "revoke"), !dev.revoked_at); show(ref(tr, "sign-out"), self); show(ref(tr, "revoke-other"), !self);
+    bind(tr, {
+      revoke: async () => {
+        if (!(await ask(self ? msg("confirm.device.self") : msg("confirm.device.other", { label: dev.label })))) return;
+        try { await rpc("device.revoke", { device_id: dev.device_id }); if (self) { location.hash = ""; location.reload(); } else render(); } catch (e) { fail(e); }
+      },
+    });
+    ref(d, "rows").append(tr);
+  }
+  return d;
 }
 
 function inviteLink(token) { return `${location.origin}${location.pathname}#invite=${encodeURIComponent(token)}`; }
 function showInvitation(name, r) {
   const link = inviteLink(r.invitation_token);
-  modal((close) => [
-    h("h1", {}, `Einladung für ${name}`),
-    h("p", { class: "small" }, `Dieser Link wird nur jetzt angezeigt. Er gilt bis ${fmtDateTime(r.expires_at)} und kann auf jedem Gerät der Person einmal geöffnet werden. Gib ihn über einen vertraulichen Kanal weiter.`),
-    h("div", { class: "secret-once" }, link),
-    h("div", { class: "row", style: "margin-top:14px" }, h("button", { class: "btn primary", onclick: (e) => copy(link, e.currentTarget) }, "Link kopieren"), h("button", { class: "btn", onclick: () => { close(); render(); } }, "Fertig")),
-  ]);
+  lineDialog("tpl-invitation-dialog", { name, expires: fmtDateTime(r.expires_at), link }, link);
 }
-
 const backupUrl = () => new URL("backup", location.href.split("#")[0]).href;
-const curlLine = (token) => `curl -fsS -H "Authorization: Bearer ${token}" ${backupUrl()} -o portal-download-$(date +%F).jsonl`;
+const curlLine = (token) => msg("line.curl", { token, url: backupUrl() });
 /** Shows a token once; for the backup ability with the ready curl line. */
 function showToken(r) {
-  const line = r.ability === "backup.read" ? curlLine(r.token) : `export PORTAL_DOWNLOAD_AGENT_TOKEN=${r.token}`;
-  modal((close) => [
-    h("h1", {}, `Token ${r.display}`),
-    h("p", { class: "small" }, r.ability === "backup.read"
-      ? "Diese Zeile holt das Backup. Sie enthält das Token und wird nur jetzt angezeigt. Trag sie z. B. als nächtlichen Cron-Job auf dem Rechner ein, der sichern soll."
-      : "Das Token wird nur jetzt angezeigt. Leg es auf dem Rechner, der es benutzt, in die Umgebungsvariable PORTAL_DOWNLOAD_AGENT_TOKEN."),
-    h("div", { class: "secret-once" }, line),
-    h("div", { class: "row", style: "margin-top:14px" }, h("button", { class: "btn primary", onclick: (e) => copy(line, e.currentTarget) }, "Zeile kopieren"), h("button", { class: "btn", onclick: () => { close(); render(); } }, "Fertig")),
-  ]);
+  const backup = r.ability === "backup.read";
+  lineDialog("tpl-token-dialog", { display: r.display }, backup ? curlLine(r.token) : msg("line.env", { token: r.token }), { backup, env: !backup });
 }
 function showBackupLine(display) {
-  const line = curlLine("$PORTAL_DOWNLOAD_AGENT_TOKEN");
-  modal((close) => [
-    h("h1", {}, `${display} darf das Backup holen`),
-    h("p", { class: "small" }, "Mit dieser Zeile holt der Agent das Backup; das Token liegt bei ihm in der Umgebungsvariable PORTAL_DOWNLOAD_AGENT_TOKEN."),
-    h("div", { class: "secret-once" }, line),
-    h("div", { class: "row", style: "margin-top:14px" }, h("button", { class: "btn primary", onclick: (e) => copy(line, e.currentTarget) }, "Zeile kopieren"), h("button", { class: "btn", onclick: () => { close(); render(); } }, "Fertig")),
-  ]);
+  lineDialog("tpl-backup-line-dialog", { display }, curlLine("$PORTAL_DOWNLOAD_AGENT_TOKEN"));
 }
 
 async function viewPeople() {
-  if (!state.me.is_admin) return h("div", { class: "pad" }, h("p", {}, "Personen verwalten darf nur, wer das Recht dazu hat."));
+  if (!state.me.is_admin) return T("tpl-people-forbidden");
   const [r, ag] = await Promise.all([rpc("user.list"), rpc("agent.list")]);
-  const act = (fn, msg) => async () => { if (msg && !confirm(msg)) return; try { await fn(); render(); } catch (e) { fail(e); } };
-  const name = h("input", { type: "text", required: true }), email = h("input", { type: "email" }), admin = h("input", { type: "checkbox" });
-  const inviteForm = h("form", { class: "card", onsubmit: async (ev) => {
-    ev.preventDefault();
-    try { const x = await rpc("user.create", { name: name.value, email: email.value, is_admin: admin.checked }); showInvitation(name.value, x); } catch (e) { fail(e); }
-  } }, h("h3", {}, "Person einladen"),
-    h("div", { class: "row" }, h("div", { class: "grow" }, h("label", {}, "Name"), name), h("div", { class: "grow" }, h("label", {}, "E-Mail (optional)"), email)),
-    h("label", { style: "color:var(--text)" }, admin, "darf Personen verwalten (einladen, widerrufen, deaktivieren)"),
-    h("div", { style: "margin-top:10px" }, h("button", { class: "btn primary", type: "submit" }, "Einladung erzeugen")));
-
-  const people = r.users.map((u) => h("div", { class: "card" },
-    h("div", { class: "row" },
-      h("h3", { class: "grow" }, u.name, " ", u.is_admin ? h("span", { class: "chip ok" }, "verwaltet Personen") : null, " ", u.active ? null : h("span", { class: "chip bad" }, "deaktiviert")),
-      h("span", { class: "muted small" }, u.email)),
-    h("div", { class: "row small", style: "margin-top:8px" },
-      h("button", { class: "btn small", onclick: async () => { try { showInvitation(u.name, await rpc("user.reinvite", { user_id: u.user_id })); } catch (e) { fail(e); } } }, "Neue Einladung"),
-      h("button", { class: "btn small", onclick: act(() => rpc("user.setAdmin", { user_id: u.user_id, is_admin: !u.is_admin }), u.is_admin ? `${u.name} das Recht zum Verwalten entziehen?` : `${u.name} das Recht zum Verwalten geben?`) }, u.is_admin ? "Verwaltungsrecht entziehen" : "Verwaltungsrecht geben"),
-      h("button", { class: "btn small", onclick: act(() => rpc("user.setActive", { user_id: u.user_id, active: !u.active }), u.active ? `${u.name} auf allen Geräten deaktivieren?` : null) }, u.active ? "Deaktivieren" : "Reaktivieren")),
-    h("table", { class: "small", style: "margin-top:8px" },
-      h("tbody", {},
-        u.devices.map((d) => h("tr", {}, h("td", {}, "Gerät"), h("td", {}, d.label, d.revoked_at ? h("span", { class: "chip bad", style: "margin-left:6px" }, "widerrufen") : null),
-          h("td", { class: "muted" }, `zuletzt ${fmtDateTime(d.last_seen_at)} · ${d.last_address} · aus Einladung ${d.invitation_id}`),
-          h("td", {}, d.revoked_at ? null : h("button", { class: "btn small", onclick: act(() => rpc("device.revoke", { device_id: d.device_id }), `Gerät „${d.label}“ von ${u.name} widerrufen?`) }, "Widerrufen")))),
-        u.invitations.map((i) => h("tr", {}, h("td", {}, "Einladung"), h("td", {}, `Nr. ${i.invitation_id} `, h("span", { class: "chip" + (i.state === "open" ? " ok" : "") }, { open: "offen", expired: "abgelaufen", withdrawn: "zurückgezogen" }[i.state])),
-          h("td", { class: "muted" }, `erstellt ${fmtDateTime(i.created_at)} · gültig bis ${fmtDateTime(i.expires_at)}`),
-          h("td", {}, i.state === "open" ? h("button", { class: "btn small", onclick: act(() => rpc("invitation.withdraw", { invitation_id: i.invitation_id }), "Einladung zurückziehen? Bereits angemeldete Geräte bleiben angemeldet.") }, "Zurückziehen") : null)))))));
-
-  const abilityName = { "jobs.read": "Jobs lesen", "jobs.write": "Jobs bearbeiten", "jobs.complete": "Läufe abschließen", "backup.read": "Backup holen" };
-  const stateChip = (st) => h("span", { class: "chip" + (st === "granted" ? " ok" : st === "pending" ? "" : " bad") },
-    { pending: "wartet auf Freigabe", granted: "freigegeben", expired: "abgelaufen", revoked: "widerrufen" }[st] || st);
-  const agentCard = (a) => {
-    let controls = null;
-    if (a.state === "pending") {
-      const pick = h("select", {}, ag.abilities.map((x) => h("option", { value: x.ability, title: x.permits }, abilityName[x.ability] || x.ability)));
-      controls = h("div", { class: "row small", style: "margin-top:8px" }, pick,
-        h("button", { class: "btn small primary", onclick: async () => {
-          const ab = pick.value;
-          if (!confirm(`Agent ${a.display} das Recht „${abilityName[ab] || ab}“ geben?\n\nGib es nur frei, wenn dir der Agent genau diese Kennung genannt hat.`)) return;
-          try { await rpc("agent.grant", { agent_id: a.agent_id, ability: ab }); if (ab === "backup.read") showBackupLine(a.display); else render(); } catch (e) { fail(e); }
-        } }, "Freigeben"),
-        h("button", { class: "btn small", onclick: act(() => rpc("agent.revoke", { agent_id: a.agent_id }), `Anmeldung ${a.display} ablehnen?`) }, "Ablehnen"));
-    } else if (a.state === "granted") {
-      controls = h("div", { class: "row small", style: "margin-top:8px" },
-        h("button", { class: "btn small", onclick: act(() => rpc("agent.revoke", { agent_id: a.agent_id }), `Agent ${a.display} sofort widerrufen?`) }, "Widerrufen"));
+  const d = T("tpl-people");
+  const act = (question, fn) => async () => { if (question && !(await ask(question))) return; try { await fn(); render(); } catch (e) { fail(e); } };
+  const options = (select, selected) => {
+    for (const x of ag.abilities) {
+      const o = T("tpl-option");
+      o.value = x.ability; o.textContent = abilityName(x.ability); o.title = x.permits; o.selected = x.ability === selected;
+      select.append(o);
     }
-    return h("div", { class: "card" },
-      h("div", { class: "row" },
-        h("h3", { class: "grow" }, h("code", {}, a.display), " ", stateChip(a.state), " ", a.ability ? h("span", { class: "chip" }, abilityName[a.ability] || a.ability) : null),
-        h("span", { class: "muted small" }, a.state === "pending" || a.state === "granted" ? `verfällt ${fmtDateTime(a.expires_at)}` : "")),
-      h("p", { class: "small", style: "margin:6px 0 0" }, a.introduction),
-      h("p", { class: "muted small", style: "margin:4px 0 0" },
-        `angemeldet ${fmtDateTime(a.created_at)}`, a.granted_by ? ` · freigegeben von ${a.granted_by}` : "", ` · ${a.last_used_at ? "zuletzt " + fmtDateTime(a.last_used_at) : "nie benutzt"}`),
-      controls);
   };
-  const live = ag.agents.filter((a) => a.state === "pending" || a.state === "granted"), done = ag.agents.filter((a) => !live.includes(a));
-  const purpose = h("input", { type: "text", placeholder: "z. B. NAS: nächtliches Backup" });
-  const newAbility = h("select", {}, ag.abilities.map((x) => h("option", { value: x.ability, title: x.permits, selected: x.ability === "backup.read" }, abilityName[x.ability] || x.ability)));
-  const createForm = h("form", { class: "card", onsubmit: async (ev) => {
-    ev.preventDefault();
-    if (!confirm(`Token mit dem Recht „${abilityName[newAbility.value] || newAbility.value}“ anlegen?`)) return;
-    try { showToken(await rpc("agent.create", { introduction: purpose.value, ability: newAbility.value })); } catch (e) { fail(e); }
-  } }, h("h3", {}, "Token anlegen"),
-    h("p", { class: "muted small", style: "margin-top:0" }, "Für ein Skript, das sich nicht selbst anmelden kann, z. B. das nächtliche Backup."),
-    h("div", { class: "row" }, h("div", { class: "grow" }, h("label", {}, "Wofür"), purpose), h("div", {}, h("label", {}, "Recht"), newAbility)),
-    h("div", { style: "margin-top:10px" }, h("button", { class: "btn primary", type: "submit" }, "Token anlegen")));
-  const agents = [
-    h("p", { class: "muted small" }, "Agenten melden sich selbst an und nennen dir eine Kennung aus acht Buchstaben. Gib jeder Anmeldung genau ein Recht. Portal-Logins sieht kein Agent; nur das Recht „Backup holen“ bekommt sie versiegelt mit."),
-    createForm,
-    live.length ? live.map(agentCard) : h("p", { class: "muted small" }, "Keine aktiven Agenten."),
-    done.length ? h("details", {}, h("summary", { class: "small muted" }, `${done.length} abgelaufen oder widerrufen`), done.map(agentCard)) : null,
-  ];
-  const file = h("input", { type: "file", accept: ".jsonl,application/jsonl,text/plain" }), omit = h("input", { type: "checkbox" });
-  const backup = h("div", { class: "card" },
-    h("p", { class: "small", style: "margin-top:0" }, "Das Backup enthält alles: Vorgänge mit Verlauf, Tresor, Personen und Zugänge. Logins nur versiegelt – ohne die Tresor-Passphrase sind sie unlesbar."),
-    h("a", { class: "btn", href: backupUrl(), download: "" }, "Backup herunterladen"),
-    h("form", { style: "margin-top:14px", onsubmit: async (ev) => {
-      ev.preventDefault();
-      const f = file.files[0]; if (!f) { toast("Wähle zuerst eine Backup-Datei.", true); return; }
-      if (!confirm("Backup einlesen? Es wird nichts überschrieben: Vorhandenes kommt als „… (Import Datum)“ dazu.")) return;
-      try { state.importReport = await rpc("backup.import", { jsonl: await f.text(), include_access: !omit.checked }); go("#/import"); } catch (e) { fail(e); }
-    } },
-      h("label", {}, "Backup einlesen (wird hinzugefügt)"), file,
-      h("p", { class: "muted small", style: "margin:4px 0" }, "Lies nur ein Backup ein, das du selbst aus diesem Dienst geholt hast: Mit Personen und Zugängen bringt es auch Verwaltungsrechte und gültige Zugänge mit."),
-      h("label", { style: "color:var(--text)" }, omit, "Personen und Zugänge weglassen (nur Vorgänge, Verlauf und Tresor)"),
-      h("div", { style: "margin-top:10px" }, h("button", { class: "btn primary", type: "submit" }, "Einlesen"))));
-  return h("div", { class: "pad", style: "max-width:900px" }, h("h1", {}, "Personen"), inviteForm, people, h("h2", {}, "Agenten"), agents, h("h2", {}, "Backup"), backup);
+
+  const invite = ref(d, "invite");
+  for (const u of r.users) {
+    const card = put(T("tpl-person"), { name: u.name, email: u.email });
+    show(ref(card, "is-admin"), u.is_admin); show(ref(card, "inactive"), !u.active);
+    show(ref(card, "admin-take"), u.is_admin); show(ref(card, "admin-give"), !u.is_admin);
+    show(ref(card, "deactivate"), u.active); show(ref(card, "reactivate"), !u.active);
+    bind(card, {
+      reinvite: async () => { try { showInvitation(u.name, await rpc("user.reinvite", { user_id: u.user_id })); } catch (e) { fail(e); } },
+      admin: act(msg(u.is_admin ? "confirm.person.admin_take" : "confirm.person.admin_give", { name: u.name }), () => rpc("user.setAdmin", { user_id: u.user_id, is_admin: !u.is_admin })),
+      active: act(u.active ? msg("confirm.person.deactivate", { name: u.name }) : null, () => rpc("user.setActive", { user_id: u.user_id, active: !u.active })),
+    });
+    for (const dev of u.devices) {
+      const tr = put(T("tpl-person-device"), { label: dev.label, seen: fmtDateTime(dev.last_seen_at), address: dev.last_address, invitation: dev.invitation_id });
+      show(ref(tr, "revoked"), !!dev.revoked_at); show(ref(tr, "revoke"), !dev.revoked_at);
+      bind(tr, { revoke: act(msg("confirm.person.device", { label: dev.label, name: u.name }), () => rpc("device.revoke", { device_id: dev.device_id })) });
+      ref(card, "rows").append(tr);
+    }
+    for (const i of u.invitations) {
+      const tr = put(T("tpl-person-invitation"), { id: i.invitation_id, created: fmtDateTime(i.created_at), expires: fmtDateTime(i.expires_at) });
+      ref(tr, "state").append(msgNode(`invitation.state.${i.state}`));
+      show(ref(tr, "withdraw"), i.state === "open");
+      bind(tr, { withdraw: act(msg("confirm.invitation.withdraw"), () => rpc("invitation.withdraw", { invitation_id: i.invitation_id })) });
+      ref(card, "rows").append(tr);
+    }
+    ref(d, "people").append(card);
+  }
+
+  const agentCard = (a) => {
+    const card = put(T("tpl-agent"), { display: a.display, introduction: a.introduction });
+    ref(card, "state").append(msgNode(`agent.state.${a.state}`));
+    const ab = ref(card, "ability");
+    if (a.ability) ab.textContent = abilityName(a.ability); else show(ab, false);
+    const active = a.state === "pending" || a.state === "granted";
+    ref(card, "expires").textContent = active ? msg("agent.expires", { date: fmtDateTime(a.expires_at) }) : "";
+    const meta = [msg("agent.registered", { date: fmtDateTime(a.created_at) })];
+    if (a.granted_by) meta.push(msg("agent.granted_by", { name: a.granted_by }));
+    meta.push(a.last_used_at ? msg("agent.last_used", { date: fmtDateTime(a.last_used_at) }) : msg("agent.never_used"));
+    ref(card, "meta").textContent = meta.join(" ");
+    show(ref(card, "pending"), a.state === "pending");
+    show(ref(card, "granted"), a.state === "granted");
+    const pick = ref(card, "pick");
+    options(pick, null);
+    return bind(card, {
+      grant: async () => {
+        const chosen = pick.value;
+        if (!(await ask(msg("confirm.agent.grant", { display: a.display, ability: abilityName(chosen) })))) return;
+        try { await rpc("agent.grant", { agent_id: a.agent_id, ability: chosen }); if (chosen === "backup.read") showBackupLine(a.display); else render(); } catch (e) { fail(e); }
+      },
+      reject: act(msg("confirm.agent.reject", { display: a.display }), () => rpc("agent.revoke", { agent_id: a.agent_id })),
+      revoke: act(msg("confirm.agent.revoke", { display: a.display }), () => rpc("agent.revoke", { agent_id: a.agent_id })),
+    });
+  };
+  const live = ag.agents.filter((a) => a.state === "pending" || a.state === "granted");
+  const done = ag.agents.filter((a) => !live.includes(a));
+  for (const a of live) ref(d, "live").append(agentCard(a));
+  show(ref(d, "none"), live.length === 0);
+  show(ref(d, "done"), done.length > 0);
+  ref(d, "done-summary").textContent = msg("agent.done", { n: done.length });
+  for (const a of done) ref(d, "done-list").append(agentCard(a));
+  options(ref(d, "ability"), "backup.read");
+  ref(d, "download").href = backupUrl();
+
+  return bind(d, {
+    invite: async () => {
+      const name = ref(invite, "name").value;
+      try { showInvitation(name, await rpc("user.create", { name, email: ref(invite, "email").value, is_admin: ref(invite, "admin").checked })); } catch (e) { fail(e); }
+    },
+    "create-token": async () => {
+      const ability = ref(d, "ability").value;
+      if (!(await ask(msg("confirm.token.create", { ability: abilityName(ability) })))) return;
+      try { showToken(await rpc("agent.create", { introduction: ref(d, "purpose").value, ability })); } catch (e) { fail(e); }
+    },
+    import: async () => {
+      const file = ref(d, "file").files[0];
+      if (!file) { toast(msg("toast.choose_file"), true); return; }
+      if (!(await ask(msg("confirm.import")))) return;
+      try { state.importReport = await rpc("backup.import", { jsonl: await file.text(), include_access: !ref(d, "omit").checked }); go("#/import"); } catch (e) { fail(e); }
+    },
+  });
 }
 
 function viewImport() {
   const r = state.importReport;
-  if (!r) return h("div", { class: "pad" }, h("h1", {}, "Import"), h("p", { class: "muted" }, "In dieser Sitzung wurde nichts eingelesen. Eingelesene Doppel tragen „(Import Datum)“ im Namen."));
-  const vault = { adopted: "Tresor aus dem Backup übernommen – es gilt dessen Passphrase.", same: "Gleicher Tresor – die Logins funktionieren.", different: "Anderer Tresor – Logins aus dem Backup wurden weggelassen.", none: "Kein Tresor im Backup." }[r.vault] || r.vault;
-  const rows = r.renamed.map((x) => {
-    const tr = h("tr", {}, h("td", {}, x.kind === "job" ? "Vorgang" : "Person"), h("td", {}, x.name));
-    const del = h("button", { class: "btn small", onclick: async () => {
-      if (!confirm(`„${x.name}“ löschen?`)) return;
-      try {
-        if (x.kind === "job") await rpc("job.delete", { job_id: x.job_id }); else await rpc("user.delete", { user_id: x.user_id });
-        x.deleted = true; tr.lastChild.replaceChildren(h("span", { class: "chip" }, "gelöscht")); await loadJobs(); renderBar();
-      } catch (e) { fail(e); }
-    } }, "Löschen");
-    tr.append(h("td", {}, x.deleted ? h("span", { class: "chip" }, "gelöscht") : del));
-    return tr;
+  const d = T("tpl-import");
+  show(ref(d, "report"), !!r); show(ref(d, "nothing"), !r);
+  if (!r) return d;
+  put(d, {
+    jobs: r.jobs_added, runs: r.runs_added, people: r.people_added, devices: r.devices_added, agents: r.agents_added,
+    left_out: r.skipped_left_out, existing: r.skipped_existing, unrelated: r.skipped_unrelated,
+    admins: r.admins_added.map((x) => x.name).join(", "),
   });
-  return h("div", { class: "pad", style: "max-width:900px" },
-    h("h1", {}, "Import"),
-    h("p", {}, `${r.jobs_added} Vorgänge, ${r.runs_added} Läufe, ${r.people_added} Personen, ${r.devices_added} Geräte, ${r.agents_added} Tokens hinzugefügt.`),
-    h("p", { class: "small" }, vault, r.logins_dropped ? ` ${r.logins_dropped} Logins weggelassen.` : ""),
-    (r.skipped_left_out || r.skipped_existing || r.skipped_unrelated)
-      ? h("p", { class: "muted small" }, `Nicht übernommen: ${r.skipped_left_out} weggelassen, ${r.skipped_existing} schon vorhanden, ${r.skipped_unrelated} ohne Bezug.`) : null,
-    r.admins_added.length
-      ? h("div", { class: "card", style: "border-color:var(--bad)" }, h("strong", {}, "Mit Verwaltungsrecht eingelesen – bitte prüfen: "), r.admins_added.map((x) => x.name).join(", ")) : null,
-    r.renamed.length
-      ? [h("h2", {}, "Schon vorhanden – als Kopie hinzugefügt"), h("p", { class: "muted small" }, "Lösche, was du nicht brauchst."), h("table", { class: "small" }, h("tbody", {}, rows))]
-      : h("p", { class: "muted" }, "Nichts davon war schon vorhanden."));
+  ref(d, "vault").textContent = [msg(`import.vault.${r.vault}`), r.logins_dropped ? msg("import.logins_dropped", { n: r.logins_dropped }) : ""].join(" ").trim();
+  show(ref(d, "skipped"), !!(r.skipped_left_out || r.skipped_existing || r.skipped_unrelated));
+  show(ref(d, "admins"), r.admins_added.length > 0);
+  show(ref(d, "renamed"), r.renamed.length > 0);
+  show(ref(d, "none"), r.renamed.length === 0);
+  for (const x of r.renamed) {
+    const tr = put(T("tpl-import-row"), { name: x.name });
+    ref(tr, "kind").textContent = msg(`import.kind.${x.kind}`);
+    const mark = () => { show(ref(tr, "delete"), false); show(ref(tr, "deleted"), true); };
+    if (x.deleted) mark();
+    bind(tr, {
+      delete: async () => {
+        if (!(await ask(msg("confirm.import.delete", { name: x.name })))) return;
+        try {
+          if (x.kind === "job") await rpc("job.delete", { job_id: x.job_id }); else await rpc("user.delete", { user_id: x.user_id });
+          x.deleted = true; mark(); await loadJobs(); renderBar();
+        } catch (e) { fail(e); }
+      },
+    });
+    ref(d, "rows").append(tr);
+  }
+  return d;
 }
 
 // ------------------------------------------------------------------ entry states without access
 function viewInvite(token) {
-  const label = h("input", { type: "text", required: true, maxlength: 80, value: guessDeviceLabel() });
-  const btn = h("button", { class: "btn primary", type: "submit" }, "Einladung auf diesem Gerät annehmen");
-  return h("form", { class: "pad", style: "max-width:520px", onsubmit: async (ev) => {
-    ev.preventDefault(); btn.disabled = true;
-    try {
-      const r = await rpc("invitation.redeem", { token, label: label.value });
-      history.replaceState(null, "", location.pathname + "#/");
-      toast(`Willkommen, ${r.name}.`);
-      await boot();
-    } catch (e) { btn.disabled = false; fail(e); }
-  } },
-    h("h1", {}, "Einladung annehmen"),
-    h("p", {}, "Dieses Gerät bekommt einen eigenen Zugang. Den Link kannst du auf jedem deiner Geräte öffnen."),
-    h("label", {}, "Wie soll dieses Gerät heißen?"), label,
-    h("div", { style: "margin-top:16px" }, btn));
+  const d = T("tpl-invite");
+  ref(d, "label").value = guessDeviceLabel();
+  const submit = ref(d, "submit");
+  return bind(d, {
+    accept: async () => {
+      submit.disabled = true;
+      try {
+        const r = await rpc("invitation.redeem", { token, label: ref(d, "label").value });
+        history.replaceState(null, "", location.pathname + "#/");
+        toast(msg("toast.welcome", { name: r.name }));
+        await boot();
+      } catch (e) { submit.disabled = false; fail(e); }
+    },
+  });
 }
 
 function viewSetup() {
-  const secret = h("input", { type: "password", required: true, autocomplete: "off" }), name = h("input", { type: "text", required: true }), email = h("input", { type: "email" });
-  return h("form", { class: "pad", style: "max-width:560px", onsubmit: async (ev) => {
-    ev.preventDefault();
-    try {
-      const r = await rpc("setup.createAdmin", { name: name.value, email: email.value }, { "X-Setup-Secret": secret.value.trim() });
-      location.hash = "#invite=" + encodeURIComponent(r.invitation_token);
-    } catch (e) { fail(e); }
-  } },
-    h("h1", {}, "Einrichtung"),
-    h("p", {}, "Portal-Download ist noch nicht eingerichtet. Das Setup-Geheimnis steht in der Datei bootstrap.toml im Zustandsverzeichnis des Dienstes und, solange niemand eingerichtet ist, auch in der Log-Zeile beim Start. Es gilt 30 Minuten; ein Neustart oder „portal-download bootstrap“ erzeugt ein neues."),
-    h("label", {}, "Setup-Geheimnis"), secret,
-    h("label", {}, "Dein Name"), name,
-    h("label", {}, "E-Mail (optional)"), email,
-    h("div", { style: "margin-top:16px" }, h("button", { class: "btn primary", type: "submit" }, "Ersten Zugang anlegen")));
+  const d = T("tpl-setup");
+  return bind(d, {
+    setup: async () => {
+      try {
+        const r = await rpc("setup.createAdmin", { name: ref(d, "name").value, email: ref(d, "email").value }, { "X-Setup-Secret": ref(d, "secret").value.trim() });
+        location.hash = "#invite=" + encodeURIComponent(r.invitation_token);
+      } catch (e) { fail(e); }
+    },
+  });
 }
 
 function viewNoAccess(err) {
-  return h("div", { class: "pad", style: "max-width:560px" },
-    h("h1", {}, CONFIG.app_name),
-    h("p", {}, "Auf diesem Gerät besteht kein Zugang. Öffne den Einladungslink, den du bekommen hast; er funktioniert auf jedem deiner Geräte."),
-    err ? h("p", { class: "muted small" }, err) : null,
-    h("p", { class: "muted small" }, "Keinen Link (mehr)? Frag eine Person im Kreis, die Personen verwalten darf, nach einer neuen Einladung."));
+  return put(T("tpl-no-access"), { app_name: CONFIG.app_name, error: err || "" });
 }
 
 // ------------------------------------------------------------------ render
@@ -798,9 +1353,9 @@ async function render() {
   const mySeq = ++renderSeq;
   const r = route();
   const view = $("#view");
-  if (r.view === "invite") { hidePortal(); $("#bar").replaceChildren(); view.replaceChildren(viewInvite(r.token)); return; }
+  if (r.view === "invite") { hidePortal(); renderBarWithoutAccess(); view.replaceChildren(viewInvite(r.token)); return; }
   if (!state.me) {
-    hidePortal(); $("#bar").replaceChildren();
+    hidePortal(); renderBarWithoutAccess();
     view.replaceChildren(state.status && state.status.setup_required ? viewSetup() : viewNoAccess(state.authError));
     return;
   }
@@ -837,11 +1392,12 @@ async function render() {
   if (mySeq !== renderSeq) return; // a newer render has started
   view.replaceChildren(...(content ? [content] : []));
 }
+function renderBarWithoutAccess() {
+  const saved = state.me; state.me = null; renderBar(); state.me = saved;
+}
 
 async function boot() {
   try {
-    try { CONFIG = { ...CONFIG, ...(await (await fetch("config.json", { cache: "no-cache" })).json()) }; } catch {}
-    document.title = CONFIG.app_name;
     state.status = await rpc("service.status");
     state.me = state.status.me && state.status.me.kind === "person" ? state.status.me : null;
     if (state.me) {
@@ -857,11 +1413,18 @@ async function boot() {
   await render();
 }
 
-if (!window.isSecureContext || !window.crypto || !crypto.subtle) {
-  $("#loading").replaceChildren("Diese Seite braucht HTTPS (oder localhost), damit Verschlüsselung und Zwischenablage im Browser funktionieren. Bitte über die HTTPS-Adresse des Dienstes öffnen.");
-} else {
-  boot();
+async function start() {
+  try { CONFIG = { ...CONFIG, ...(await (await fetch("config.json", { cache: "no-cache" })).json()) }; } catch (e) { console.error(e); }
+  document.title = CONFIG.app_name;
+  await setLanguage(chosenLanguage());
+  if (!window.isSecureContext || !window.crypto || !crypto.subtle) {
+    ref($("#loading"), "text").textContent = msg("app.insecure");
+    $("#loading").querySelector(".spinner").hidden = true;
+    return;
+  }
+  await boot();
 }
+start();
 </script>
 </body>
 </html>

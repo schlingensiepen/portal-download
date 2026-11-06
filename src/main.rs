@@ -7,6 +7,8 @@ mod bootstrap;
 mod config;
 mod describe;
 mod error;
+#[cfg(test)]
+mod frontend_check;
 mod http;
 mod rpc;
 mod schedule;

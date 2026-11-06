@@ -20,6 +20,8 @@ use std::sync::{Arc, Mutex};
 
 pub const INDEX_HTML: &[u8] = include_bytes!("../static/index.html");
 pub const CONFIG_JSON: &[u8] = include_bytes!("../static/config.json");
+/// Languages besides English, the language of the HTML file itself: code and its texts.
+pub const LANGUAGES: &[(&str, &[u8])] = &[("de", include_bytes!("../static/i18n/de.json"))];
 pub const COOKIE: &str = "pd_device";
 /// Browsers cap cookie lifetime at about 400 days; the credential is renewed on every visit.
 const COOKIE_MAX_AGE: u64 = 400 * 24 * 3600;
@@ -36,6 +38,7 @@ pub fn app(store: Store, state_dir: PathBuf) -> Router {
         .route("/", get(root))
         .route("/index.html", get(index))
         .route("/config.json", get(config_json))
+        .route("/i18n/{file}", get(language))
         .route("/describe/usage", get(usage))
         .route("/describe/skill", get(skill))
         .route("/describe/api", get(contract))
@@ -136,6 +139,23 @@ async fn index(State(st): State<Arc<AppState>>) -> Response {
 
 async fn config_json() -> Response {
     ([(header::CONTENT_TYPE, "application/json"), (header::CACHE_CONTROL, "no-cache")], CONFIG_JSON).into_response()
+}
+
+/// The texts of one language for the browser application, delivered as a file like config.json.
+async fn language(axum::extract::Path(file): axum::extract::Path<String>) -> Response {
+    match LANGUAGES.iter().find(|(code, _)| file == format!("{code}.json")) {
+        Some((_, body)) => (
+            [(header::CONTENT_TYPE, "application/json; charset=utf-8"), (header::CACHE_CONTROL, "no-cache"), (header::X_CONTENT_TYPE_OPTIONS, "nosniff")],
+            *body,
+        )
+            .into_response(),
+        None => (
+            StatusCode::NOT_FOUND,
+            [(header::CONTENT_TYPE, "text/plain; charset=utf-8")],
+            "There is no such language file. config.json lists the languages of the browser application.\n",
+        )
+            .into_response(),
+    }
 }
 
 async fn usage(ConnectInfo(peer): ConnectInfo<SocketAddr>, h: HeaderMap) -> Response {

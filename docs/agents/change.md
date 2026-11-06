@@ -20,7 +20,9 @@
 | `src/describe.rs` | Entry page, usage description, anchor skill and OpenRPC contract, rendered with the requesting host. |
 | `src/bootstrap.rs` | The setup window file. |
 | `src/schedule.rs` | Next due date and urgency. |
-| `static/index.html` | The whole browser application: form and hydration logic only, no data, no third-party code. |
+| `static/index.html` | The whole browser application: every view, dialog, row and message as a `<template>` in English, and the script that clones, fills and binds them. No data, no third-party code. |
+| `static/i18n/<code>.json` | The texts of one further language, by key. Listed in `static/config.json`, embedded through `LANGUAGES` in `src/http.rs`. |
+| `src/frontend_check.rs` | Tests that hold the building-block and translation rules below. |
 
 ## Rules that hold
 
@@ -31,6 +33,8 @@
 - **Credentials travel only in headers:** the device cookie, `Authorization: Bearer` for agent tokens, `X-Setup-Secret` during setup. Never in an address or in params. The one exception is the invitation token, which travels in the fragment of the link and is sent once in the body of `invitation.redeem`.
 - **The service never sees a portal login in plain text.** The browser seals it with the vault key. `store.rs` refuses anything that does not have the shape of a sealed value (12-byte nonce, ciphertext with tag); it cannot tell real ciphertext from bytes that merely look like it.
 - **The HTML file contains no data.** Two unauthenticated requests return identical bytes. Configuration lives in `static/config.json`. No script or stylesheet comes from another host. The inline script is allowed by its hash, which `src/http.rs` computes at start, so inline event handler attributes do not run: bind events with `addEventListener`.
+- **The markup holds the building blocks; the script only clones, fills and binds.** Every piece of the interface is a `<template>`. The script fills `[data-field]` with `textContent` only (the one exception is the sanitized Markdown of the instructions), shows or hides `[data-ref]` parts and binds `[data-action]`. It creates no element with text of its own. Questions use the page's own dialog (`ask`), never `confirm()`.
+- **Every text for people is translatable.** A text carries `data-i18n="key"`; a value inside it is an empty `<span data-field="name">`, which a translation places with `{name}`. Attributes use `data-i18n-placeholder`, `data-i18n-title`, `data-i18n-aria-label`. A text the script needs on its own (toast, question, chip) is an entry in the `messages` template, used through `msg`/`msgNode`/`plural`. Technical lines that must not be translated carry `translate="no"`. `src/frontend_check.rs` fails on text outside these rules and on a language file that lacks a key or has one too many.
 - **Delivered texts are present tense and self-contained.** They contain no history ("removed", "formerly"), no internal identifiers, no file names of this repository, and every placeholder names the call that yields it. `src/describe.rs` tests this.
 - **A behavior rule is stated once.** The principle goes in the usage description, the case in the description of the method it concerns. The usage description names no method, and a test holds this.
 - **No administration surface besides the browser application and the commands.** People and agent tokens are administered through the person-level right in the application. The first administering person comes only through the setup window.
@@ -42,6 +46,8 @@
 | When you change … | … also change |
 |---|---|
 | a method in `METHODS` (`src/rpc.rs`) | its dispatch arm, the operation in `src/store.rs`, the caller in `static/index.html` |
+| a text in `static/index.html` | its entry in every `static/i18n/<code>.json` |
+| a language | its file in `static/i18n/`, `LANGUAGES` in `src/http.rs`, the list in `static/config.json` |
 | what a caller may do or must do | the usage description in `src/describe.rs` and `README.md` |
 | commands or exit codes in `src/main.rs` | the table in `README.md` and the head comment of `src/main.rs` |
 | configuration keys | `src/config.rs` messages, `examples/config.toml`, `README.md` |

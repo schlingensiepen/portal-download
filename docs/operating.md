@@ -20,8 +20,8 @@ The service writes only the state directory and never its configuration. Run the
 
 ## Daily operation
 
-- **Inviting:** under **Personen**, a person with the right to administer people creates the invitation. The link is shown once and is valid for seven days on any number of the invited person's devices. **Neue Einladung** creates a fresh link for an existing person without creating a second one.
-- **A lost device:** revoke that device, either the owner under **Meine Geräte** or an administering person under **Personen**. If the invitation may have leaked and is still open, withdraw it too. Devices that are already registered stay registered.
+- **Inviting:** under **People**, a person with the right to administer people creates the invitation. The link is shown once and is valid for seven days on any number of the invited person's devices. **New invitation** creates a fresh link for an existing person without creating a second one.
+- **A lost device:** revoke that device, either the owner under **My devices** or an administering person under **People**. If the invitation may have leaked and is still open, withdraw it too. Devices that are already registered stay registered.
 - **Somebody leaves:** deactivate the person. All their devices stop at the next request.
 - **Locked out (all administering people lost their devices):** run `portal-download bootstrap` on the server, then call `setup.createAdmin` with the printed secret or open the setup form. The form appears in a browser without a device credential only while nobody is set up. With people already set up, use the API:
 
@@ -32,22 +32,22 @@ The service writes only the state directory and never its configuration. Run the
   ```
 
   The response holds `invitation_token`. Open `https://downloads.intra.example/#invite=<invitation_token>` with the token from that response.
-- **An agent or a script** works with an agent token in the header `Authorization: Bearer`, not with a person's cookie. It registers itself through the API and names an eight-letter display string. Under **Personen → Agenten**, check that the display string and the introduction match what the agent said, and grant exactly one ability. Reject registrations you do not recognise. A script that only needs the due list gets *Jobs lesen*. The token lives in that machine's environment as `PORTAL_DOWNLOAD_AGENT_TOKEN`. Revoke it there at any time.
+- **An agent or a script** works with an agent token in the header `Authorization: Bearer`, not with a person's cookie. It registers itself through the API and names an eight-letter display string. Under **People → Agents**, check that the display string and the introduction match what the agent said, and grant exactly one ability. Reject registrations you do not recognise. A script that only needs the due list gets *Read jobs*. The token lives in that machine's environment as `PORTAL_DOWNLOAD_AGENT_TOKEN`. Revoke it there at any time.
 
 ## Backup
 
 The backup is one JSONL file: a head line, then one record per line (vault, people, invitations, devices, agent tokens, jobs, runs). There are two ways to get it, and they write the same file:
 
-- **With `curl`, from any machine:** under **Personen → Agenten**, create a token with the ability *Backup holen*. The application shows the complete line once, for example as a nightly cron job:
+- **With `curl`, from any machine:** under **People → Agents**, create a token with the right *Take the backup*. The application shows the complete line once, for example as a nightly cron job:
 
   ```sh
   curl -fsS -H "Authorization: Bearer pda_…" https://downloads.intra.example/backup -o portal-download-$(date +%F).jsonl
   ```
 
-  A person with the right to administer people can also click **Backup herunterladen** under **Personen**.
+  A person with the right to administer people can also click **Download backup** under **People**.
 - **On the server:** `portal-download backup /some/dir/portal-download-$(date +%F).jsonl`. It never overwrites a file and makes it readable by its owner only.
 
-**Restoring is adding.** Under **Personen → Backup**, a person with the right to administer people uploads the file. Nothing is overwritten. A job with the same title and entry address, or a person with the same name or e-mail, comes in a second time as "… (Import YYYY-MM-DD)". The application then lists those copies with a delete button each. *Personen und Zugänge weglassen* imports only jobs, their history and the vault. With people and accesses, a file brings in people with the right to administer people and working credentials. The application names those people after the import. **Import only a backup you took from this service yourself.** The file is checked line by line, and a faulty line rejects the whole import.
+**Restoring is adding.** Under **People → Backup**, a person with the right to administer people uploads the file. Nothing is overwritten. A job with the same title and entry address, or a person with the same name or e-mail, comes in a second time as "… (Import YYYY-MM-DD)". The application then lists those copies with a delete button each. *Leave people and accesses out* imports only jobs, their history and the vault. With people and accesses, a file brings in people with the right to administer people and working credentials. The application names those people after the import. **Import only a backup you took from this service yourself.** The file is checked line by line, and a faulty line rejects the whole import.
 
 **On a fresh instance**, set up with a name such as "Setup", upload the backup with people and accesses, and delete "Setup" afterwards. Devices and tokens from the backup keep working when the instance runs under the same address. If the instance has no vault yet, it adopts the one from the backup, and the old passphrase applies. If it has a different vault, or the file holds none, jobs come without their logins.
 
