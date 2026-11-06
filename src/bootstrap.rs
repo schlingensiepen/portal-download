@@ -66,7 +66,7 @@ pub fn check(state_dir: &Path, presented: Option<&str>) -> OpResult<()> {
     let Some(presented) = presented.filter(|s| !s.is_empty()) else {
         return Err(OpError::unauthorized(
             "setup_secret_missing",
-            "This call needs the setup secret in the header X-Setup-Secret. It is in the setup file in the state directory and in the service log line written at start.",
+            "This call needs the setup secret in the header X-Setup-Secret. It is in the setup file bootstrap.toml in the state directory; while nobody is set up yet, the start log line shows it too.",
         ));
     };
     let text = std::fs::read_to_string(path(state_dir)).map_err(|_| closed())?;
@@ -78,7 +78,7 @@ pub fn check(state_dir: &Path, presented: Option<&str>) -> OpResult<()> {
     if !token::equal(&w.secret, presented) {
         return Err(OpError::unauthorized(
             "setup_secret_wrong",
-            "The setup secret does not match the open window. Copy it again from the setup file or from the most recent start log line; a restart replaces it.",
+            "The setup secret does not match the open window. Copy it again from the setup file bootstrap.toml in the state directory; a restart or `portal-download bootstrap` replaces it.",
         ));
     }
     Ok(())

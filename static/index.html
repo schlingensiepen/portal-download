@@ -200,8 +200,8 @@ async function idbDo(mode, fn) {
   return new Promise((resolve, reject) => {
     const tx = db.transaction("keys", mode);
     const req = fn(tx.objectStore("keys"));
-    tx.oncomplete = () => resolve(req && req.result);
-    tx.onerror = () => reject(tx.error);
+    tx.oncomplete = () => { db.close(); resolve(req && req.result); };
+    tx.onerror = () => { db.close(); reject(tx.error); };
   });
 }
 async function deriveKey(passphrase, saltB64, iterations) {
@@ -243,13 +243,14 @@ async function lockVault() {
   toast("Tresor gesperrt.");
   render();
 }
-const decrypted = new Map(); // job_id -> {username, password}
+const decrypted = new Map(); // sealed username + sealed password -> {username, password}
 async function credsOf(job) {
   if (!vault.key) return null;
-  if (decrypted.has(job.job_id)) return decrypted.get(job.job_id);
+  const k = job.username_sealed + "\n" + job.password_sealed;
+  if (decrypted.has(k)) return decrypted.get(k);
   try {
     const c = { username: await unseal(vault.key, "username", job.username_sealed), password: await unseal(vault.key, "password", job.password_sealed) };
-    decrypted.set(job.job_id, c);
+    decrypted.set(k, c);
     return c;
   } catch { return { error: true }; }
 }
@@ -277,7 +278,10 @@ function vaultDialog() {
           const key = await deriveKey(p1.value, salt, 600000);
           vault.meta = await rpc("vault.create", { salt, iterations: 600000, verifier: await seal(key, "verifier", VERIFIER_TEXT) });
           vault.key = key; await rememberKey(key); close(); toast("Tresor angelegt."); render();
-        } catch (e) { go.disabled = false; fail(e); }
+        } catch (e) {
+          if (e.type === "vault_exists") { close(); toast("Inzwischen hat jemand anderes den Tresor angelegt; gib dessen Passphrase ein.", true); await loadVault(); vaultDialog(); return; }
+          go.disabled = false; fail(e);
+        }
       } },
         h("h1", {}, "Tresor anlegen"),
         h("p", { class: "muted small" }, "Benutzernamen und Passwörter der Portale werden in diesem Browser mit einem Schlüssel aus dieser Passphrase verschlüsselt. Der Dienst speichert nur Verschlüsseltes und kennt die Passphrase nicht. Alle im Kreis verwenden dieselbe Passphrase – gebt sie persönlich weiter, nicht über diesen Dienst. Geht sie verloren, sind die gespeicherten Zugangsdaten nicht mehr lesbar."),
@@ -310,9 +314,15 @@ const state = { status: null, me: null, jobs: [], today: null, current: 0, runni
 
 function route() {
   const f = location.hash.replace(/^#/, "");
-  if (f.startsWith("invite=")) return { view: "invite", token: decodeURIComponent(f.slice(7)) };
+  if (f.startsWith("invite=")) {
+    let token = "";
+    try { token = decodeURIComponent(f.slice(7)); } catch {}
+    return { view: "invite", token };
+  }
   const parts = f.replace(/^\//, "").split("/").filter(Boolean);
-  return { view: parts[0] || "work", id: parts[1] ? Number(parts[1]) : null };
+  const id = parts[1] ? Number(parts[1]) : null;
+  if (parts[1] && !Number.isInteger(id)) return { view: "work", id: null };
+  return { view: parts[0] || "work", id };
 }
 function go(fragment) { if (location.hash !== fragment) location.hash = fragment; else render(); }
 window.addEventListener("hashchange", () => render());
@@ -320,7 +330,8 @@ window.addEventListener("hashchange", () => render());
 async function loadJobs() {
   const r = await rpc("job.list");
   state.jobs = r.jobs; state.today = r.today;
-  for (const id of [...decrypted.keys()]) if (!state.jobs.some((j) => j.job_id === id)) decrypted.delete(id);
+  const live = new Set(state.jobs.map((j) => j.username_sealed + "\n" + j.password_sealed));
+  for (const k of [...decrypted.keys()]) if (!live.has(k)) decrypted.delete(k);
   if (state.current >= state.jobs.length) state.current = Math.max(0, state.jobs.length - 1);
 }
 const currentJob = () => state.jobs[state.current] || null;
@@ -335,8 +346,11 @@ function openPortalWindow(url) {
   const w = Math.round((screen.availWidth || 1280) * 0.75), hgt = screen.availHeight || 800;
   const win = window.open("", "pd-portal", `popup=yes,width=${w},height=${hgt},left=${screen.availLeft || 0},top=${screen.availTop || 0}`);
   if (!win) { toast("Das Fenster wurde blockiert. Erlaube Pop-ups für diese Seite und klicke erneut auf „Ausführen“.", true); return; }
-  win.opener = null;
-  win.location.href = url;
+  // A new window is still about:blank and ours: cut the way back before loading the portal.
+  // A window reused from an earlier run is on the portal's origin; there opener is not ours to set.
+  try { win.opener = null; } catch {}
+  try { win.location.href = url; } catch { toast("Das Portal-Fenster ließ sich nicht umlenken; schließe es und klicke erneut auf „Ausführen“.", true); return; }
+  try { win.focus(); } catch {}
   portalWindow = win;
 }
 function run(job) {
@@ -397,12 +411,15 @@ function renderCurrent(job) {
     const what = outcome === "succeeded" ? "als „hat geklappt“" : "als „hat nicht geklappt“";
     if (!confirm(`„${job.title}“ ${what} abschließen?`)) return;
     try {
-      const r = await rpc("job.complete", { job_id: job.job_id, outcome, note: note.value });
+      const r = await rpc("job.complete", { job_id: job.job_id, outcome, note: note.value, expected_run_count: job.run_count });
       toast(`Abgeschlossen – wieder fällig am ${fmtDate(r.next_due)}.`);
       if (state.running === job.job_id) state.running = null;
       await loadJobs(); state.current = 0;
       go(state.jobs.length ? `#/job/${state.jobs[0].job_id}` : "#/");
-    } catch (e) { fail(e); }
+    } catch (e) {
+      fail(e);
+      if (e.type === "job_changed") { await loadJobs(); render(); }
+    }
   };
   const last = job.last_run;
   return h("div", {},
@@ -413,7 +430,7 @@ function renderCurrent(job) {
     h("div", { style: "margin:14px 0 8px" },
       h("button", { class: "btn primary wide", onclick: () => run(job) }, job.embeddable ? "Ausführen" : "Ausführen (öffnet Fenster)")),
     credsBox,
-    job.instructions_html ? h("div", { class: "instructions", html: job.instructions_html }) : h("p", { class: "muted small" }, "Keine Anleitung hinterlegt."),
+    job.instructions_html ? instructionsBlock(job.instructions_html) : h("p", { class: "muted small" }, "Keine Anleitung hinterlegt."),
     note,
     h("div", { class: "finish" },
       h("button", { class: "btn ok", onclick: () => finish("succeeded") }, "Hat geklappt"),
@@ -421,6 +438,12 @@ function renderCurrent(job) {
     h("div", { class: "row small", style: "margin-top:14px" },
       h("a", { href: `#/edit/${job.job_id}` }, "Bearbeiten"), "·", h("a", { href: `#/history/${job.job_id}` }, "Verlauf"),
       h("span", { class: "muted" }, `· bei Fehlschlag wieder in ${job.retry_days} ${job.retry_days === 1 ? "Tag" : "Tagen"}`)));
+}
+
+function instructionsBlock(html) {
+  const d = h("div", { class: "instructions", html });
+  for (const a of d.querySelectorAll("a[href]")) { a.target = "_blank"; a.rel = "noopener noreferrer"; }
+  return d;
 }
 
 async function fillCreds(job, box) {
@@ -491,24 +514,27 @@ async function viewEdit(id) {
     next_due: h("input", { type: "date", required: true, value: job ? job.next_due : state.today }),
     username: h("input", { type: "text", autocomplete: "off", disabled: !canCreds, value: c && !c.error ? c.username : "" }),
     password: h("input", { type: "password", autocomplete: "new-password", disabled: !canCreds, value: c && !c.error ? c.password : "" }),
-    instructions_md: h("textarea", { placeholder: "## Was ist abzulegen?\n- Rechnung als PDF\n\n## Wohin?\n- Finanzen/Telekom/2026/" }, job ? job.instructions_md : ""),
+    instructions_md: h("textarea", { placeholder: "## Was ist abzulegen?\n- Rechnung als PDF\n\n## Wohin?\n- Finanzen/Stadtwerke/2026/" }, job ? job.instructions_md : ""),
   };
+  const touched = { username: false, password: false };
+  f.username.addEventListener("input", () => (touched.username = true));
+  f.password.addEventListener("input", () => (touched.password = true));
   const showPw = h("button", { class: "btn icon small", type: "button", onclick: (e) => { const hide = f.password.type === "text"; f.password.type = hide ? "password" : "text"; e.currentTarget.textContent = hide ? "Zeigen" : "Verbergen"; } }, "Zeigen");
   const save = h("button", { class: "btn primary", type: "submit" }, job ? "Speichern" : "Anlegen");
   const form = h("form", { class: "pad", style: "max-width:760px", onsubmit: async (ev) => {
     ev.preventDefault(); save.disabled = true;
     try {
-      const p = {
+      const all = {
         title: f.title.value, entry_url: f.entry_url.value.trim(), embeddable: f.embeddable.checked,
         interval_weeks: Number(f.interval_weeks.value), retry_days: Number(f.retry_days.value), next_due: f.next_due.value,
         instructions_md: f.instructions_md.value,
       };
-      if (canCreds) {
-        p.username_sealed = await seal(vault.key, "username", f.username.value);
-        p.password_sealed = await seal(vault.key, "password", f.password.value);
-      }
+      // When editing, send only what was changed, so that a concurrent change by somebody else survives.
+      const p = {};
+      for (const [k, v] of Object.entries(all)) if (!job || job[k] !== v) p[k] = v;
+      if (canCreds && (!job || touched.username)) p.username_sealed = await seal(vault.key, "username", f.username.value);
+      if (canCreds && (!job || touched.password)) p.password_sealed = await seal(vault.key, "password", f.password.value);
       const r = job ? await rpc("job.update", { job_id: job.job_id, ...p }) : await rpc("job.create", p);
-      decrypted.delete(r.job_id);
       await loadJobs(); selectJob(r.job_id);
       toast(job ? "Gespeichert." : "Angelegt.");
       go(`#/job/${r.job_id}`);
@@ -644,7 +670,7 @@ function viewSetup() {
     } catch (e) { fail(e); }
   } },
     h("h1", {}, "Einrichtung"),
-    h("p", {}, "Portal-Download ist noch nicht eingerichtet. Das Setup-Geheimnis steht in der Datei bootstrap.toml im Zustandsverzeichnis des Dienstes und in der Log-Zeile beim Start. Es gilt 30 Minuten; ein Neustart oder „portal-download bootstrap“ erzeugt ein neues."),
+    h("p", {}, "Portal-Download ist noch nicht eingerichtet. Das Setup-Geheimnis steht in der Datei bootstrap.toml im Zustandsverzeichnis des Dienstes und, solange niemand eingerichtet ist, auch in der Log-Zeile beim Start. Es gilt 30 Minuten; ein Neustart oder „portal-download bootstrap“ erzeugt ein neues."),
     h("label", {}, "Setup-Geheimnis"), secret,
     h("label", {}, "Dein Name"), name,
     h("label", {}, "E-Mail (optional)"), email,
@@ -671,6 +697,13 @@ async function render() {
     view.replaceChildren(state.status && state.status.setup_required ? viewSetup() : viewNoAccess(state.authError));
     return;
   }
+  // Others in the circle may have closed or changed jobs: fetch the list on every navigation.
+  try { await loadJobs(); } catch (e) {
+    if (mySeq !== renderSeq) return;
+    if (e.code === 401) { state.me = null; state.authError = e.message; return render(); }
+    fail(e);
+  }
+  if (mySeq !== renderSeq) return;
   if (r.id && ["job", "run", "edit", "history"].includes(r.view)) selectJob(r.id);
   renderBar();
   let content = null;
@@ -689,6 +722,7 @@ async function render() {
       else content = viewOverview();
     }
   } catch (e) {
+    if (mySeq !== renderSeq) return;
     if (e.code === 401) { state.me = null; state.authError = e.message; return render(); }
     fail(e); content = viewOverview();
   }

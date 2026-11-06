@@ -25,10 +25,11 @@
 ## Rules that hold
 
 - **Every action exists once, in `src/store.rs`.** `src/rpc.rs` only parses params, calls one operation and returns its result. A surface that needs something no operation offers gets a new operation.
-- **Access is checked in one place** (`admit` in `src/rpc.rs`), before any identifier in the params is resolved, so an error message never reveals whether an object exists.
+- **Access is checked in one place** (`admit` in `src/rpc.rs`), before any identifier in the params is resolved, so an error message never reveals whether an object exists. Where an operation checks ownership itself (`device.revoke`), an object the caller may not touch is answered exactly like a missing one.
+- **Store errors reach the caller without detail;** the detail goes to the service log only.
 - **One API address:** `POST /api/` with an unmodified JSON-RPC 2.0 envelope. Methods are named `area.action`, and the table is kept in alphabetical order. Application errors answer HTTP 200, with `error.code` (HTTP semantics), `error.data.type` and an `error.message` that names the next step. Reserved codes are used only for protocol faults.
 - **Credentials travel only in headers:** the device cookie, `Authorization: Bearer` for machine keys, `X-Setup-Secret` during setup. Never in an address or in params. The one exception is the invitation token, which travels in the fragment of the link and is sent once in the body of `invitation.redeem`.
-- **The service never sees a portal login in plain text.** The browser seals it with the vault key, and `store.rs` refuses anything that is not a sealed value.
+- **The service never sees a portal login in plain text.** The browser seals it with the vault key. `store.rs` refuses anything that does not have the shape of a sealed value (12-byte nonce, ciphertext with tag); it cannot tell real ciphertext from bytes that merely look like it.
 - **The HTML file contains no data.** Two unauthenticated requests return identical bytes. Configuration lives in `static/config.json`. No script or stylesheet comes from another host. The inline script is allowed by its hash, which `src/http.rs` computes at start, so inline event handler attributes do not run: bind events with `addEventListener`.
 - **Delivered texts are present tense and self-contained.** They contain no history ("removed", "formerly"), no internal identifiers, no file names of this repository, and every placeholder names the call that yields it. `src/describe.rs` tests this.
 - **A behavior rule is stated once.** The principle goes in the usage description, the case in the description of the method it concerns. The usage description names no method, and a test holds this.

@@ -63,11 +63,14 @@ fn content_security_policy() -> String {
     )
 }
 
-/// The base URL as the caller sees it: scheme and host of the request, also behind a proxy.
-pub fn base_url(h: &HeaderMap) -> String {
+/// The base URL as the caller sees it: scheme and host of the request. The forwarding
+/// headers count only when the request comes from the local reverse proxy.
+pub fn base_url(h: &HeaderMap, peer: SocketAddr) -> String {
     let get = |n: &str| h.get(n).and_then(|v| v.to_str().ok()).map(|s| s.split(',').next().unwrap_or("").trim().to_string()).filter(|s| !s.is_empty());
-    let proto = get("x-forwarded-proto").filter(|p| p == "https" || p == "http").unwrap_or_else(|| "http".into());
-    let host = get("x-forwarded-host").or_else(|| get("host")).unwrap_or_else(|| "localhost".into());
+    let proxied = peer.ip().is_loopback();
+    let fwd = |n: &str| if proxied { get(n) } else { None };
+    let proto = fwd("x-forwarded-proto").filter(|p| p == "https" || p == "http").unwrap_or_else(|| "http".into());
+    let host = fwd("x-forwarded-host").or_else(|| get("host")).unwrap_or_else(|| "localhost".into());
     let host: String = host.chars().filter(|c| c.is_ascii_alphanumeric() || ".-:[]".contains(*c)).collect();
     format!("{proto}://{host}")
 }
@@ -111,12 +114,17 @@ fn html(state: &AppState) -> Response {
     r
 }
 
-async fn root(State(st): State<Arc<AppState>>, h: HeaderMap) -> Response {
+fn lock(st: &AppState) -> std::sync::MutexGuard<'_, Store> {
+    // A panic in one request must not take every later request down with it.
+    st.store.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+async fn root(State(st): State<Arc<AppState>>, ConnectInfo(peer): ConnectInfo<SocketAddr>, h: HeaderMap) -> Response {
     if let Form::Html = form(&h, true) {
         return html(&st);
     }
-    let base = base_url(&h);
-    let set_up = st.store.lock().unwrap().has_users().unwrap_or(false);
+    let base = base_url(&h, peer);
+    let set_up = lock(&st).has_users().unwrap_or(false);
     prose(&h, if set_up { describe::entry_page(&base) } else { describe::setup_page(&base) })
 }
 
@@ -128,21 +136,21 @@ async fn config_json() -> Response {
     ([(header::CONTENT_TYPE, "application/json"), (header::CACHE_CONTROL, "no-cache")], CONFIG_JSON).into_response()
 }
 
-async fn usage(h: HeaderMap) -> Response {
-    prose(&h, describe::usage(&base_url(&h)))
+async fn usage(ConnectInfo(peer): ConnectInfo<SocketAddr>, h: HeaderMap) -> Response {
+    prose(&h, describe::usage(&base_url(&h, peer)))
 }
 
-async fn skill(h: HeaderMap) -> Response {
-    prose(&h, describe::skill(&base_url(&h)))
+async fn skill(ConnectInfo(peer): ConnectInfo<SocketAddr>, h: HeaderMap) -> Response {
+    prose(&h, describe::skill(&base_url(&h, peer)))
 }
 
-async fn contract(h: HeaderMap) -> Response {
-    let body = serde_json::to_string_pretty(&describe::contract(&base_url(&h))).expect("serializes");
+async fn contract(ConnectInfo(peer): ConnectInfo<SocketAddr>, h: HeaderMap) -> Response {
+    let body = serde_json::to_string_pretty(&describe::contract(&base_url(&h, peer))).expect("serializes");
     ([(header::CONTENT_TYPE, "application/json")], body).into_response()
 }
 
-async fn fallback(h: HeaderMap) -> Response {
-    let base = base_url(&h);
+async fn fallback(ConnectInfo(peer): ConnectInfo<SocketAddr>, h: HeaderMap) -> Response {
+    let base = base_url(&h, peer);
     (
         StatusCode::NOT_FOUND,
         [(header::CONTENT_TYPE, "text/plain; charset=utf-8")],
@@ -200,7 +208,7 @@ async fn api(State(st): State<Arc<AppState>>, ConnectInfo(peer): ConnectInfo<Soc
         return protocol_error(StatusCode::OK, -32600, "Invalid Request", Value::Null);
     };
     let id = match obj.get("id") {
-        Some(v @ (Value::String(_) | Value::Number(_))) => v.clone(),
+        Some(v @ (Value::String(_) | Value::Number(_) | Value::Null)) => v.clone(),
         _ => return protocol_error(StatusCode::OK, -32600, "Invalid Request", Value::Null),
     };
     let (Some("2.0"), Some(name)) = (obj.get("jsonrpc").and_then(Value::as_str), obj.get("method").and_then(Value::as_str)) else {
@@ -229,7 +237,7 @@ async fn api(State(st): State<Arc<AppState>>, ConnectInfo(peer): ConnectInfo<Soc
         .and_then(|s| s.strip_prefix("Bearer "))
         .map(|s| s.trim().to_string());
 
-    let store = st.store.lock().unwrap();
+    let store = lock(&st);
 
     // Establish the caller in one place, before any method runs.
     let auth = match (&device_cred, &machine_key) {
@@ -260,6 +268,7 @@ async fn api(State(st): State<Arc<AppState>>, ConnectInfo(peer): ConnectInfo<Soc
         Ok((result, effect)) => {
             let cookie = match effect {
                 Effect::SetDeviceCredential(c) => Some(device_cookie(&c)),
+                Effect::ClearDeviceCredential => Some(format!("{COOKIE}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax")),
                 Effect::None => renew,
             };
             rpc_body(StatusCode::OK, json!({ "jsonrpc": "2.0", "result": result, "id": id }), cookie)
@@ -372,11 +381,19 @@ mod tests {
         assert!(set_cookie.contains("HttpOnly") && set_cookie.contains("Secure") && set_cookie.contains("SameSite=Lax"));
         let cookie = set_cookie.split(';').next().unwrap().to_string();
 
-        let (h, v) = rpc(&t, "job.create", json!({"title":"Telekom","entry_url":"https://telekom.de","interval_weeks":4}), &[("cookie", &cookie)]).await;
-        assert_eq!(v["result"]["title"], "Telekom");
+        let (h, v) = rpc(&t, "job.create", json!({"title":"Energy","entry_url":"https://portal.example.org","interval_weeks":4}), &[("cookie", &cookie)]).await;
+        assert_eq!(v["result"]["title"], "Energy");
         assert!(h.contains_key("set-cookie"), "credential is renewed on every visit");
         let (_, v) = rpc(&t, "job.list", json!({}), &[("cookie", &cookie)]).await;
         assert_eq!(v["result"]["jobs"].as_array().unwrap().len(), 1);
+
+        // Signing out the calling device clears its cookie.
+        let (_, v) = rpc(&t, "device.list", json!({}), &[("cookie", &cookie)]).await;
+        let me = v["result"]["current_device_id"].as_i64().unwrap();
+        let (h, _) = rpc(&t, "device.revoke", json!({"device_id": me}), &[("cookie", &cookie)]).await;
+        assert!(h["set-cookie"].to_str().unwrap().contains("Max-Age=0"));
+        let (_, v) = rpc(&t, "job.list", json!({}), &[("cookie", &cookie)]).await;
+        assert_eq!(v["error"]["data"]["type"], "device_revoked");
 
         let (_, h, body) = send(&t, Request::get("/").header("host", "pd.intra.test").body(Body::empty()).unwrap()).await;
         assert_eq!(h["content-type"], "text/plain; charset=utf-8");
@@ -389,6 +406,9 @@ mod tests {
         h.insert("host", "127.0.0.1:8080".parse().unwrap());
         h.insert("x-forwarded-host", "downloads.intra.test".parse().unwrap());
         h.insert("x-forwarded-proto", "https".parse().unwrap());
-        assert_eq!(base_url(&h), "https://downloads.intra.test");
+        let local = SocketAddr::from(([127, 0, 0, 1], 1));
+        let remote = SocketAddr::from(([10, 0, 0, 9], 1));
+        assert_eq!(base_url(&h, local), "https://downloads.intra.test");
+        assert_eq!(base_url(&h, remote), "http://127.0.0.1:8080", "forwarding headers from elsewhere are ignored");
     }
 }

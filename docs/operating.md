@@ -14,7 +14,7 @@ The service writes only the state directory and never its configuration. Run the
 ## First start
 
 1. Write the configuration and run `portal-download check`. Every value is shown with its source.
-2. Start the service. The log line `not set up yet. Setup secret: pds_…` names the secret and how long it is valid.
+2. Start the service. The log line `not set up yet. Setup secret: pds_…` names the secret and how long it is valid. Once somebody is set up, the start log names only the setup file, not the secret.
 3. Open the service over its HTTPS address, enter the setup secret and your name. This creates the first person with the right to administer people and opens their invitation in that browser.
 4. Create the vault passphrase. Pass it to the other people of the circle in person, not through this service.
 

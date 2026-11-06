@@ -46,9 +46,9 @@ impl std::fmt::Display for OpError {
 
 impl From<rusqlite::Error> for OpError {
     fn from(e: rusqlite::Error) -> Self {
-        OpError::internal(format!(
-            "The data store reported an error: {e}. Retry once; if it persists, run `portal-download status` on the server and check the state directory."
-        ))
+        // The detail goes to the operator's log only; callers get no internals.
+        eprintln!("portal-download: store error: {e}");
+        OpError::internal("The data store reported an error. Retry once; if it persists, the operator finds the detail in the service log.")
     }
 }
 

@@ -80,6 +80,8 @@ pub struct Job {
     pub retry_days: u32,
     pub next_due: String,
     pub urgency_days: i64,
+    /// Number of closed runs; sent back with job.complete to detect a run closed meanwhile.
+    pub run_count: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub username_sealed: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -92,16 +94,21 @@ pub struct Job {
 }
 
 pub fn render_markdown(md: &str) -> String {
-    let parser = pulldown_cmark::Parser::new_ext(md, pulldown_cmark::Options::ENABLE_TABLES | pulldown_cmark::Options::ENABLE_STRIKETHROUGH | pulldown_cmark::Options::ENABLE_TASKLISTS);
+    let parser = pulldown_cmark::Parser::new_ext(md, pulldown_cmark::Options::ENABLE_TABLES | pulldown_cmark::Options::ENABLE_STRIKETHROUGH);
     let mut html = String::new();
     pulldown_cmark::html::push_html(&mut html, parser);
     ammonia::clean(&html)
 }
 
 fn parse_date(field: &str, s: &str) -> OpResult<NaiveDate> {
-    NaiveDate::parse_from_str(s, "%Y-%m-%d").map_err(|_| {
-        OpError::bad("date_invalid", format!("`{field}` = \"{s}\" is not a date. Write it as YYYY-MM-DD, for example \"2026-12-01\"."))
-    })
+    let bad = || OpError::bad("date_invalid", format!("`{field}` = \"{s}\" is not a date. Write it as YYYY-MM-DD, for example \"2026-12-01\"."));
+    use chrono::Datelike;
+    let d = NaiveDate::parse_from_str(s, "%Y-%m-%d").map_err(|_| bad())?;
+    // Stored dates are compared as text, so only the canonical form with a four-digit year is accepted.
+    if !(2000..=2200).contains(&d.year()) || d.format("%Y-%m-%d").to_string() != s {
+        return Err(bad());
+    }
+    Ok(d)
 }
 
 fn check_sealed(field: &str, s: &str) -> OpResult<()> {
@@ -111,17 +118,20 @@ fn check_sealed(field: &str, s: &str) -> OpResult<()> {
     let bad = || {
         OpError::bad(
             "sealed_invalid",
-            format!("`{field}` must be empty or a value sealed in the browser with the vault key, a JSON object with the string fields `iv` and `ct`. Unlock the vault in the application and save the job again."),
+            format!("`{field}` must be empty or a value sealed in the browser with the vault key: a JSON object whose fields `iv` (12 bytes) and `ct` (ciphertext with its 16-byte tag) are standard Base64. Unlock the vault in the application and save the job again."),
         )
     };
     if s.len() > 8192 {
         return Err(bad());
     }
     let v: Value = serde_json::from_str(s).map_err(|_| bad())?;
-    if v.get("iv").and_then(Value::as_str).is_none() || v.get("ct").and_then(Value::as_str).is_none() {
-        return Err(bad());
+    use base64::Engine;
+    let b64 = |k: &str| v.get(k).and_then(Value::as_str).and_then(|x| base64::engine::general_purpose::STANDARD.decode(x).ok());
+    match (b64("iv"), b64("ct")) {
+        // AES-GCM: a 12-byte nonce, and a ciphertext that at least carries its 16-byte tag.
+        (Some(iv), Some(ct)) if iv.len() == 12 && ct.len() >= 16 => Ok(()),
+        _ => Err(bad()),
     }
-    Ok(())
 }
 
 fn text(field: &str, s: &str, min: usize, max: usize) -> OpResult<String> {
@@ -472,12 +482,15 @@ PRAGMA user_version = 1;
     /// Anyone may revoke their own device; revoking another person's device needs the admin right.
     pub fn device_revoke(&self, p: &Principal, device_id: i64) -> OpResult<Value> {
         let (_, me, is_admin) = p.require_person()?;
-        let owner: Option<i64> = self.conn.query_row("SELECT user_id FROM devices WHERE id = ?1", [device_id], |r| r.get(0)).optional()?;
-        let Some(owner) = owner else {
-            return Err(OpError::not_found("device_unknown", format!("There is no device {device_id}. Call device.list for your own devices.")));
-        };
-        if owner != me && !is_admin {
-            return Err(OpError::forbidden("You can revoke only your own devices. Ask a person with the right to administer people to revoke this one."));
+        // Without the right to administer people, another person's device is answered like a missing one.
+        let found: bool = self
+            .conn
+            .query_row("SELECT EXISTS(SELECT 1 FROM devices WHERE id = ?1 AND (user_id = ?2 OR ?3))", params![device_id, me, is_admin], |r| r.get(0))?;
+        if !found {
+            return Err(OpError::not_found(
+                "device_unknown",
+                format!("There is no device {device_id} you may revoke. Call device.list for your own devices; another person's device can be revoked by a person with the right to administer people."),
+            ));
         }
         self.conn.execute("UPDATE devices SET revoked_at = COALESCE(revoked_at, ?1) WHERE id = ?2", params![now(), device_id])?;
         Ok(json!({ "device_id": device_id, "revoked": true }))
@@ -575,6 +588,7 @@ PRAGMA user_version = 1;
             interval_weeks: r.get(4)?,
             retry_days: r.get(5)?,
             urgency_days: schedule::urgency_days(today, due),
+            run_count: r.get(10)?,
             next_due,
             username_sealed: with_secrets.then(|| r.get(7)).transpose()?,
             password_sealed: with_secrets.then(|| r.get(8)).transpose()?,
@@ -584,7 +598,7 @@ PRAGMA user_version = 1;
         })
     }
 
-    const JOB_COLS: &'static str = "id, title, entry_url, embeddable, interval_weeks, retry_days, next_due, username_sealed, password_sealed, instructions_md";
+    const JOB_COLS: &'static str = "id, title, entry_url, embeddable, interval_weeks, retry_days, next_due, username_sealed, password_sealed, instructions_md, (SELECT COUNT(*) FROM runs WHERE runs.job_id = jobs.id)";
 
     fn last_run(&self, job_id: i64) -> OpResult<Option<Value>> {
         Ok(self
@@ -606,8 +620,10 @@ PRAGMA user_version = 1;
         };
         let mut st = self.conn.prepare(&format!("SELECT {} FROM jobs ORDER BY next_due, title COLLATE NOCASE", Self::JOB_COLS))?;
         let mut jobs: Vec<Job> = st.query_map([], |r| self.row_to_job(r, today, with_secrets))?.collect::<Result<_, _>>()?;
-        for j in &mut jobs {
-            j.last_run = self.last_run(j.job_id)?;
+        if with_secrets {
+            for j in &mut jobs {
+                j.last_run = self.last_run(j.job_id)?;
+            }
         }
         Ok(json!({ "today": today.format("%Y-%m-%d").to_string(), "jobs": jobs }))
     }
@@ -730,12 +746,20 @@ PRAGMA user_version = 1;
     }
 
     /// Closes a run: records it and moves the next due date according to the outcome.
-    pub fn job_complete(&self, p: &Principal, job_id: i64, outcome: &str, note: &str, today: NaiveDate) -> OpResult<Value> {
+    pub fn job_complete(&self, p: &Principal, job_id: i64, outcome: &str, note: &str, expected_run_count: Option<i64>, today: NaiveDate) -> OpResult<Value> {
         let (device_id, user_id, _) = p.require_person()?;
         let outcome = Outcome::parse(outcome)
             .ok_or_else(|| OpError::bad("outcome_invalid", format!("`outcome` = \"{outcome}\" is not possible. Send \"succeeded\" when everything was filed, \"failed\" otherwise.")))?;
         let note = text("note", note, 0, 2000)?;
         let job = self.job_get_inner(job_id, today)?;
+        if let Some(exp) = expected_run_count {
+            if exp != job.run_count {
+                return Err(OpError::conflict(
+                    "job_changed",
+                    format!("Somebody else has closed a run of this job meanwhile; it is now due on {}. Reload the list and check whether the run is still needed.", job.next_due),
+                ));
+            }
+        }
         let due_after = schedule::next_due(today, outcome, job.interval_weeks, job.retry_days).format("%Y-%m-%d").to_string();
         let tx = self.conn.unchecked_transaction()?;
         tx.execute(
@@ -771,6 +795,30 @@ mod tests {
 
     fn d(s: &str) -> NaiveDate {
         NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap()
+    }
+
+    const SEALED: &str = r#"{"v":1,"iv":"AAAAAAAAAAAAAAAA","ct":"AAAAAAAAAAAAAAAAAAAAAA=="}"#;
+
+    #[test]
+    fn dates_are_stored_only_in_canonical_form() {
+        assert!(parse_date("d", "2026-11-01").is_ok());
+        for bad in ["2026-1-5", "+12026-01-05", "1999-12-31", "2026-02-30"] {
+            assert!(parse_date("d", bad).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn another_persons_device_looks_like_a_missing_one() {
+        let s = Store::open_in_memory().unwrap();
+        let a = admin(&s);
+        let Principal::Device { device_id: admin_device, .. } = a.clone() else { panic!() };
+        let r = s.user_create(&a, "Bob", "", false).unwrap();
+        let (c, _) = s.redeem_invitation(r["invitation_token"].as_str().unwrap(), "Laptop", "", "").unwrap();
+        let b = s.authenticate_device(&c, "", "").unwrap();
+        let other = s.device_revoke(&b, admin_device).unwrap_err();
+        let missing = s.device_revoke(&b, 999).unwrap_err();
+        assert_eq!(other.kind, missing.kind);
+        assert_eq!(other.code, missing.code);
     }
 
     fn admin(store: &Store) -> Principal {
@@ -825,7 +873,7 @@ mod tests {
         let (c, _) = s.redeem_invitation(r["invitation_token"].as_str().unwrap(), "Laptop", "", "").unwrap();
         let b = s.authenticate_device(&c, "", "").unwrap();
         assert_eq!(s.user_create(&b, "Eve", "", false).unwrap_err().code, 403);
-        let input = JobInput { title: Some("Telekom".into()), entry_url: Some("https://telekom.de".into()), interval_weeks: Some(4), ..Default::default() };
+        let input = JobInput { title: Some("Energy".into()), entry_url: Some("https://portal.example.org".into()), interval_weeks: Some(4), ..Default::default() };
         s.job_create(&b, input, d("2026-11-06")).unwrap();
     }
 
@@ -859,10 +907,11 @@ mod tests {
         assert_eq!(list["jobs"][0]["urgency_days"], -5);
 
         let id = over["job_id"].as_i64().unwrap();
-        let r = s.job_complete(&a, id, "failed", "Portal down", today).unwrap();
+        let r = s.job_complete(&a, id, "failed", "Portal down", Some(0), today).unwrap();
         assert_eq!(r["next_due"], "2026-11-08");
-        let r = s.job_complete(&a, id, "succeeded", "", today).unwrap();
+        let r = s.job_complete(&a, id, "succeeded", "", None, today).unwrap();
         assert_eq!(r["next_due"], "2026-12-04");
+        assert_eq!(s.job_complete(&a, id, "succeeded", "", Some(1), today).unwrap_err().kind, "job_changed");
         let h = s.job_history(&a, id, today).unwrap();
         assert_eq!(h["runs"].as_array().unwrap().len(), 2);
         assert_eq!(h["runs"][0]["outcome"], "succeeded");
@@ -876,7 +925,7 @@ mod tests {
             title: Some("x".into()),
             entry_url: Some("https://example.org".into()),
             interval_weeks: Some(1),
-            password_sealed: Some("hunter2".into()),
+            password_sealed: Some(r#"{"iv":"","ct":"hunter2"}"#.into()),
             ..Default::default()
         };
         assert_eq!(s.job_create(&a, input, d("2026-11-06")).unwrap_err().kind, "sealed_invalid");
@@ -890,7 +939,7 @@ mod tests {
             title: Some("x".into()),
             entry_url: Some("https://example.org".into()),
             interval_weeks: Some(1),
-            password_sealed: Some(r#"{"iv":"a","ct":"b"}"#.into()),
+            password_sealed: Some(SEALED.into()),
             ..Default::default()
         };
         s.job_create(&a, input, d("2026-11-06")).unwrap();
@@ -898,6 +947,7 @@ mod tests {
         let m = s.authenticate_machine(k["key"].as_str().unwrap()).unwrap();
         let list = s.job_list(&m, d("2026-11-06")).unwrap();
         assert!(list["jobs"][0].get("password_sealed").is_none());
+        assert!(list["jobs"][0]["last_run"].is_null());
         assert_eq!(s.vault_get(&m).unwrap_err().code, 403);
         s.machine_key_revoke(&a, k["machine_key_id"].as_i64().unwrap()).unwrap();
         assert_eq!(s.authenticate_machine(k["key"].as_str().unwrap()).unwrap_err().kind, "machine_key_revoked");
@@ -907,7 +957,7 @@ mod tests {
     fn vault_is_created_once() {
         let s = Store::open_in_memory().unwrap();
         let a = admin(&s);
-        let v = r#"{"iv":"a","ct":"b"}"#;
+        let v = SEALED;
         s.vault_create(&a, "c2FsdHNhbHRzYWx0c2FsdA==", 600_000, v).unwrap();
         assert_eq!(s.vault_create(&a, "c2FsdHNhbHRzYWx0c2FsdA==", 600_000, v).unwrap_err().kind, "vault_exists");
     }

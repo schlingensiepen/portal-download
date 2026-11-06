@@ -6,6 +6,8 @@ The browser window is split in two. The **right quarter** is a work bar showing 
 
 ## How the schedule works
 
+"Today" is the date in the server's local time zone. Run the service in the circle's time zone (`TZ=Europe/Berlin` in a container) so that jobs become due at local midnight.
+
 Every job has an interval in weeks and a retry period in days.
 
 - **Urgency** = days from today to the next due date. Negative means overdue. The most urgent job comes first.
@@ -14,7 +16,7 @@ Every job has an interval in weeks and a retry period in days.
 
 ## How the secrets are kept
 
-- **Portal logins are sealed in the browser.** The circle shares one *vault passphrase*. The browser derives an AES-256-GCM key from it (PBKDF2-SHA-256, 600 000 iterations) and keeps that key, non-extractable, in IndexedDB. The service stores only sealed values, the salt and a sealed check value. It never sees the passphrase or the key, so a copy of the server or its backup reveals no portal password. The price: **if the passphrase is lost, the stored logins cannot be read any more.** If a browser clears its storage, enter the passphrase again.
+- **Portal logins are sealed in the browser.** The circle shares one *vault passphrase*. The browser derives an AES-256-GCM key from it (PBKDF2-SHA-256, 600 000 iterations) and keeps that key, non-extractable, in IndexedDB. The service stores only sealed values, the salt and a sealed check value. It never sees the passphrase or the key, so a copy of the server or its backup reveals no portal password. The price: **if the passphrase is lost, the stored logins cannot be read any more.** If a browser clears its storage, enter the passphrase again. The vault is optional: jobs work without it, but then hold no logins. The exact sealed format is stated in the API contract at `vault.create`.
 - **Access to the service comes by invitation, with no passwords.** A person with the right to administer people creates an invitation link. It can be opened on each of the invited person's devices within seven days. Every device gets its own credential as an `HttpOnly; Secure; SameSite=Lax` cookie, renewed on every visit. The server stores only its hash. A lost device is revoked on its own, without touching the person's other devices.
 - **Machines get a key for one task** (`job.list`, the due list without logins), never a person's access. Keys can only be created while the setup window is open, and they can be shut down at any time.
 - **The setup window** is the file `bootstrap.toml` in the state directory. It holds a setup secret and an expiry 30 minutes ahead. Every start writes a fresh one, and `portal-download bootstrap` opens it without a restart. It is the only way to create the first person who administers people, or a new one when all of them have lost their devices. Nobody has to delete it; it closes by itself.
@@ -23,17 +25,19 @@ The service has **no start secret** of its own, so there is nothing to set befor
 
 ## Running it
 
-Requirements: Rust (stable) to build, and HTTPS in front for anything other than `localhost`. Browsers only allow WebCrypto, the clipboard and `Secure` cookies in a secure context.
+Requirements: Rust (stable) to build, and HTTPS in front for anything other than `localhost`. Browsers allow WebCrypto, the clipboard and `Secure` cookies only in a secure context. `http://localhost` and `http://127.0.0.1` count as secure, so a local trial needs no certificate.
 
 ```sh
 cargo build --release
-./target/release/portal-download --config examples/config.toml check   # judge the configuration
-./target/release/portal-download --config examples/config.toml serve   # run
+cp examples/config.toml my-config.toml
+# set state_dir in my-config.toml to a directory you can write, for example ./state
+./target/release/portal-download --config my-config.toml check   # judge the configuration
+./target/release/portal-download --config my-config.toml serve   # run
 ```
 
 The first start logs the setup secret. Open the service in a browser, enter the secret and your name, and accept the invitation on that device. Then create the vault passphrase and the first download job. Invite the others under **Personen**.
 
-Put a reverse proxy with TLS in front, see [`examples/Caddyfile`](examples/Caddyfile), and run the service as its own user, see [`examples/portal-download.service`](examples/portal-download.service). Details are in [docs/operating.md](docs/operating.md).
+Put a reverse proxy with TLS on the same host in front, see [`examples/Caddyfile`](examples/Caddyfile), and run the service as its own user, see [`examples/portal-download.service`](examples/portal-download.service). The service takes `X-Forwarded-For`, `X-Forwarded-Host` and `X-Forwarded-Proto` only from a proxy on the same host (loopback), and that proxy must set them itself rather than pass on what the browser sent (Caddy does by default). Details are in [docs/operating.md](docs/operating.md).
 
 ### Commands and exit codes
 
@@ -49,7 +53,7 @@ Exit codes: `0` success · `1` runtime error · `2` wrong arguments · `3` confi
 
 ### Configuration
 
-There is one TOML file with two keys, `listen` and `state_dir` (see [`examples/config.toml`](examples/config.toml)). The file is selected by `--config PATH`, then by `PORTAL_DOWNLOAD_CONFIG`, then from `~/.config/portal-download/config.toml`, then from `/etc/portal-download/config.toml`. All values come from that one file, so it can be versioned and rolled back as a whole. An empty `listen` means the default `127.0.0.1:8080`. An empty `state_dir` aborts the start instead of silently writing somewhere else.
+There is one TOML file with two keys, `listen` and `state_dir` (see [`examples/config.toml`](examples/config.toml)). The file is selected by `--config PATH`, then by `PORTAL_DOWNLOAD_CONFIG`, then from `$XDG_CONFIG_HOME/portal-download/config.toml` (usually `~/.config/…`), then from `/etc/portal-download/config.toml`. Without a file, `listen` is `127.0.0.1:8080` and `state_dir` is `$XDG_STATE_HOME/portal-download` (usually `~/.local/state/portal-download`). All values come from that one file, so it can be versioned and rolled back as a whole. An empty `listen` means the default `127.0.0.1:8080`. An empty `state_dir` aborts the start instead of silently writing somewhere else.
 
 ## For agents and scripts
 
@@ -76,4 +80,4 @@ The tests include the checks that hold the service's self-description:
 - the usage description names no operation;
 - every placeholder names the call that yields it.
 
-Each of these was seen to fail once with its safeguard removed. See [AGENTS.md](AGENTS.md) for how to work on this repository.
+Each of these, and the tests for access, sanitizing, the last-administrator guard and the schedule, was seen to fail once with its safeguard removed. See [AGENTS.md](AGENTS.md) for how to work on this repository.

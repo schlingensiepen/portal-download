@@ -77,12 +77,14 @@ Duties of a caller
   takes effect says so in the contract.
 - The login of a portal is sealed in the browser with the vault key; the service stores only
   sealed values and cannot read them. Never send a login in plain text.
-- A secret is obtained in this order: the environment variable {ENV_SECRET}, then a file
-  whose path the user names, used only to pass the value through, and only last a value the
-  user types into the conversation, which is then stored at once and never repeated.
+- A machine key is obtained in this order. First the environment variable {ENV_SECRET}.
+  Second, a file the user names: read the key from it and send it on, without copying or
+  printing it. Last, the user types the key into the conversation: store it at once where
+  the first two ways find it next time, and never repeat it.
 - Talk about a machine key by its display string, never by the key.
-- Use one anchor per instance; if two instances are known and a request does not say which
-  one is meant, ask.
+- Each running instance of this service has its own base URL and its own keys. Keep them
+  apart, send a key only to the base URL it was issued by, and when two instances are known
+  and a request does not say which one is meant, ask.
 
 Credentials travel in headers only: the device cookie, Authorization: Bearer for a machine
 key, X-Setup-Secret during setup. They never appear in an address or in params.
@@ -197,7 +199,7 @@ mod tests {
             for (name, doc) in every_document(host) {
                 for url in Regex::new(r"https?://[^\s\x22,)]+").unwrap().find_iter(&doc) {
                     let u = url.as_str();
-                    let allowed_foreign = u.starts_with("https://www.telekom.de");
+                    let allowed_foreign = u.starts_with("https://portal.example.org");
                     assert!(u.starts_with(host) || allowed_foreign, "{name} has a foreign URL {u}");
                 }
             }

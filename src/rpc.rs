@@ -48,7 +48,7 @@ pub const METHODS: &[Method] = &[
         name: "device.revoke",
         access: Access::Person,
         summary: "Revoke one device; the person's other devices keep working.",
-        description: "Revoking the calling device signs it out. Revoking a device of another person needs the right to administer people. This takes effect: confirm with the user first.",
+        description: "Revoking the calling device signs it out and clears its cookie. Revoking a device of another person needs the right to administer people. This takes effect: confirm with the user first.",
         params: r#"{"device_id":3}"#,
         result: r#"{"device_id":3,"revoked":true}"#,
     },
@@ -72,17 +72,17 @@ pub const METHODS: &[Method] = &[
         name: "job.complete",
         access: Access::Person,
         summary: "Close a download run as succeeded or failed and move the next due date.",
-        description: "outcome is \"succeeded\" (next due date: today plus the job's interval in weeks) or \"failed\" (next due date: today plus the job's retry days). The run is kept in the job's history with the optional note. This takes effect: confirm with the user first.",
-        params: r#"{"job_id":7,"outcome":"succeeded","note":"Invoice October filed"}"#,
+        description: "outcome is \"succeeded\" (next due date: today plus the job's interval in weeks) or \"failed\" (next due date: today plus the job's retry days); today is the date in the server's local time zone. The run is kept in the job's history with the optional note (up to 2000 characters). expected_run_count, the run_count value job.list returned, is optional; when sent and somebody else has closed a run of this job meanwhile, the call is refused instead of closing it twice. This takes effect: confirm with the user first.",
+        params: r#"{"job_id":7,"outcome":"succeeded","note":"Invoice October filed","expected_run_count":3}"#,
         result: r#"{"job_id":7,"outcome":"succeeded","due_before":"2026-11-01","next_due":"2026-12-04"}"#,
     },
     Method {
         name: "job.create",
         access: Access::Person,
         summary: "Create a download job.",
-        description: "title, entry_url and interval_weeks are required. retry_days defaults to 2, next_due to today. username_sealed and password_sealed are values sealed in the browser with the vault key; the service cannot read them. instructions_md says in Markdown what to file and where. embeddable says whether the portal may be shown inside the application.",
-        params: r#"{"title":"Telekom invoice","entry_url":"https://www.telekom.de/kundencenter","embeddable":false,"interval_weeks":4,"retry_days":2,"next_due":"2026-11-06","username_sealed":"{\"iv\":\"…\",\"ct\":\"…\"}","password_sealed":"{\"iv\":\"…\",\"ct\":\"…\"}","instructions_md":"Download the PDF invoice and file it under Finance/Telekom/2026."}"#,
-        result: r#"{"job_id":7,"title":"Telekom invoice","entry_url":"https://www.telekom.de/kundencenter","embeddable":false,"interval_weeks":4,"retry_days":2,"next_due":"2026-11-06","urgency_days":0,"username_sealed":"…","password_sealed":"…","instructions_md":"…","instructions_html":"<p>…</p>","last_run":null}"#,
+        description: "Required: title (text, 1 to 200 characters), entry_url (http or https address without spaces, up to 2000 characters), interval_weeks (integer 1 to 520). Optional: retry_days (integer 1 to 365, default 2), next_due (date YYYY-MM-DD, default today in the server's local time zone), embeddable (boolean, default false: whether the portal may be shown inside the application), instructions_md (Markdown up to 64 KiB saying what to file and where), username_sealed and password_sealed (empty, or sealed in the browser with the vault key as vault.create describes; the service cannot read them).",
+        params: r#"{"title":"Energy invoice","entry_url":"https://portal.example.org/invoices","embeddable":false,"interval_weeks":4,"retry_days":2,"next_due":"2026-11-06","username_sealed":"{\"iv\":\"…\",\"ct\":\"…\"}","password_sealed":"{\"iv\":\"…\",\"ct\":\"…\"}","instructions_md":"Download the PDF invoice and file it under Finance/Energy/2026."}"#,
+        result: r#"{"job_id":7,"title":"Energy invoice","entry_url":"https://portal.example.org/invoices","embeddable":false,"interval_weeks":4,"retry_days":2,"next_due":"2026-11-06","run_count":0,"urgency_days":0,"username_sealed":"…","password_sealed":"…","instructions_md":"…","instructions_html":"<p>…</p>","last_run":null}"#,
     },
     Method {
         name: "job.delete",
@@ -98,7 +98,7 @@ pub const METHODS: &[Method] = &[
         summary: "Read one job.",
         description: "Same fields as one entry of job.list.",
         params: r#"{"job_id":7}"#,
-        result: r#"{"job_id":7,"title":"Telekom invoice","entry_url":"https://www.telekom.de/kundencenter","embeddable":false,"interval_weeks":4,"retry_days":2,"next_due":"2026-11-06","urgency_days":0,"username_sealed":"…","password_sealed":"…","instructions_md":"…","instructions_html":"<p>…</p>","last_run":{"outcome":"succeeded","finished_at":"2026-10-09T08:00:00Z","note":"","by":"Ada"}}"#,
+        result: r#"{"job_id":7,"title":"Energy invoice","entry_url":"https://portal.example.org/invoices","embeddable":false,"interval_weeks":4,"retry_days":2,"next_due":"2026-11-06","run_count":0,"urgency_days":0,"username_sealed":"…","password_sealed":"…","instructions_md":"…","instructions_html":"<p>…</p>","last_run":{"outcome":"succeeded","finished_at":"2026-10-09T08:00:00Z","note":"","by":"Ada"}}"#,
     },
     Method {
         name: "job.history",
@@ -112,17 +112,17 @@ pub const METHODS: &[Method] = &[
         name: "job.list",
         access: Access::PersonOrMachine,
         summary: "List all jobs, most urgent first.",
-        description: "urgency_days is the number of days from today to next_due; negative means overdue. A machine key with the task job.list receives the list without sealed values and instructions.",
+        description: "urgency_days is the number of days from today (the date in the server's local time zone) to next_due; negative means overdue. A machine key with the task job.list receives only title, address, schedule and urgency: no sealed values, no instructions, no last run.",
         params: r#"{}"#,
-        result: r#"{"today":"2026-11-06","jobs":[{"job_id":7,"title":"Telekom invoice","entry_url":"https://www.telekom.de/kundencenter","embeddable":false,"interval_weeks":4,"retry_days":2,"next_due":"2026-11-01","urgency_days":-5,"username_sealed":"…","password_sealed":"…","instructions_md":"…","instructions_html":"<p>…</p>","last_run":null}]}"#,
+        result: r#"{"today":"2026-11-06","jobs":[{"job_id":7,"title":"Energy invoice","entry_url":"https://portal.example.org/invoices","embeddable":false,"interval_weeks":4,"retry_days":2,"next_due":"2026-11-01","run_count":0,"urgency_days":-5,"username_sealed":"…","password_sealed":"…","instructions_md":"…","instructions_html":"<p>…</p>","last_run":null}]}"#,
     },
     Method {
         name: "job.update",
         access: Access::Person,
         summary: "Change fields of a job.",
-        description: "Send job_id and only the fields to change; the others keep their value. Setting next_due moves the job in the order of urgency.",
+        description: "Send job_id and only the fields to change, with the types and limits job.create states; the others keep their value. Setting next_due moves the job in the order of urgency.",
         params: r#"{"job_id":7,"interval_weeks":6,"next_due":"2026-11-20"}"#,
-        result: r#"{"job_id":7,"title":"Telekom invoice","entry_url":"https://www.telekom.de/kundencenter","embeddable":false,"interval_weeks":6,"retry_days":2,"next_due":"2026-11-20","urgency_days":14,"username_sealed":"…","password_sealed":"…","instructions_md":"…","instructions_html":"<p>…</p>","last_run":null}"#,
+        result: r#"{"job_id":7,"title":"Energy invoice","entry_url":"https://portal.example.org/invoices","embeddable":false,"interval_weeks":6,"retry_days":2,"next_due":"2026-11-20","run_count":0,"urgency_days":14,"username_sealed":"…","password_sealed":"…","instructions_md":"…","instructions_html":"<p>…</p>","last_run":null}"#,
     },
     Method {
         name: "machinekey.create",
@@ -208,7 +208,7 @@ pub const METHODS: &[Method] = &[
         name: "vault.create",
         access: Access::Person,
         summary: "Store the parameters of the shared vault, once.",
-        description: "The browser derives the vault key from the shared passphrase with PBKDF2-SHA256 over the salt and iterations, and seals a fixed check value with it as verifier. The service keeps salt, iterations and verifier and never sees passphrase or key.",
+        description: "The browser derives the vault key from the shared passphrase with PBKDF2-SHA256 over the salt (16 random bytes, standard Base64) and the iterations, as an AES-256-GCM key. A sealed value is the JSON text {\"v\":1,\"iv\":…,\"ct\":…} with a random 12-byte iv and the ciphertext including its tag, both standard Base64, and the purpose (\"username\", \"password\" or \"verifier\") as additional authenticated data. The verifier seals the text \"portal-download vault check\". The service keeps salt, iterations and verifier and never sees passphrase or key. Jobs work without a vault; they then hold no logins.",
         params: r#"{"salt":"bm90LWEtcmVhbC1zYWx0","iterations":600000,"verifier":"{\"iv\":\"…\",\"ct\":\"…\"}"}"#,
         result: r#"{"exists":true,"salt":"bm90LWEtcmVhbC1zYWx0","iterations":600000,"verifier":"{\"iv\":\"…\",\"ct\":\"…\"}","created_at":"2026-11-06T10:00:00Z"}"#,
     },
@@ -241,6 +241,7 @@ pub struct Call<'a> {
 pub enum Effect {
     None,
     SetDeviceCredential(String),
+    ClearDeviceCredential,
 }
 
 fn p<T: DeserializeOwned>(params: &Value) -> OpResult<T> {
@@ -331,6 +332,8 @@ struct Complete {
     outcome: String,
     #[serde(default)]
     note: String,
+    #[serde(default)]
+    expected_run_count: Option<i64>,
 }
 #[derive(Deserialize)]
 struct JobUpdate {
@@ -417,7 +420,9 @@ pub fn dispatch(name: &str, params: &Value, c: &Call) -> OpResult<(Value, Effect
         }
         "device.revoke" => {
             let a: DeviceId = p(params)?;
-            none(s.device_revoke(pr(), a.device_id)?)
+            let v = s.device_revoke(pr(), a.device_id)?;
+            let own = matches!(pr(), Principal::Device { device_id, .. } if *device_id == a.device_id);
+            Ok((v, if own { Effect::ClearDeviceCredential } else { Effect::None }))
         }
         "user.list" => {
             p::<Empty>(params)?;
@@ -474,7 +479,7 @@ pub fn dispatch(name: &str, params: &Value, c: &Call) -> OpResult<(Value, Effect
         }
         "job.complete" => {
             let a: Complete = p(params)?;
-            none(s.job_complete(pr(), a.job_id, &a.outcome, &a.note, c.today)?)
+            none(s.job_complete(pr(), a.job_id, &a.outcome, &a.note, a.expected_run_count, c.today)?)
         }
         "job.history" => {
             let a: JobId = p(params)?;
