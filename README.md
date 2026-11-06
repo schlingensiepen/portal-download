@@ -81,3 +81,7 @@ The tests include the checks that hold the service's self-description:
 - every placeholder names the call that yields it.
 
 Each of these, and the tests for access, sanitizing, the last-administrator guard and the schedule, was seen to fail once with its safeguard removed. See [AGENTS.md](AGENTS.md) for how to work on this repository.
+
+## License
+
+Apache License 2.0, see [LICENSE](LICENSE).

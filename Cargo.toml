@@ -3,6 +3,7 @@ name = "portal-download"
 version = "0.1.0"
 edition = "2021"
 description = "Intranet workbench that walks a small circle through due portal downloads"
+license = "Apache-2.0"
 publish = false
 
 [dependencies]
