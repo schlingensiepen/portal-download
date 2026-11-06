@@ -243,5 +243,6 @@
   "current.note": "Notiz (optional), z. B. was gefehlt hat",
   "creds.show_title": "anzeigen",
   "edit.instructions_example": "## Was ist abzulegen?\n- Rechnung als PDF\n\n## Wohin?\n- Finanzen/Stadtwerke/2026/",
-  "agents.create.purpose_example": "z. B. NAS: nächtliches Backup"
+  "agents.create.purpose_example": "z. B. NAS: nächtliches Backup",
+  "confirm.lang.discard": "Beim Wechsel der Sprache geht verloren, was du hier eingegeben hast. Trotzdem wechseln?"
 }

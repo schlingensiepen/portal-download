@@ -123,7 +123,7 @@ tr.current td { background: var(--chip); }
   </main>
   <aside id="bar"></aside>
 </div>
-<div id="modal" hidden><div class="box" id="modal-box"></div></div>
+<div id="modal" hidden><div class="box" id="modal-box" role="dialog" aria-modal="true"></div></div>
 <div id="toast" aria-live="polite"></div>
 
 <!-- ================================================================ building blocks
@@ -181,6 +181,7 @@ tr.current td { background: var(--chip); }
   <span data-msg="confirm.agent.revoke" data-i18n="confirm.agent.revoke">Revoke agent <span data-field="display"></span> at once?</span>
   <span data-msg="confirm.token.create" data-i18n="confirm.token.create">Create a token with the right “<span data-field="ability"></span>”?</span>
   <span data-msg="confirm.import" data-i18n="confirm.import">Import the backup? Nothing is overwritten: what exists already comes in as “… (Import date)”.</span>
+  <span data-msg="confirm.lang.discard" data-i18n="confirm.lang.discard">Switching the language discards what you entered here. Switch anyway?</span>
   <span data-msg="confirm.import.delete" data-i18n="confirm.import.delete">Delete “<span data-field="name"></span>”?</span>
   <span data-msg="ability.jobs.read" data-i18n="ability.jobs.read">Read jobs</span>
   <span data-msg="ability.jobs.write" data-i18n="ability.jobs.write">Change jobs</span>
@@ -459,7 +460,7 @@ tr.current td { background: var(--chip); }
     <p class="muted small" style="margin-top:0" data-i18n="agents.create.hint">For a script that cannot register itself, for example the nightly backup.</p>
     <div class="row">
       <div class="grow"><label data-i18n="agents.create.purpose">What for</label><input type="text" data-ref="purpose" placeholder="e.g. NAS: nightly backup" data-i18n-placeholder="agents.create.purpose_example"></div>
-      <div><label data-i18n="agents.create.ability">Right</label><select data-ref="ability"></select></div>
+      <div><label data-i18n="agents.create.ability">Right</label><select data-ref="new-ability"></select></div>
     </div>
     <div style="margin-top:10px"><button class="btn primary" type="submit" data-i18n="agents.create.submit">Create token</button></div>
   </form>
@@ -696,6 +697,7 @@ async function setLanguage(code) {
   translateAll();
 }
 async function switchLanguage(code) {
+  if (state.dirty && !(await ask(msg("confirm.lang.discard")))) { renderBar(!!state.me); return; }
   try { localStorage.setItem(LANG_KEY, code); } catch {}
   await setLanguage(code);
   render();
@@ -743,12 +745,19 @@ async function copy(text, btn) {
 }
 
 // ------------------------------------------------------------------ dialogs
+let pendingAnswer = null; // the resolver of an open question, answered "no" if another dialog replaces it
 function openModal(node) {
+  if (pendingAnswer) { const answer = pendingAnswer; pendingAnswer = null; answer(false); }
   $("#modal-box").replaceChildren(node);
   $("#modal").hidden = false;
+  // Everything behind the dialog is out of reach, as it was behind confirm().
+  $("#app").inert = true; $("#toast").inert = true;
   const first = node.querySelector("input"); if (first) first.focus();
 }
-function closeModal() { $("#modal").hidden = true; $("#modal-box").replaceChildren(); }
+function closeModal() {
+  $("#modal").hidden = true; $("#modal-box").replaceChildren();
+  $("#app").inert = false; $("#toast").inert = false;
+}
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && !$("#modal").hidden) { const no = $('#modal-box [data-action="no"], #modal-box [data-action="later"], #modal-box [data-action="done"]'); if (no) no.click(); }
 });
@@ -756,9 +765,10 @@ document.addEventListener("keydown", (e) => {
 function ask(text) {
   return new Promise((resolve) => {
     const d = put(T("tpl-confirm"), { text });
-    const answer = (v) => () => { closeModal(); resolve(v); };
-    bind(d, { yes: answer(true), no: answer(false) });
     openModal(d);
+    pendingAnswer = resolve;
+    const answer = (v) => () => { pendingAnswer = null; closeModal(); resolve(v); };
+    bind(d, { yes: answer(true), no: answer(false) });
     d.querySelector('[data-action="yes"]').focus();
   });
 }
@@ -901,7 +911,9 @@ function vaultDialog() {
 }
 
 // ------------------------------------------------------------------ state & routing
-const state = { status: null, me: null, jobs: [], today: null, current: 0, running: null, importReport: null, authError: null };
+const state = { status: null, me: null, jobs: [], today: null, current: 0, running: null, importReport: null, authError: null, dirty: false };
+// Something typed into the view and not yet sent; rendering a view starts clean.
+$("#view").addEventListener("input", () => { state.dirty = true; });
 
 function route() {
   const f = location.hash.replace(/^#/, "");
@@ -961,11 +973,13 @@ function hidePortal() {
 }
 
 // ------------------------------------------------------------------ work bar (right side)
-function renderBar() {
-  const head = put(T("tpl-bar-head"), { app_name: CONFIG.app_name, me_name: state.me ? state.me.name : "" });
+/** The work bar; without access (setup, invitation, no access) only its head with the language choice. */
+function renderBar(withAccess = true) {
+  const me = withAccess ? state.me : null;
+  const head = put(T("tpl-bar-head"), { app_name: CONFIG.app_name, me_name: me ? me.name : "" });
   fillLanguages(ref(head, "lang"));
   bind(head, { lang: (e) => switchLanguage(e.target.value), "vault-lock": lockVault, "vault-open": vaultDialog });
-  if (!state.me) { show(ref(head, "nav"), false); $("#bar").replaceChildren(head); return; }
+  if (!me) { show(ref(head, "nav"), false); $("#bar").replaceChildren(head); return; }
   show(ref(head, "nav-people"), state.me.is_admin);
   show(ref(head, "vault-ctl"), !!vault.meta);
   show(ref(head, "vault-lock"), !!vault.key);
@@ -1260,7 +1274,7 @@ async function viewPeople() {
   show(ref(d, "done"), done.length > 0);
   ref(d, "done-summary").textContent = msg("agent.done", { n: done.length });
   for (const a of done) ref(d, "done-list").append(agentCard(a));
-  options(ref(d, "ability"), "backup.read");
+  options(ref(d, "new-ability"), "backup.read");
   ref(d, "download").href = backupUrl();
 
   return bind(d, {
@@ -1269,7 +1283,7 @@ async function viewPeople() {
       try { showInvitation(name, await rpc("user.create", { name, email: ref(invite, "email").value, is_admin: ref(invite, "admin").checked })); } catch (e) { fail(e); }
     },
     "create-token": async () => {
-      const ability = ref(d, "ability").value;
+      const ability = ref(d, "new-ability").value;
       if (!(await ask(msg("confirm.token.create", { ability: abilityName(ability) })))) return;
       try { showToken(await rpc("agent.create", { introduction: ref(d, "purpose").value, ability })); } catch (e) { fail(e); }
     },
@@ -1356,10 +1370,11 @@ async function render() {
   const mySeq = ++renderSeq;
   const r = route();
   const view = $("#view");
-  if (r.view === "invite") { hidePortal(); renderBarWithoutAccess(); view.replaceChildren(viewInvite(r.token)); return; }
+  if (r.view === "invite") { hidePortal(); renderBar(false); view.replaceChildren(viewInvite(r.token)); state.dirty = false; return; }
   if (!state.me) {
-    hidePortal(); renderBarWithoutAccess();
+    hidePortal(); renderBar(false);
     view.replaceChildren(state.status && state.status.setup_required ? viewSetup() : viewNoAccess(state.authError));
+    state.dirty = false;
     return;
   }
   // Others in the circle may have closed or changed jobs: fetch the list on every navigation.
@@ -1394,9 +1409,7 @@ async function render() {
   }
   if (mySeq !== renderSeq) return; // a newer render has started
   view.replaceChildren(...(content ? [content] : []));
-}
-function renderBarWithoutAccess() {
-  const saved = state.me; state.me = null; renderBar(); state.me = saved;
+  state.dirty = false;
 }
 
 async function boot() {
