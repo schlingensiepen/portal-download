@@ -15,8 +15,11 @@ fn i18n_element() -> Regex {
     Regex::new(r#"data-i18n="([^"]+)"[^>]*>((?:[^<]|<span data-field="\w+"></span>)*)</"#).unwrap()
 }
 
-fn fields_of(pattern: &str) -> BTreeSet<String> {
-    Regex::new(r"\{(\w+)\}").unwrap().captures_iter(pattern).map(|c| c[1].to_string()).collect()
+/// The value fields of a text, each as often as it occurs.
+fn fields_of(pattern: &str) -> Vec<String> {
+    let mut f: Vec<String> = Regex::new(r"\{(\w+)\}").unwrap().captures_iter(pattern).map(|c| c[1].to_string()).collect();
+    f.sort();
+    f
 }
 
 /// Every text key with its English pattern, and every attribute key with its English value.
@@ -35,7 +38,9 @@ fn english() -> BTreeMap<String, String> {
         for a in ["placeholder", "title", "aria-label"] {
             if let Some(k) = Regex::new(&format!(r#"data-i18n-{a}="([^"]+)""#)).unwrap().captures(t.as_str()) {
                 let v = Regex::new(&format!(r#"\s{a}="([^"]*)""#)).unwrap().captures(t.as_str()).map(|c| c[1].to_string()).unwrap_or_default();
-                keys.insert(k[1].to_string(), v);
+                if let Some(old) = keys.insert(k[1].to_string(), v.clone()) {
+                    assert_eq!(old, v, "key {} has two different English texts", &k[1]);
+                }
             }
         }
     }
@@ -63,6 +68,7 @@ fn every_language_file_has_exactly_the_keys_of_the_html_with_the_same_fields() {
             let text = v.as_str().unwrap_or_else(|| panic!("{code}.json: {k} is not a text"));
             assert_eq!(fields_of(text), fields_of(&en[k]), "{code}.json: {k} has other value fields than the English text");
             assert!(!text.trim().is_empty(), "{code}.json: {k} is empty");
+            assert!(!text.contains('<') && !text.contains('>'), "{code}.json: {k} contains markup");
         }
     }
 }
@@ -82,12 +88,19 @@ fn no_untranslated_text_in_the_markup() {
     let body = &html()[html().find("<body>").unwrap()..html().find("<script>").unwrap()];
     let no_comments = Regex::new(r"(?s)<!--.*?-->").unwrap().replace_all(body, "");
     let no_i18n = i18n_element().replace_all(&no_comments, "</");
-    let no_literal = Regex::new(r#"(?s)<(\w+)[^>]*translate="no"[^>]*>(?:[^<]|<span data-field="\w+"></span>)*</\w+>"#).unwrap().replace_all(&no_i18n, "");
+    // Only the technical lines are exempt from translation; translate="no" elsewhere exempts nothing.
+    let no_literal = Regex::new(r#"(?s)<span data-msg="line\.\w+" translate="no">(?:[^<]|<span data-field="\w+"></span>)*</span>"#).unwrap().replace_all(&no_i18n, "");
     for t in Regex::new(r"<[a-zA-Z][^>]*>").unwrap().find_iter(&no_literal) {
         for a in ["placeholder", "title", "aria-label"] {
             if let Some(v) = Regex::new(&format!(r#"\s{a}="([^"]*)""#)).unwrap().captures(t.as_str()) {
                 let human = v[1].chars().any(char::is_alphabetic) && !v[1].starts_with("http");
                 assert!(!human || t.as_str().contains(&format!("data-i18n-{a}=")), "untranslated {a} in {}", t.as_str());
+            }
+        }
+        // Attributes that would show text without a way to translate it.
+        for a in ["alt", "label", "value", "content"] {
+            if let Some(v) = Regex::new(&format!(r#"\s{a}="([^"]*)""#)).unwrap().captures(t.as_str()) {
+                assert!(!v[1].chars().any(char::is_alphabetic), "text in the attribute {a} of {}", t.as_str());
             }
         }
     }
@@ -114,4 +127,57 @@ fn no_text_for_people_in_the_script() {
         .filter(|s| words.is_match(s) || s.chars().any(|ch| ch.is_alphabetic() && !ch.is_ascii()))
         .collect();
     assert!(found.is_empty(), "text for people in the script: {found:?}");
+}
+
+/// Every building block sits in the body before the one script, so the checks above see it.
+#[test]
+fn the_markup_has_one_script_and_every_block_before_it() {
+    assert_eq!(html().matches("<script").count(), 1, "exactly one script element");
+    let end = html().find("</script>").unwrap();
+    assert!(!html()[end..].contains("<template"), "a building block after the script escapes the checks");
+    assert!(!html()[..html().find("<body>").unwrap()].contains("<template"), "a building block in the head escapes the checks");
+}
+
+/// The keys the script asks for exist as messages, every message is translatable under its own
+/// key, and every plural has both forms.
+#[test]
+fn every_message_the_script_uses_exists() {
+    let start = html().find("<script>").unwrap();
+    let script = &html()[start..];
+    let msgs: BTreeSet<String> = Regex::new(r#"data-msg="([^"]+)""#).unwrap().captures_iter(html()).map(|c| c[1].to_string()).collect();
+    for c in Regex::new(r#"<span data-msg="([^"]+)"([^>]*)>"#).unwrap().captures_iter(html()) {
+        let technical = c[2].contains(r#"translate="no""#) && c[1].starts_with("line.");
+        assert!(technical || c[2].contains(&format!(r#"data-i18n="{}""#, &c[1])), "message {} is not translatable under its own key", &c[1]);
+    }
+    for c in Regex::new(r#"\b(msg|msgNode|plural)\(\s*"([^"]+)""#).unwrap().captures_iter(script) {
+        let key = &c[2];
+        if &c[1] == "plural" {
+            for form in ["one", "other"] {
+                assert!(msgs.contains(&format!("{key}.{form}")), "plural {key} lacks the form {form}");
+            }
+        } else {
+            assert!(msgs.contains(key), "the script uses the message {key}, which does not exist");
+        }
+    }
+    for c in Regex::new(r#"\b(?:msg|msgNode|stateChip)\(\s*`([a-z_.]+)\.\$\{"#).unwrap().captures_iter(script) {
+        assert!(msgs.iter().any(|m| m.starts_with(&format!("{}.", &c[1]))), "no message starts with {}", &c[1]);
+    }
+    for c in Regex::new(r#"\bstateChip\(\s*"([^"]+)""#).unwrap().captures_iter(script) {
+        assert!(msgs.iter().any(|m| m.starts_with(&format!("{}.", &c[1]))), "no message starts with {}", &c[1]);
+    }
+}
+
+/// Texts reach the page only through building blocks; a string literal handed to an output
+/// directly would bypass translation, however short.
+#[test]
+fn no_literal_text_is_put_into_the_page() {
+    let start = html().find("<script>").unwrap();
+    let script = &html()[start..];
+    let direct = Regex::new(r#"(?:textContent\s*=|\.title\s*=|toast\(|ask\(|alert\(|confirm\(|new Error\()\s*(?:"([^"]*)"|'([^']*)'|`([^`]*)`)"#).unwrap();
+    let found: Vec<&str> = direct
+        .captures_iter(script)
+        .filter(|c| c.get(1).or(c.get(2)).or(c.get(3)).unwrap().as_str().chars().any(char::is_alphabetic))
+        .map(|c| c.get(0).unwrap().as_str())
+        .collect();
+    assert!(found.is_empty(), "literal text put into the page: {found:?}");
 }

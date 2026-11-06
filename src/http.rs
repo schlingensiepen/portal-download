@@ -555,4 +555,17 @@ mod tests {
             assert_eq!(s == StatusCode::PAYLOAD_TOO_LARGE, expect_too_large);
         }
     }
+
+    #[tokio::test]
+    async fn language_files_are_delivered_and_nothing_else() {
+        let t = setup();
+        let (s, h, b) = send(&t, Request::get("/i18n/de.json").body(Body::empty()).unwrap()).await;
+        assert_eq!(s, StatusCode::OK);
+        assert!(h[header::CONTENT_TYPE].to_str().unwrap().starts_with("application/json"));
+        serde_json::from_slice::<Value>(&b).unwrap();
+        for bad in ["/i18n/xx.json", "/i18n/..%2Fconfig.json", "/i18n/de.json.bak", "/i18n/en.json"] {
+            let (s, _, _) = send(&t, Request::get(bad).body(Body::empty()).unwrap()).await;
+            assert_eq!(s, StatusCode::NOT_FOUND, "{bad}");
+        }
+    }
 }

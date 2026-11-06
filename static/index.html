@@ -172,7 +172,7 @@ tr.current td { background: var(--chip); }
   <span data-msg="confirm.device.self" data-i18n="confirm.device.self">Sign this device out? Afterwards you need your invitation link again.</span>
   <span data-msg="confirm.device.other" data-i18n="confirm.device.other">Revoke “<span data-field="label"></span>”?</span>
   <span data-msg="confirm.person.device" data-i18n="confirm.person.device">Revoke the device “<span data-field="label"></span>” of <span data-field="name"></span>?</span>
-  <span data-msg="confirm.person.admin_take" data-i18n="confirm.person.admin_take">Take the right to administer people from <span data-field="name"></span>?</span>
+  <span data-msg="confirm.person.admin_take" data-i18n="confirm.person.admin_take">Withdraw the right to administer people from <span data-field="name"></span>?</span>
   <span data-msg="confirm.person.admin_give" data-i18n="confirm.person.admin_give">Give <span data-field="name"></span> the right to administer people?</span>
   <span data-msg="confirm.person.deactivate" data-i18n="confirm.person.deactivate">Deactivate <span data-field="name"></span> on all devices?</span>
   <span data-msg="confirm.invitation.withdraw" data-i18n="confirm.invitation.withdraw">Withdraw the invitation? Devices already signed in stay signed in.</span>
@@ -203,7 +203,7 @@ tr.current td { background: var(--chip); }
   <span data-msg="import.vault.same" data-i18n="import.vault.same">Same vault – the logins work.</span>
   <span data-msg="import.vault.different" data-i18n="import.vault.different">Different vault – logins from the backup were left out.</span>
   <span data-msg="import.vault.none" data-i18n="import.vault.none">No vault in the backup.</span>
-  <span data-msg="import.logins_dropped" data-i18n="import.logins_dropped"><span data-field="n"></span> logins left out.</span>
+  <span data-msg="import.logins_dropped" data-i18n="import.logins_dropped">Logins left out: <span data-field="n"></span>.</span>
   <span data-msg="import.kind.job" data-i18n="import.kind.job">Job</span>
   <span data-msg="import.kind.person" data-i18n="import.kind.person">Person</span>
   <span data-msg="line.curl" translate="no">curl -fsS -H "Authorization: Bearer <span data-field="token"></span>" <span data-field="url"></span> -o portal-download-$(date +%F).jsonl</span>
@@ -211,6 +211,7 @@ tr.current td { background: var(--chip); }
 </div></template>
 
 <template id="tpl-toast"><div></div></template>
+<template id="tpl-chip"><span class="chip" data-field="text"></span></template>
 <template id="tpl-muted-line"><div class="muted" data-field="text"></div></template>
 <template id="tpl-copy-area"><textarea></textarea></template>
 <template id="tpl-option"><option></option></template>
@@ -394,7 +395,7 @@ tr.current td { background: var(--chip); }
   <h1 data-i18n="devices.title">My devices</h1>
   <p class="muted small" data-i18n="devices.hint">Every device on which you opened your invitation link has an access of its own. Revoke a lost device here; your other devices stay signed in.</p>
   <table>
-    <thead><tr><th data-i18n="devices.col.device">Device</th><th data-i18n="devices.col.seen">Last seen</th><th data-i18n="devices.col.recognition">Recognition</th><th></th></tr></thead>
+    <thead><tr><th data-i18n="devices.col.device">Device</th><th data-i18n="devices.col.seen">Last seen</th><th data-i18n="devices.col.recognition">Identification</th><th></th></tr></thead>
     <tbody data-ref="rows"></tbody>
   </table>
 </div></template>
@@ -487,7 +488,7 @@ tr.current td { background: var(--chip); }
   </div>
   <div class="row small" style="margin-top:8px">
     <button class="btn small" type="button" data-action="reinvite" data-i18n="person.reinvite">New invitation</button>
-    <button class="btn small" type="button" data-action="admin"><span data-ref="admin-take" data-i18n="person.admin_take">Take the right to administer</span><span data-ref="admin-give" data-i18n="person.admin_give">Give the right to administer</span></button>
+    <button class="btn small" type="button" data-action="admin"><span data-ref="admin-take" data-i18n="person.admin_take">Withdraw the right to administer</span><span data-ref="admin-give" data-i18n="person.admin_give">Give the right to administer</span></button>
     <button class="btn small" type="button" data-action="active"><span data-ref="deactivate" data-i18n="person.deactivate">Deactivate</span><span data-ref="reactivate" data-i18n="person.reactivate">Reactivate</span></button>
   </div>
   <table class="small" style="margin-top:8px"><tbody data-ref="rows"></tbody></table>
@@ -525,9 +526,9 @@ tr.current td { background: var(--chip); }
 <template id="tpl-import"><div class="pad wide-page">
   <h1 data-i18n="import.title">Import</h1>
   <div data-ref="report">
-    <p data-i18n="import.summary">Added <span data-field="jobs"></span> jobs, <span data-field="runs"></span> runs, <span data-field="people"></span> people, <span data-field="devices"></span> devices, <span data-field="agents"></span> tokens.</p>
+    <p data-i18n="import.summary">Added – jobs: <span data-field="jobs"></span>, runs: <span data-field="runs"></span>, people: <span data-field="people"></span>, devices: <span data-field="devices"></span>, tokens: <span data-field="agents"></span>.</p>
     <p class="small" data-ref="vault"></p>
-    <p class="muted small" data-ref="skipped" data-i18n="import.skipped">Not taken: <span data-field="left_out"></span> left out, <span data-field="existing"></span> already there, <span data-field="unrelated"></span> without a reference.</p>
+    <p class="muted small" data-ref="skipped" data-i18n="import.skipped">Not taken – left out: <span data-field="left_out"></span>, already there: <span data-field="existing"></span>, without a reference: <span data-field="unrelated"></span>.</p>
     <div class="card alert" data-ref="admins"><strong data-i18n="import.admins">Imported with the right to administer people – please check:</strong> <span data-field="admins"></span></div>
     <div data-ref="renamed">
       <h2 data-i18n="import.renamed.title">Already there – added as a copy</h2>
@@ -688,7 +689,7 @@ async function setLanguage(code) {
   let dict = {};
   if (code !== "en") {
     try { dict = await (await fetch(`i18n/${code}.json`, { cache: "no-cache" })).json(); }
-    catch (e) { console.error(e); code = "en"; }
+    catch (e) { console.error(e); code = "en"; try { localStorage.removeItem(LANG_KEY); } catch {} }
   }
   I18N.code = code; I18N.dict = dict;
   I18N.locale = (navigator.languages || []).find((l) => l.toLowerCase().split("-")[0] === code) || code;
@@ -727,6 +728,8 @@ function urgency(days) {
 }
 const outcomeChip = (o) => msgNode(o === "succeeded" ? "outcome.succeeded" : "outcome.failed");
 const abilityName = (a) => MSG[`ability.${a}`] ? msg(`ability.${a}`) : a;
+/** A chip for a state the API names; an unknown state shows as it came. */
+const stateChip = (prefix, state) => MSG[`${prefix}.${state}`] ? msgNode(`${prefix}.${state}`) : put(T("tpl-chip"), { text: state });
 function guessDeviceLabel() {
   const ua = navigator.userAgent;
   const b = /Edg\//.test(ua) ? "Edge" : /Firefox\//.test(ua) ? "Firefox" : /Chrome\//.test(ua) ? "Chrome" : /Safari\//.test(ua) ? "Safari" : "Browser";
@@ -1217,7 +1220,7 @@ async function viewPeople() {
     }
     for (const i of u.invitations) {
       const tr = put(T("tpl-person-invitation"), { id: i.invitation_id, created: fmtDateTime(i.created_at), expires: fmtDateTime(i.expires_at) });
-      ref(tr, "state").append(msgNode(`invitation.state.${i.state}`));
+      ref(tr, "state").append(stateChip("invitation.state", i.state));
       show(ref(tr, "withdraw"), i.state === "open");
       bind(tr, { withdraw: act(msg("confirm.invitation.withdraw"), () => rpc("invitation.withdraw", { invitation_id: i.invitation_id })) });
       ref(card, "rows").append(tr);
@@ -1227,7 +1230,7 @@ async function viewPeople() {
 
   const agentCard = (a) => {
     const card = put(T("tpl-agent"), { display: a.display, introduction: a.introduction });
-    ref(card, "state").append(msgNode(`agent.state.${a.state}`));
+    ref(card, "state").append(stateChip("agent.state", a.state));
     const ab = ref(card, "ability");
     if (a.ability) ab.textContent = abilityName(a.ability); else show(ab, false);
     const active = a.state === "pending" || a.state === "granted";
@@ -1289,14 +1292,14 @@ function viewImport() {
     left_out: r.skipped_left_out, existing: r.skipped_existing, unrelated: r.skipped_unrelated,
     admins: r.admins_added.map((x) => x.name).join(", "),
   });
-  ref(d, "vault").textContent = [msg(`import.vault.${r.vault}`), r.logins_dropped ? msg("import.logins_dropped", { n: r.logins_dropped }) : ""].join(" ").trim();
+  ref(d, "vault").textContent = [MSG[`import.vault.${r.vault}`] ? msg(`import.vault.${r.vault}`) : r.vault, r.logins_dropped ? msg("import.logins_dropped", { n: r.logins_dropped }) : ""].join(" ").trim();
   show(ref(d, "skipped"), !!(r.skipped_left_out || r.skipped_existing || r.skipped_unrelated));
   show(ref(d, "admins"), r.admins_added.length > 0);
   show(ref(d, "renamed"), r.renamed.length > 0);
   show(ref(d, "none"), r.renamed.length === 0);
   for (const x of r.renamed) {
     const tr = put(T("tpl-import-row"), { name: x.name });
-    ref(tr, "kind").textContent = msg(`import.kind.${x.kind}`);
+    ref(tr, "kind").append(stateChip("import.kind", x.kind));
     const mark = () => { show(ref(tr, "delete"), false); show(ref(tr, "deleted"), true); };
     if (x.deleted) mark();
     bind(tr, {
