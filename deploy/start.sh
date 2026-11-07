@@ -60,17 +60,19 @@ fi
 rm -f "$probe"
 
 # The certificate: created once and kept in the volume, so that a browser accepts it
-# once. A certificate this script created carries the marker file "generated" and is
-# replaced when SITE changes or it runs out within 30 days. A certificate the operator
-# put there is never replaced; the log only warns when it no longer fits.
+# once. The file "generated" holds the fingerprint of the certificate this script
+# created; only that one is replaced, when SITE changes or it runs out within 30 days.
+# A certificate the operator put there has another fingerprint and is never replaced;
+# the log only warns when it no longer fits.
 if ! mkdir -p "$TLS"; then
     say "cannot create $TLS."
     exit 4
 fi
+fingerprint() { openssl x509 -in "$TLS/cert.pem" -noout -fingerprint -sha256 2>/dev/null; }
 create=""
 if [ ! -s "$TLS/cert.pem" ] || [ ! -s "$TLS/key.pem" ]; then
     create=1
-elif [ -e "$TLS/generated" ]; then
+elif [ "$(cat "$TLS/generated" 2>/dev/null)" = "$(fingerprint)" ]; then
     if [ "$(cat "$TLS/site" 2>/dev/null)" != "$SITE" ] \
         || ! openssl x509 -in "$TLS/cert.pem" -noout -checkend 2592000 >/dev/null 2>&1; then
         create=1
@@ -95,14 +97,14 @@ if [ -n "$create" ]; then
     mv -f "$TLS/key.pem.new" "$TLS/key.pem"
     mv -f "$TLS/cert.pem.new" "$TLS/cert.pem"
     printf '%s\n' "$SITE" > "$TLS/site"
-    : > "$TLS/generated"
+    fingerprint > "$TLS/generated"
     say "created a certificate for $SITE, valid for $CERT_DAYS days, in $TLS/cert.pem. Browsers ask once to accept it."
 fi
-if ! fingerprint=$(openssl x509 -in "$TLS/cert.pem" -noout -fingerprint -sha256 2>/dev/null); then
+if ! current=$(fingerprint); then
     say "$TLS/cert.pem is not a readable certificate."
     exit 4
 fi
-say "certificate for $SITE, SHA-256 fingerprint ${fingerprint#*=}. Compare it with what the browser shows before accepting."
+say "certificate for $SITE, SHA-256 fingerprint ${current#*=}. Compare it with what the browser shows before accepting."
 
 portal-download serve &
 service=$!

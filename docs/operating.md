@@ -44,12 +44,14 @@ The backup is one JSONL file: a head line, then one record per line (vault, peop
   curl -fsS -H "Authorization: Bearer pda_…" https://downloads.intra.example/backup -o portal-download-$(date +%F).jsonl
   ```
 
+  When the service's certificate is not one the backup machine trusts, as with the one the container image creates, add `--cacert` with that certificate (see the README's container section).
+
   A person with the right to administer people can also click **Download backup** under **People**.
 - **On the server:** `portal-download backup /some/dir/portal-download-$(date +%F).jsonl`. It never overwrites a file and makes it readable by its owner only.
 
 **Restoring is adding.** Under **People → Backup**, a person with the right to administer people uploads the file. Nothing is overwritten. A job with the same title and entry address, or a person with the same name or e-mail, comes in a second time as "… (Import YYYY-MM-DD)". The application then lists those copies with a delete button each. *Leave people and accesses out* imports only jobs, their history and the vault. With people and accesses, a file brings in people with the right to administer people and working credentials. The application names those people after the import. **Import only a backup you took from this service yourself.** The file is checked line by line, and a faulty line rejects the whole import.
 
-**On a fresh instance**, set up with a name such as "Setup", upload the backup with people and accesses, and delete "Setup" afterwards. Devices and tokens from the backup keep working when the instance runs under the same address. If the instance has no vault yet, it adopts the one from the backup, and the old passphrase applies. If it has a different vault, or the file holds none, jobs come without their logins.
+**On a fresh instance**, set up with a name such as "Setup", **do not create a vault**, upload the backup with people and accesses, and delete "Setup" afterwards. Devices and tokens from the backup keep working when the instance runs under the same host name, because the browsers keep their device cookies per host name. If the instance has no vault yet, it adopts the one from the backup, and the old passphrase applies. If it has a different vault, or the file holds none, jobs come without their logins.
 
 **Without the vault passphrase the logins in a backup cannot be read.** Keep the passphrase safe apart from the backup, for example in a password manager. Keep the backup file as carefully as a token anyway: it holds the sealed logins and the hashes of all accesses.
 
@@ -61,7 +63,7 @@ The image `ghcr.io/schlingensiepen/portal-download` runs the service and Caddy t
 |---|---|
 | Volume | `/data`, owned by UID/GID `10001`, which the image runs as; nothing in the container runs as root |
 | State directory | `/data/portal-download` (store and setup file) |
-| Certificate | `/data/tls/cert.pem` and `key.pem`. Created at first start for `SITE`, valid ten years, marked by `generated` and `site` beside it; such a certificate is created anew when `SITE` changes or it runs out within 30 days. One the operator put there (no `generated`) is never replaced, only warned about. |
+| Certificate | `/data/tls/cert.pem` and `key.pem`. Created at first start for `SITE`, valid ten years; `generated` beside it holds that certificate's fingerprint and `site` its name. Only a certificate with that fingerprint is created anew, when `SITE` changes or it runs out within 30 days. One the operator put there has another fingerprint and is never replaced, only warned about. |
 | Caddy's working files | `/data/caddy`; Caddy's configuration is not persisted |
 | Configuration | `/etc/portal-download/config.toml` in the image: `listen = "127.0.0.1:8080"`, reached by Caddy over the container's loopback interface |
 
