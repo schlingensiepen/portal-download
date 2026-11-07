@@ -15,6 +15,9 @@ on:
 permissions: { contents: read }
 env:
   IMAGE: ghcr.io/${{ github.repository }}
+  # Published only from main and from release tags; a pull request or a manual run on
+  # another branch is built and tested only.
+  PUBLISH: ${{ github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) }}
 
 jobs:
   build:
@@ -27,16 +30,21 @@ jobs:
     permissions: { contents: read, packages: write }
     steps:
       - uses: actions/checkout@v4
+      - name: A release tag names the version in Cargo.toml
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)
+          [ "${GITHUB_REF_NAME#v}" = "$version" ] \
+            || { echo "::error::tag $GITHUB_REF_NAME does not match version $version in Cargo.toml"; exit 1; }
       - uses: docker/setup-buildx-action@v3
       - id: meta
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.IMAGE }}
 
-      # Build into the local daemon first and prove that the image runs. A build that
-      # succeeds says the binary compiles; it says nothing about whether both processes
-      # start, stop and keep their state, which is what an operator meets first.
+      # Not published: build into the local daemon and test that.
       - name: Build for the smoke test
+        if: env.PUBLISH != 'true'
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -48,21 +56,22 @@ jobs:
           build-args: PORTAL_DOWNLOAD_REVISION=${{ github.sha }}
           cache-from: type=gha,scope=${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=${{ matrix.arch }}
-
       - name: Smoke test, seven steps
+        if: env.PUBLISH != 'true'
         run: deploy/smoke.sh portal-download:smoke "${{ github.sha }}"
 
-      - if: github.event_name != 'pull_request'
+      # Published: push once, by digest and without a tag, and test exactly that image
+      # as pulled from the registry. Only a digest that passed is handed on; the tags
+      # are set in the publish job once both platforms passed. A build that fails
+      # here leaves an untagged digest nobody pulls by name.
+      - if: env.PUBLISH == 'true'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
-      # The same build again, now from the cache, pushed by digest only. The tags are
-      # set once for both platforms in the publish job.
-      - name: Push by digest
-        if: github.event_name != 'pull_request'
+      - name: Build and push by digest
+        if: env.PUBLISH == 'true'
         id: push
         uses: docker/build-push-action@v6
         with:
@@ -72,14 +81,17 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           build-args: PORTAL_DOWNLOAD_REVISION=${{ github.sha }}
           cache-from: type=gha,scope=${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.arch }}
           outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
-
-      - if: github.event_name != 'pull_request'
+      - name: Smoke test of the pushed image, seven steps
+        if: env.PUBLISH == 'true'
+        env: { DIGEST: "${{ steps.push.outputs.digest }}" }
         run: |
+          docker pull "$IMAGE@$DIGEST"
+          deploy/smoke.sh "$IMAGE@$DIGEST" "${{ github.sha }}"
           mkdir -p "$RUNNER_TEMP/digests"
           touch "$RUNNER_TEMP/digests/${DIGEST#sha256:}"
-        env: { DIGEST: "${{ steps.push.outputs.digest }}" }
-      - if: github.event_name != 'pull_request'
+      - if: env.PUBLISH == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: digests-${{ matrix.arch }}
@@ -90,7 +102,7 @@ jobs:
   # Runs only when both platforms passed their smoke test.
   publish:
     needs: build
-    if: github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
     runs-on: ubuntu-24.04
     permissions: { contents: read, packages: write }
     steps:
@@ -105,8 +117,9 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      # Tags are computed, never written by hand. latest follows releases only, so
-      # that the one-line start without a tag always pulls the last release.
+      # Tags are computed, never written by hand. latest follows releases only (not a
+      # pre-release such as v1.2.0-rc1), so that the one-line start without a tag always
+      # pulls the last release.
       - id: meta
         uses: docker/metadata-action@v5
         with:
@@ -115,7 +128,7 @@ jobs:
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-') }}
             type=raw,value=edge,enable={{is_default_branch}}
             type=sha,format=long
       - name: One tag for both platforms

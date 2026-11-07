@@ -1,5 +1,5 @@
-# Caddy in the container: TLS for $SITE with the certificate start.sh created in the
-# volume, and the service behind it on the container's loopback interface.
+# Caddy in the container: TLS for $SITE with the certificate in the volume (created by
+# start.sh, or put there by the operator), and the service behind it on the loopback interface.
 {
 	admin off
 	persist_config off
@@ -7,6 +7,10 @@
 	skip_install_trust
 	# Without it Caddy waits for open connections forever when the container stops.
 	grace_period 5s
+	# TCP only: the one-line start publishes 443/tcp, not UDP for HTTP/3.
+	servers {
+		protocols h1 h2
+	}
 }
 
 {$SITE} {

@@ -23,7 +23,7 @@ mutations=(
     "5|the certificate is created anew at every start|sed -i 's|^if \[ ! -s \"\$TLS/cert.pem\" \]|if true \|\| [ ! -s \"\$TLS/cert.pem\" ]|' /usr/local/bin/start.sh"
     "6|the backup does not reach the service|awk '/reverse_proxy/ { print \"\\trespond /backup 404\" } 1' /etc/caddy/Caddyfile > /tmp/Caddyfile && cp /tmp/Caddyfile /etc/caddy/Caddyfile"
     "7|the check for a writable volume is gone|sed -i 's|^if ! { : > \"\$probe\"; } 2>/dev/null; then|if false; then|' /usr/local/bin/start.sh"
-    "7|the check for SITE is gone|sed -i -e 's|^if \[ -z \"\${SITE:-}\" \]; then|if false; then|' -e 's|^if \[\[ ! \"\$SITE\" =~ .*|if false; then|' /usr/local/bin/start.sh"
+    "7|the check for SITE is gone|sed -i 's|^    exit 3\$|    :|' /usr/local/bin/start.sh"
 )
 
 failures=0
@@ -48,7 +48,7 @@ for m in "${mutations[@]}"; do
     n=$((n + 1))
     tag="portal-download:red-$n"
     printf 'FROM %s\nUSER root\nRUN %s\nUSER 10001:10001\n' "$image" "$command" > "$work/Dockerfile.$n"
-    if ! docker build -q -t "$tag" -f "$work/Dockerfile.$n" "$work" >/dev/null; then
+    if ! docker build --load -q -t "$tag" -f "$work/Dockerfile.$n" "$work" >/dev/null; then
         echo "::error::the mutation could not be built: $what"
         failures=$((failures + 1))
         continue

@@ -61,10 +61,11 @@ The image `ghcr.io/schlingensiepen/portal-download` runs the service and Caddy t
 |---|---|
 | Volume | `/data`, owned by UID/GID `10001`, which the image runs as; nothing in the container runs as root |
 | State directory | `/data/portal-download` (store and setup file) |
-| Certificate | `/data/tls/cert.pem`, `key.pem` and `site`; created at first start for `SITE`, valid ten years, and created anew only when `SITE` changes or it runs out within 30 days |
+| Certificate | `/data/tls/cert.pem` and `key.pem`. Created at first start for `SITE`, valid ten years, marked by `generated` and `site` beside it; such a certificate is created anew when `SITE` changes or it runs out within 30 days. One the operator put there (no `generated`) is never replaced, only warned about. |
+| Caddy's working files | `/data/caddy`; Caddy's configuration is not persisted |
 | Configuration | `/etc/portal-download/config.toml` in the image: `listen = "127.0.0.1:8080"`, reached by Caddy over the container's loopback interface |
 
-The entry point checks `SITE` (exit code `3` when it is missing or not a host name or IPv4 address) and that `/data` is writable (exit code `4`, with the `chown` that is missing), then starts the service, waits until it answers, and starts Caddy. `docker stop` reaches both. When either ends by itself, the container ends, and `--restart unless-stopped` brings both back. The health check asks the service; `docker ps` shows it.
+The entry point checks `SITE` (exit code `3` when it is missing or neither a host name nor an IPv4 address) and that `/data` is writable (exit code `4`, with the `chown` that is missing), then starts the service, waits until it answers, and starts Caddy. `docker stop` reaches both. When either ends by itself, the container ends with a non-zero exit code, and `--restart unless-stopped` brings both back. A container that fails the checks at start is restarted the same way, again and again; `docker logs` names the cause. The health check asks the service; `docker ps` shows it. Caddy serves HTTP/1.1 and HTTP/2 on 443/tcp only, with no redirect from port 80.
 
 Each image was built for its revision (`portal-download version`) and passed a smoke test on its platform before it was published: start through Caddy, revision, first setup with the logged secret, a stop within ten seconds with exit code 0, a new container on the same volume with the same person and certificate, the backup fetched with a token, and the refusal of an unwritable volume.
 

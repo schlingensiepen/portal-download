@@ -39,14 +39,24 @@ docker run -d --name portal-download --restart unless-stopped \
   ghcr.io/schlingensiepen/portal-download
 ```
 
-`SITE` is the host name or IPv4 address the browsers use. The image holds the service and [Caddy](https://caddyserver.com) in front of it. At first start it creates a certificate for `SITE`, valid for ten years, and keeps it in the volume. A browser asks once to accept it; compare the fingerprint it shows with the one in `docker logs portal-download`. Everything that has to survive lies in the volume `/data`: the store, the setup file and the certificate. To use a certificate of your own, put `cert.pem` and `key.pem` into `/data/tls/`, write the same `SITE` into `/data/tls/site`, and restart.
+`SITE` is the host name or IPv4 address the browsers use. The image holds the service and [Caddy](https://caddyserver.com) in front of it. Everything that has to survive lies in the volume `/data`: the store, the setup file, the certificate and Caddy's working files. Images exist for `amd64` and `arm64`.
 
-- **First start:** `docker logs portal-download` shows the setup secret. Continue as in the paragraph after the build commands below.
-- **Commands:** `docker exec portal-download portal-download status`, and likewise `check`, `version`, `bootstrap` and `backup /data/backup.jsonl`.
-- **Tags:** without a tag the image is `latest`, the last release. `0.4` follows the fixes of one minor version, `0.4.0` stays put, `edge` follows the main branch. Images exist for `amd64` and `arm64`.
-- **Upgrading:** `docker pull`, remove the container and start it again with the same volume.
+**First start:**
+
+1. `docker logs portal-download` shows two lines: first the certificate's SHA-256 fingerprint, then the setup secret. The secret appears in the log only while nobody is set up, and it is valid for 30 minutes. If it has run out, `docker exec portal-download portal-download bootstrap` prints a fresh one.
+2. Open `https://<SITE>/`. The browser warns about the certificate once: the image created it for `SITE` at first start, valid for ten years. Compare the fingerprint the browser shows with the one from the log, then accept it.
+3. Enter the setup secret and your name, and continue with the vault passphrase and the first job.
+
+**Operating it:**
+
+- **Commands:** `docker exec portal-download portal-download status`, and likewise `check` and `version`.
+- **Backup:** fetch it with `curl` as described under [Backup](#backup), adding `--cacert cert.pem` with the certificate taken from `docker cp portal-download:/data/tls/cert.pem .` (or `-k` after comparing the fingerprint). Or write it inside the container and copy it out, then delete it there, because the file holds the sealed logins: `docker exec portal-download portal-download backup /data/backup.jsonl`, `docker cp portal-download:/data/backup.jsonl .`, `docker exec portal-download rm /data/backup.jsonl`.
+- **Tags:** without a tag the image is `latest`, the last release. `0.4` follows the fixes of one minor version, `0.4.0` stays put, `edge` follows the main branch.
+- **Upgrading:** `docker pull ghcr.io/schlingensiepen/portal-download`, `docker rm -f portal-download`, and the same `docker run` again. The volume keeps everything.
 - **Time zone:** add `-e TZ=Europe/Berlin` (see the schedule below).
-- **A host directory instead of the named volume** must belong to the image's user: `chown -R 10001:10001 <directory>`. Otherwise the container stops with exit code 4 and says so.
+- **A certificate of your own** (from an intranet CA, for example): put `cert.pem` (with the chain, if any) and `key.pem` into `/data/tls/`, readable for UID `10001`, and restart. A certificate you put there is never replaced; the log warns when it does not match `SITE` or runs out within 30 days. Deleting both files makes the image create its own again.
+- **A host directory instead of the named volume** must belong to the image's user: `chown -R 10001:10001 <directory>`. Otherwise the container ends with exit code 4 and `docker logs` says why; with `--restart unless-stopped` Docker keeps starting it again until the directory is fixed. With rootless Docker or Podman the UID is mapped, and with SELinux the mount needs `:Z`.
+- **Do not use `--network host`.** The service trusts proxy headers from the loopback interface, which is the container's own only while the container has its own network.
 
 ## Running it
 
