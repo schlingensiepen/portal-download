@@ -1,0 +1,15 @@
+# Caddy in the container: TLS for $SITE with the certificate start.sh created in the
+# volume, and the service behind it on the container's loopback interface.
+{
+	admin off
+	persist_config off
+	auto_https disable_redirects
+	skip_install_trust
+	# Without it Caddy waits for open connections forever when the container stops.
+	grace_period 5s
+}
+
+{$SITE} {
+	tls /data/tls/cert.pem /data/tls/key.pem
+	reverse_proxy 127.0.0.1:8080
+}

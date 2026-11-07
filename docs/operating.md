@@ -53,11 +53,25 @@ The backup is one JSONL file: a head line, then one record per line (vault, peop
 
 **Without the vault passphrase the logins in a backup cannot be read.** Keep the passphrase safe apart from the backup, for example in a password manager. Keep the backup file as carefully as a token anyway: it holds the sealed logins and the hashes of all accesses.
 
+## In a container
+
+The image `ghcr.io/schlingensiepen/portal-download` runs the service and Caddy together; its start is described in the README. Inside it:
+
+| What | Where |
+|---|---|
+| Volume | `/data`, owned by UID/GID `10001`, which the image runs as; nothing in the container runs as root |
+| State directory | `/data/portal-download` (store and setup file) |
+| Certificate | `/data/tls/cert.pem`, `key.pem` and `site`; created at first start for `SITE`, valid ten years, and created anew only when `SITE` changes or it runs out within 30 days |
+| Configuration | `/etc/portal-download/config.toml` in the image: `listen = "127.0.0.1:8080"`, reached by Caddy over the container's loopback interface |
+
+The entry point checks `SITE` (exit code `3` when it is missing or not a host name or IPv4 address) and that `/data` is writable (exit code `4`, with the `chown` that is missing), then starts the service, waits until it answers, and starts Caddy. `docker stop` reaches both. When either ends by itself, the container ends, and `--restart unless-stopped` brings both back. The health check asks the service; `docker ps` shows it.
+
+Each image was built for its revision (`portal-download version`) and passed a smoke test on its platform before it was published: start through Caddy, revision, first setup with the logged secret, a stop within ten seconds with exit code 0, a new container on the same volume with the same person and certificate, the backup fetched with a token, and the refusal of an unwritable volume.
+
 ## Upgrading
 
-Replace the binary and restart. A newer version migrates the store at start, before it listens, and records the structure version (`portal-download status`). An older binary refuses a store written by a newer one.
+Replace the binary and restart. In a container, pull the new image and start a new container on the same volume. A newer version migrates the store at start, before it listens, and records the structure version (`portal-download status`). An older binary refuses a store written by a newer one.
 
 ## What is known not to be solved yet
 
 - **Changing the vault passphrase** is not offered yet. Every sealed login would have to be re-sealed in a browser that knows both passphrases.
-- **A container image** with a published build is not provided yet; the binary is built from source.

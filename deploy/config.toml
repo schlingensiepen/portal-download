@@ -1,0 +1,5 @@
+# Configuration inside the container. The service listens on the container's loopback
+# interface, where only Caddy in the same container reaches it; the state lives in the
+# volume at /data.
+listen = "127.0.0.1:8080"
+state_dir = "/data/portal-download"

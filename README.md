@@ -31,6 +31,23 @@ The service has **no start secret** of its own, so there is nothing to set befor
 
 `curl -fsS -H "Authorization: Bearer <token>" https://<host>/backup -o backup.jsonl` fetches everything as one JSONL file. The token is one with the ability `backup.read` (*Take the backup* in the application). When a person creates such a token in the application, it shows this line with the token filled in; over the API, `agent.create` returns the token for the same line. Uploading a backup in the application adds it to what is there and overwrites nothing. Details are in [docs/operating.md](docs/operating.md#backup).
 
+## In a container
+
+```sh
+docker run -d --name portal-download --restart unless-stopped \
+  -p 443:443 -v portal-download:/data -e SITE=downloads.intra.example \
+  ghcr.io/schlingensiepen/portal-download
+```
+
+`SITE` is the host name or IPv4 address the browsers use. The image holds the service and [Caddy](https://caddyserver.com) in front of it. At first start it creates a certificate for `SITE`, valid for ten years, and keeps it in the volume. A browser asks once to accept it; compare the fingerprint it shows with the one in `docker logs portal-download`. Everything that has to survive lies in the volume `/data`: the store, the setup file and the certificate. To use a certificate of your own, put `cert.pem` and `key.pem` into `/data/tls/`, write the same `SITE` into `/data/tls/site`, and restart.
+
+- **First start:** `docker logs portal-download` shows the setup secret. Continue as in the paragraph after the build commands below.
+- **Commands:** `docker exec portal-download portal-download status`, and likewise `check`, `version`, `bootstrap` and `backup /data/backup.jsonl`.
+- **Tags:** without a tag the image is `latest`, the last release. `0.4` follows the fixes of one minor version, `0.4.0` stays put, `edge` follows the main branch. Images exist for `amd64` and `arm64`.
+- **Upgrading:** `docker pull`, remove the container and start it again with the same volume.
+- **Time zone:** add `-e TZ=Europe/Berlin` (see the schedule below).
+- **A host directory instead of the named volume** must belong to the image's user: `chown -R 10001:10001 <directory>`. Otherwise the container stops with exit code 4 and says so.
+
 ## Running it
 
 Requirements: Rust (stable) to build, and HTTPS in front for anything other than `localhost`. Browsers allow WebCrypto, the clipboard and `Secure` cookies only in a secure context. `http://localhost` and `http://127.0.0.1` count as secure, so a local trial needs no certificate.

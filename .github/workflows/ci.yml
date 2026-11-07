@@ -1,0 +1,19 @@
+name: CI
+on:
+  push: { branches: [main] }
+  pull_request:
+permissions: { contents: read }
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+      # The tests include the checks that hold the self-description and the building
+      # blocks of the browser application (AGENTS.md, docs/agents/change.md).
+      - run: cargo test --locked
+      # "Done" includes a build without warnings.
+      - run: cargo build --locked
+        env: { RUSTFLAGS: "-D warnings" }
+      - name: Shell scripts of the image
+        run: shellcheck deploy/*.sh

@@ -1,0 +1,11 @@
+# Allowlist: only what the image build needs enters the build context, so a local
+# state directory, target/ or a stray secret cannot end up in a layer.
+*
+!Cargo.toml
+!Cargo.lock
+!build.rs
+!src
+!static
+!deploy/start.sh
+!deploy/Caddyfile
+!deploy/config.toml

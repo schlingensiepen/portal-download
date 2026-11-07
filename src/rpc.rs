@@ -88,7 +88,7 @@ pub const METHODS: &[Method] = &[
         summary: "Return the whole backup as JSONL text.",
         description: "The first line is the head with format and version; every further line is one record: vault, person, invitation, device, agent, job or run. It holds the portal logins only sealed, readable only with the vault passphrase, and the hashes of all accesses, which grant no access; keep the file as carefully as a secret anyway. The same text comes as a file from GET on /backup of this service, with the same credential.",
         params: r#"{}"#,
-        result: r#"{"jsonl":"{\"type\":\"backup\",\"format\":\"portal-download-backup\",\"version\":1,\"created_at\":\"2026-11-06T10:00:00Z\",\"app_version\":\"0.3.0\"}\n…"}"#,
+        result: r#"{"jsonl":"{\"type\":\"backup\",\"format\":\"portal-download-backup\",\"version\":1,\"created_at\":\"2026-11-06T10:00:00Z\",\"app_version\":\"0.4.0\"}\n…"}"#,
     },
     Method {
         name: "backup.import",
@@ -205,7 +205,7 @@ pub const METHODS: &[Method] = &[
         summary: "Say whether the service is set up and who is calling.",
         description: "setup_required is true while nobody has been invited yet; the entry page then explains the setup. signed_in says whether the call carried a valid device credential or agent token; me describes the caller then, for an agent with its display string and its ability (null until granted).",
         params: r#"{}"#,
-        result: r#"{"name":"portal-download","version":"0.3.0","revision":"a1b2c3d4e5f6","setup_required":false,"signed_in":true,"me":{"kind":"person","user_id":1,"name":"Ada","is_admin":true,"device_id":3,"device_label":"Laptop"}}"#,
+        result: r#"{"name":"portal-download","version":"0.4.0","revision":"a1b2c3d4e5f6","setup_required":false,"signed_in":true,"me":{"kind":"person","user_id":1,"name":"Ada","is_admin":true,"device_id":3,"device_label":"Laptop"}}"#,
     },
     Method {
         name: "setup.createAdmin",

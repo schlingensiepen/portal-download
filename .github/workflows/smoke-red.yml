@@ -1,0 +1,26 @@
+# Proves the smoke test itself: each of its steps must fail on an image with that
+# safeguard removed (deploy/smoke-red.sh). Runs when the image's files change.
+name: Smoke test seen red
+on:
+  pull_request:
+    paths: ["deploy/**", ".github/workflows/smoke-red.yml", ".github/workflows/build-image.yml"]
+  workflow_dispatch:
+permissions: { contents: read }
+jobs:
+  red:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/Dockerfile
+          load: true
+          tags: portal-download:smoke
+          build-args: PORTAL_DOWNLOAD_REVISION=${{ github.sha }}
+          cache-from: type=gha,scope=amd64
+      - name: The unchanged image passes
+        run: deploy/smoke.sh portal-download:smoke "${{ github.sha }}"
+      - name: Each safeguard removed, each step red
+        run: deploy/smoke-red.sh portal-download:smoke "${{ github.sha }}"
