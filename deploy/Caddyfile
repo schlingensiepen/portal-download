@@ -6,7 +6,7 @@
 	auto_https disable_redirects
 	skip_install_trust
 	# Without it Caddy waits for open connections forever when the container stops.
-	grace_period 5s
+	grace_period 3s
 	# TCP only: the one-line start publishes 443/tcp, not UDP for HTTP/3.
 	servers {
 		protocols h1 h2

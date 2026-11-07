@@ -52,7 +52,7 @@ docker run -d --name portal-download --restart unless-stopped \
 
 - **Backup with `curl`:** as described under [Backup](#backup). The line the application shows needs `--cacert cert.pem` added, with the certificate taken once from `docker cp portal-download:/data/tls/cert.pem .`; take it again when the certificate changes. Or write the backup inside the container, copy it out and delete it there, because the file holds the sealed logins: `docker exec portal-download portal-download backup /data/backup.jsonl`, `docker cp portal-download:/data/backup.jsonl .`, `docker exec portal-download rm /data/backup.jsonl`.
 - **Tags:** without a tag the image is `latest`, the last release. A tag `X.Y` such as `0.4` follows the fixes of one minor version, `X.Y.Z` such as `0.4.0` stays put, `edge` follows the main branch.
-- **Upgrading:** take a backup first, because a store written by a newer version is refused by an older one. Then `docker pull ghcr.io/schlingensiepen/portal-download`, `docker rm -f portal-download`, and the same `docker run` as at first start, with all its options. The volume keeps everything.
+- **Upgrading:** take a backup first, because a store written by a newer version is refused by an older one. Then `docker pull ghcr.io/schlingensiepen/portal-download`, `docker stop portal-download`, `docker rm portal-download`, and the same `docker run` as at first start, with all its options. The volume keeps everything.
 - **A certificate of your own** (from an intranet CA, for example): copy it in as the image's user, then restart:
 
   ```sh
