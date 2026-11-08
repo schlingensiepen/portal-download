@@ -31,6 +31,14 @@ stop() {
     stopping=1
     # Nothing started yet: end at once.
     [ -z "$service" ] && exit 0
+    # Wakes a wait that began after the loop last looked at "stopping". With Caddy the
+    # timer ends, and shutdown stops Caddy before the service; without Caddy the service
+    # is told at once. Signals sent twice do no harm.
+    if [ -n "$caddy" ]; then
+        [ -n "$timer" ] && kill "$timer" 2>/dev/null
+    else
+        kill -TERM "$service" 2>/dev/null
+    fi
 }
 trap stop TERM INT
 
@@ -70,8 +78,8 @@ check_site() {
         say "SITE=$SITE is neither a host name nor an IPv4 address. Give the name or address alone, without scheme, port or path."
         exit 3
     fi
-    if ! [[ "$CHECK_SECONDS" =~ ^[1-9][0-9]*$ ]]; then
-        say "CERT_CHECK_SECONDS=$CHECK_SECONDS is not a whole number of seconds. Leave it unset for the daily check."
+    if ! [[ "$CHECK_SECONDS" =~ ^[1-9][0-9]{0,6}$ ]]; then
+        say "CERT_CHECK_SECONDS=$CHECK_SECONDS is not a whole number of seconds up to 9999999. Leave it unset for the daily check."
         exit 3
     fi
 }
@@ -93,7 +101,7 @@ rm -f "$probe"
 # log only warns when it no longer fits. Checked at start and then once a day.
 fingerprint() { openssl x509 -in "$TLS/cert.pem" -noout -fingerprint -sha256 2>/dev/null; }
 # Returns 0 when the certificate is unchanged, 10 when a new one was created, 1 when
-# none could be created or read.
+# none could be created or read. The fingerprint is logged at start and when it changes.
 certificate() {
     local create=""
     if ! mkdir -p "$TLS"; then
@@ -135,12 +143,14 @@ certificate() {
         say "$TLS/cert.pem is not a readable certificate."
         return 1
     fi
-    say "certificate for $SITE, SHA-256 fingerprint ${current#*=}. Compare it with what the browser shows before accepting."
+    if [ "${1:-}" = start ] || [ -n "$create" ]; then
+        say "certificate for $SITE, SHA-256 fingerprint ${current#*=}. Compare it with what the browser shows before accepting."
+    fi
     [ -n "$create" ] && return 10
     return 0
 }
 if [ -z "$PROXY" ]; then
-    certificate
+    certificate start
     [ $? = 1 ] && exit 4
 fi
 
@@ -209,15 +219,22 @@ while :; do
     elif ! kill -0 "$caddy" 2>/dev/null; then
         say "Caddy ended (exit code $code); stopping the service and the container."
     elif ! kill -0 "$timer" 2>/dev/null; then
-        certificate
-        if [ $? = 10 ]; then
-            say "starting Caddy anew with the new certificate; the service keeps running."
-            kill -TERM "$caddy" 2>/dev/null
-            wait "$caddy" 2>/dev/null
-            start_caddy
+        if [ "$code" -ne 0 ]; then
+            say "the timer of the daily certificate check failed (exit code $code); stopping the container."
+            code=1
+        else
+            certificate
+            if [ $? = 10 ]; then
+                say "starting Caddy anew with the new certificate; the service keeps running."
+                kill -TERM "$caddy" 2>/dev/null
+                wait "$caddy" 2>/dev/null
+                [ -n "$stopping" ] && continue
+                start_caddy
+            fi
+            [ -n "$stopping" ] && continue
+            start_timer
+            continue
         fi
-        start_timer
-        continue
     else
         continue
     fi

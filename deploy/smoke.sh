@@ -114,8 +114,8 @@ started=$(docker inspect -f '{{.State.StartedAt}}' "$name")
 docker exec "$name" sh -c 'cd /data/tls && umask 077 \
     && openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 10 -subj /CN=localhost \
         -addext subjectAltName=DNS:localhost -keyout key.pem.new -out cert.pem.new 2>/dev/null \
-    && mv -f key.pem.new key.pem && mv -f cert.pem.new cert.pem \
-    && openssl x509 -in cert.pem -noout -fingerprint -sha256 > generated && cat generated' >"$work/short" \
+    && openssl x509 -in cert.pem.new -noout -fingerprint -sha256 > generated \
+    && mv -f key.pem.new key.pem && mv -f cert.pem.new cert.pem && cat generated' >"$work/short" \
     || fail "could not put a certificate that runs out soon into the volume"
 short=$(cat "$work/short")
 renewed=""
@@ -136,7 +136,19 @@ fi
 [ "$(docker exec "$name" pidof portal-download)" = "$pid" ] \
     && [ "$(docker inspect -f '{{.State.StartedAt}}' "$name")" = "$started" ] \
     || fail "the service or the container was started anew for the renewal"
-echo "step 7: the running container replaces a certificate that runs out soon, the service keeps running"
+# A certificate the operator put there is never replaced, even when it runs out soon.
+docker exec "$name" sh -c 'cd /data/tls && umask 077 \
+    && openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 10 -subj /CN=localhost \
+        -addext subjectAltName=DNS:localhost -keyout key.pem.new -out cert.pem.new 2>/dev/null \
+    && mv -f key.pem.new key.pem && mv -f cert.pem.new cert.pem \
+    && openssl x509 -in cert.pem -noout -fingerprint -sha256' >"$work/own" \
+    || fail "could not put a certificate of the operator's into the volume"
+sleep 8
+[ "$(docker exec "$name" openssl x509 -in /data/tls/cert.pem -noout -fingerprint -sha256)" = "$(cat "$work/own")" ] \
+    || fail "a certificate of the operator's was replaced"
+docker logs "$name" 2>&1 | grep -q 'warning: the certificate in /data/tls/cert.pem runs out within 30 days' \
+    || fail "no warning about the operator's certificate that runs out soon"
+echo "step 7: the running container replaces its own certificate when it runs out soon, keeps one of the operator's, and the service keeps running"
 docker rm -f "$name" >/dev/null
 
 step="8 (PROXY=external)"
@@ -178,7 +190,14 @@ set +e
 out=$(timeout 60 docker run --rm --name "$name" -v "$volume:/data" "$image" 2>&1)
 code=$?
 set -e
-[ "$code" = 3 ] || fail "a start without SITE ended with exit code $code, expected 3: $out"
+if [ "$code" != 3 ] || ! grep -q 'SITE is not set' <<<"$out"; then
+    fail "a start without SITE ended with exit code $code, expected 3 and a message: $out"
+fi
+set +e
+out=$(timeout 60 docker run --rm --name "$name" -v "$volume:/data" -e SITE=https://downloads.intra.example/ "$image" 2>&1)
+code=$?
+set -e
+[ "$code" = 3 ] || fail "SITE=https://downloads.intra.example/ ended with exit code $code, expected 3: $out"
 set +e
 out=$(timeout 60 docker run --rm --name "$name" -v "$volume:/data" -e SITE=localhost -e CERT_CHECK_SECONDS=soon "$image" 2>&1)
 code=$?

@@ -94,6 +94,7 @@ On a Mac with Apple silicon every runtime takes the `arm64` image, with no emula
   A certificate you put there is never replaced; the log warns when it does not match `SITE` or runs out within 30 days. Deleting both files makes the image create its own again.
 - **A host directory instead of the named volume** must belong to the image's user: `chown -R 10001:10001 <directory>`. Otherwise the container ends with exit code 4 and `docker logs` says why; with `--restart unless-stopped` Docker keeps starting it again until the directory is fixed. With rootless Docker or Podman the UID is mapped, and with SELinux the mount needs `:Z`.
 - **Do not use `--network host`.** The service trusts proxy headers from the loopback interface, which is the container's own only while the container has its own network.
+- **With WSLC or `container`,** check after the first start that the container runs (`wslc ps`, `container ls`). If it ended with exit code 4, the runtime created the volume with another owner; its log names the `chown` that is missing.
 
 **With Docker Compose**, the same container as above:
 
@@ -114,7 +115,7 @@ volumes:
   portal-download:
 ```
 
-**Behind a reverse proxy of your own**, for example Caddy as a second service in the stack: `PROXY=external` starts the service without the Caddy inside the image, with no certificate and no `SITE`. The service then listens on port 8080 of its container and takes scheme, host and client address from the `X-Forwarded-*` headers of whoever reaches it. Publish port 8080 nowhere, so that only the proxy in the same network reaches it.
+**Behind a reverse proxy of your own**, for example Caddy as a second service in the stack: `PROXY=external` starts the service without the Caddy inside the image, with no certificate and no `SITE`. The service then listens on port 8080 of its container and takes scheme, host and client address from the `X-Forwarded-*` headers of whoever reaches it. Publish port 8080 nowhere, so that only the proxy in the same network reaches it. The proxy must send `X-Forwarded-Proto` and `X-Forwarded-Host` and set `X-Forwarded-For` itself; Caddy does all three by default, nginx sends no `X-Forwarded-Host` unless told to.
 
 ```yaml
 services:
@@ -166,7 +167,7 @@ cp examples/config.toml my-config.toml
 
 The first start logs the setup secret. Open the service in a browser, enter the secret and your name, and accept the invitation on that device. Then create the vault passphrase and the first download job. Invite the others under **People**.
 
-Put a reverse proxy with TLS on the same host in front, see [`examples/Caddyfile`](examples/Caddyfile), and run the service as its own user, see [`examples/portal-download.service`](examples/portal-download.service). The service takes `X-Forwarded-For`, `X-Forwarded-Host` and `X-Forwarded-Proto` only from a proxy on the same host (loopback), and that proxy must set them itself rather than pass on what the browser sent (Caddy does by default). Details are in [docs/operating.md](docs/operating.md).
+Put a reverse proxy with TLS on the same host in front, see [`examples/Caddyfile`](examples/Caddyfile), and run the service as its own user, see [`examples/portal-download.service`](examples/portal-download.service). The service takes `X-Forwarded-For`, `X-Forwarded-Host` and `X-Forwarded-Proto` only from a proxy on the same host (loopback), unless `trust_forwarded_headers = true`, and that proxy must set them itself rather than pass on what the browser sent (Caddy does by default). Details are in [docs/operating.md](docs/operating.md).
 
 ### Commands and exit codes
 

@@ -218,9 +218,11 @@ fn cookie_value(h: &HeaderMap, name: &str) -> Option<String> {
     })
 }
 
+/// The client's address. Behind the proxy it is the last entry of `X-Forwarded-For`: the
+/// one the proxy itself added, whether it replaces the header or appends to it.
 fn client_address(h: &HeaderMap, peer: SocketAddr, trust: bool) -> String {
     if proxied(peer, trust) {
-        if let Some(x) = h.get("x-forwarded-for").and_then(|v| v.to_str().ok()).and_then(|s| s.split(',').next()) {
+        if let Some(x) = h.get("x-forwarded-for").and_then(|v| v.to_str().ok()).and_then(|s| s.rsplit(',').next()).filter(|s| !s.trim().is_empty()) {
             return x.trim().to_string();
         }
     }
@@ -508,10 +510,10 @@ mod tests {
     #[test]
     fn client_address_follows_the_trusted_proxy() {
         let mut h = HeaderMap::new();
-        h.insert("x-forwarded-for", "192.0.2.7, 10.0.0.9".parse().unwrap());
+        h.insert("x-forwarded-for", "198.51.100.1, 192.0.2.7".parse().unwrap());
         let remote = SocketAddr::from(([10, 0, 0, 9], 1));
         assert_eq!(client_address(&h, remote, false), "10.0.0.9");
-        assert_eq!(client_address(&h, remote, true), "192.0.2.7");
+        assert_eq!(client_address(&h, remote, true), "192.0.2.7", "the entry the proxy added, not what the browser sent");
     }
 
     #[tokio::test]

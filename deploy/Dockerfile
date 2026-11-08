@@ -42,8 +42,9 @@ ENV PORTAL_DOWNLOAD_CONFIG=/etc/portal-download/config.toml
 # over that ownership when Docker creates it.
 USER 10001:10001
 WORKDIR /data
-# 443 for browsers; 8080 only with PROXY=external, for a reverse proxy in the same network.
-EXPOSE 443 8080
+# 443 for browsers. With PROXY=external the service listens on 8080 for a reverse proxy in
+# the same network; not exposed here, so that `docker run -P` never publishes it.
+EXPOSE 443
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD wget -q -O /dev/null http://127.0.0.1:8080/ || exit 1
 ENTRYPOINT ["/usr/local/bin/start.sh"]
