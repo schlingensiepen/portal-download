@@ -55,15 +55,12 @@ fingerprint() {
     openssl s_client -connect "127.0.0.1:$port" "${sni[@]}" </dev/null 2>/dev/null \
         | openssl x509 -noout -fingerprint -sha256 2>/dev/null || true
 }
-# The container's log once it holds the ready line; the ready line ends the block.
+# Reads the container's log into $log once it holds the ready line, which ends the block.
+# Called directly, not in $(…), so that fail() reaches the output and ends the test.
 ready_log() {
-    local log=""
     for _ in $(seq 1 15); do
         log=$(docker logs "$name" 2>&1)
-        if grep -q ' is ready: ' <<<"$log"; then
-            printf '%s\n' "$log"
-            return 0
-        fi
+        if grep -q ' is ready: ' <<<"$log"; then return 0; fi
         sleep 1
     done
     fail "no line with ' is ready: ' in the log within 15 seconds"
@@ -74,7 +71,7 @@ docker volume create "$volume" >/dev/null
 step="1 (start)"
 start
 wait_up
-log=$(ready_log)
+ready_log
 block=$(sed -n 's/^portal-download container: //p' <<<"$log" | grep -B 2 ' is ready: ')
 ready=$(sed -n 3p <<<"$block")
 [[ "$ready" =~ ^portal-download\ [0-9][^\ ]*\ is\ ready:\ https://localhost/$ ]] \
@@ -102,8 +99,9 @@ echo "step 2: the binary reports revision $revision"
 step="3 (first setup)"
 # The whole log first: under pipefail a reader that stops early would fail the pipe.
 log=$(docker logs "$name" 2>&1)
-secret=$(sed -n 's/.*Setup secret: \([^ ]*\) .*/\1/p' <<<"$log" | sed -n 1p)
-[ -n "$secret" ] || fail "no setup secret in the log"
+# The service's own line, not the one of the ready block.
+secret=$(sed -n 's/^portal-download: not set up yet\. Setup secret: \([^ ]*\) .*/\1/p' <<<"$log" | sed -n 1p)
+[ -n "$secret" ] || fail "no setup secret in the log of the service"
 answer=$(rpc setup.createAdmin '{"name":"Smoke"}' -H "X-Setup-Secret: $secret")
 invitation=$(jq -r '.result.invitation_token // empty' <<<"$answer")
 [ -n "$invitation" ] || fail "setup.createAdmin with the logged secret answered: $answer"
@@ -130,7 +128,7 @@ users=$(docker exec "$name" portal-download status | jq -r .store.users)
 [ "$users" = 1 ] || fail "the new container sees $users people, expected 1 from the volume"
 after=$(fingerprint)
 [ "$after" = "$before" ] || fail "the certificate changed: $before became $after"
-log=$(ready_log)
+ready_log
 block=$(sed -n 's/^portal-download container: //p' <<<"$log" | grep -B 2 ' is ready: ')
 [ "$(sed -n 2p <<<"$block")" = "set up: 1 person, 0 jobs." ] || fail "the block does not say 'set up: 1 person, 0 jobs.': $block"
 echo "step 5: a new container on the same volume keeps the person and the certificate"
@@ -209,7 +207,7 @@ curl -sf -o /dev/null --max-time 5 "$direct/healthz" || fail "no answer at $dire
 users=$(docker exec "$name" portal-download status | jq -r .store.users)
 [ "$users" = 1 ] || fail "the container sees $users people on the volume, expected 1"
 host=$(docker inspect -f '{{.Config.Hostname}}' "$name")
-log=$(ready_log)
+ready_log
 ready=$(grep ' is ready: ' <<<"$log")
 [[ "$ready" == *" is ready: http://$host:8080/ "* ]] || fail "the ready line does not name http://$host:8080/: $ready"
 page=$(curl -sS --max-time 5 -H 'X-Forwarded-Proto: https' -H 'X-Forwarded-Host: downloads.intra.example' "$direct/")

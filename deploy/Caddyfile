@@ -15,10 +15,6 @@
 	log default {
 		level WARN
 	}
-	# A browser that opens another name or the bare address still gets the certificate of
-	# $SITE and warns about the name, instead of a handshake that ends in an internal error.
-	default_sni {$SITE}
-	fallback_sni {$SITE}
 }
 
 {$SITE} {
@@ -26,7 +22,9 @@
 	reverse_proxy 127.0.0.1:8080
 }
 
-# Every other name leads to the address of $SITE.
+# Every other name, and a handshake without one (a bare IP address), gets the certificate of
+# $SITE, so that the browser warns about the name instead of ending the handshake with an
+# internal error, and leads to the address of $SITE.
 https:// {
 	tls /data/tls/cert.pem /data/tls/key.pem
 	redir https://{$SITE}{uri}

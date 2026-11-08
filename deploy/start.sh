@@ -165,8 +165,10 @@ service=$!
 
 # One value of the pretty-printed JSON of `portal-download status`, empty when missing.
 count() { sed -n "s/^ *\"$1\": \([0-9]*\),\{0,1\}\$/\1/p" <<<"$2" | sed -n 1p; }
+# The state directory from the configuration, as `portal-download check` reports it.
+state_dir() { portal-download check 2>/dev/null | sed -n '/"state_dir": {/,/}/s/^ *"value": "\(.*\)",\{0,1\}$/\1/p'; }
 # One string value of the setup file the service wrote before it answered.
-window() { sed -n "s/^$1 = \"\(.*\)\"\$/\1/p" "$DATA/portal-download/bootstrap.toml" 2>/dev/null; }
+window() { sed -n "s/^$1 = \"\(.*\)\"\$/\1/p" "$(state_dir)/bootstrap.toml" 2>/dev/null; }
 plural() { if [ "$1" = 1 ]; then echo "1 $2"; else echo "$1 $3"; fi; }
 # The ready block; $1 is the address, $2 what follows it on the ready line.
 ready_block() {
@@ -230,17 +232,8 @@ if [ "$PROXY" = external ]; then
     done
 fi
 
-# Before it has read the Caddyfile, whose global option keeps it at WARN, Caddy writes a few
-# lines at level info with no logger name; only those are left out of the log.
-caddy_log() {
-    local line
-    while IFS= read -r line; do
-        [[ $line == '{"level":"info",'* && $line != *'"logger":'* ]] && continue
-        printf '%s\n' "$line" >&2
-    done
-}
 start_caddy() {
-    caddy run --config /etc/caddy/Caddyfile --adapter caddyfile 2> >(caddy_log) &
+    caddy run --config /etc/caddy/Caddyfile --adapter caddyfile &
     caddy=$!
 }
 start_timer() {
