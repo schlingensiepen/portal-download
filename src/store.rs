@@ -71,7 +71,7 @@ impl Principal {
             Principal::Device { .. } => Ok(()),
             Principal::Agent { ability: Some(a), .. } if abilities.contains(&a.as_str()) => Ok(()),
             Principal::Agent { ability: Some(a), .. } => Err(OpError::forbidden(format!(
-                "This agent token carries the ability {a}; this call needs {needed}. Register a second token for {needed} and have it granted."
+                "This agent token carries the ability {a}; this call needs {needed}. Register a second token for one of them and have it granted."
             ))),
             Principal::Agent { display, ability: None, .. } => Err(OpError::new(
                 403,

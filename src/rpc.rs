@@ -195,7 +195,7 @@ pub const METHODS: &[Method] = &[
         access: Access::Person,
         abilities: &["jobs.write"],
         summary: "Change fields of a job.",
-        description: "Send job_id and only the fields to change, with the types and limits job.create states; the others keep their value. Setting next_due moves the job in the order of urgency.",
+        description: "Send job_id and only the fields to change, with the types and limits job.create states; the others keep their value. An empty string removes a username or password. Setting next_due moves the job in the order of urgency.",
         params: r#"{"job_id":7,"interval_weeks":6,"next_due":"2026-11-20"}"#,
         result: r#"{"job_id":7,"title":"Energy invoice","entry_url":"https://portal.example.org/invoices","embeddable":false,"interval_weeks":6,"retry_days":2,"next_due":"2026-11-20","run_count":0,"urgency_days":14,"username":"ada@example.org","password":"correct horse","instructions_md":"…","instructions_html":"<p>…</p>","last_run":null}"#,
     },
