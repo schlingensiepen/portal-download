@@ -101,7 +101,7 @@ On a Mac with Apple silicon every runtime takes the `arm64` image, with no emula
 ```yaml
 services:
   portal-download:
-    image: ghcr.io/schlingensiepen/portal-download:0.5
+    image: ghcr.io/schlingensiepen/portal-download:0.6
     restart: unless-stopped
     ports:
       - "443:443"
@@ -129,7 +129,7 @@ services:
       - ./certs:/certs:ro
       - caddy:/data
   portal-download:
-    image: ghcr.io/schlingensiepen/portal-download:0.5
+    image: ghcr.io/schlingensiepen/portal-download:0.6
     restart: unless-stopped
     volumes:
       - portal-download:/data
