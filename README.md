@@ -46,7 +46,7 @@ The same start with other runtimes:
 # Windows with WSLC (PowerShell)
 wslc volume create portal-download
 wslc run -d --name portal-download `
-  -p 443:443 -v portal-download:/data `
+  -p 0.0.0.0:443:443 -v portal-download:/data `
   -e SITE=downloads.intra.example -e TZ=Europe/Berlin `
   ghcr.io/schlingensiepen/portal-download
 ```
@@ -68,7 +68,7 @@ container run -d --name portal-download \
   ghcr.io/schlingensiepen/portal-download
 ```
 
-On a Mac with Apple silicon every runtime takes the `arm64` image, with no emulation. WSLC and `container` start the container again only when told to (`wslc start portal-download`, `container start portal-download`); the volume keeps everything in between, also across a reboot of the machine. The smoke test runs with Docker; the other runtimes are not tested by it. Below, `docker logs`, `docker exec` and `docker cp` stand for the same command of the runtime in use (`wslc logs`, `podman logs`, `container logs` and so on).
+On a Mac with Apple silicon every runtime takes the `arm64` image, with no emulation. WSLC publishes a port only on `127.0.0.1` unless an address is given, hence `0.0.0.0:443:443`; the Windows firewall must also let port 443 in. WSLC and `container` start the container again only when told to (`wslc start portal-download`, `container start portal-download`); the volume keeps everything in between, also across a reboot of the machine. The smoke test runs with Docker; the other runtimes are not tested by it. Below, `docker logs`, `docker exec` and `docker cp` stand for the same command of the runtime in use (`wslc logs`, `podman logs`, `container logs` and so on).
 
 `SITE` is the host name or IPv4 address the browsers use. It must lead them to this Docker host, and port 443 there must be reachable. For a trial on the same machine, `SITE=localhost` does. `TZ` is the circle's time zone (see the schedule below). The image holds the service and [Caddy](https://caddyserver.com) in front of it. Everything that has to survive lies in the volume `/data`: the store, the setup file, the certificate and Caddy's working files. Images exist for `amd64` and `arm64`. `docker exec` runs as the image's own user, so `docker exec portal-download portal-download status` (and likewise `check`, `version`, `bootstrap`) needs nothing else.
 
