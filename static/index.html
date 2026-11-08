@@ -795,8 +795,9 @@ async function rpc(method, params = {}, headers = {}) {
 
 // ------------------------------------------------------------------ state & routing
 const state = { status: null, me: null, jobs: [], today: null, current: 0, running: null, importReport: null, logins: null, authError: null, dirty: false };
-// Something typed into the view and not yet sent; rendering a view starts clean.
-$("#view").addEventListener("input", () => { state.dirty = true; });
+// Something typed into the view and not yet sent; rendering a view starts clean. Ticks and
+// weeks of a login export live in state.logins and survive a new rendering, so they are not.
+$("#view").addEventListener("input", () => { if (!state.logins) state.dirty = true; });
 
 function route() {
   const f = location.hash.replace(/^#/, "");
@@ -1287,10 +1288,11 @@ function viewLogins() {
     ref(d, "rows").append(tr);
   }
   const search = ref(d, "search");
-  search.addEventListener("input", () => {
+  const filter = () => {
     const q = search.value.trim().toLowerCase();
     for (const s of shown) show(s.tr, !q || s.x.host.toLowerCase().includes(q) || s.x.username.toLowerCase().includes(q));
-  });
+  };
+  search.addEventListener("input", filter);
   const tickShown = (on) => () => { for (const s of shown) if (!s.tr.hidden && free(s.x)) { s.x.picked = on; s.pick.checked = on; } count(); };
   const create = ref(d, "create");
   count();
@@ -1302,10 +1304,17 @@ function viewLogins() {
       if (!chosen.length) { toast(msg("toast.logins.none"), true); return; }
       const bad = shown.filter((s) => chosen.includes(s.x) && !(Number.isInteger(s.x.weeks) && s.x.weeks >= 1 && s.x.weeks <= 520));
       for (const s of bad) s.weeks.classList.add("invalid");
-      if (bad.length) { toast(msg("toast.logins.weeks"), true); return; }
+      if (bad.length) {
+        // The marked rows must be in sight, also when the search hides them.
+        if (bad.some((s) => s.tr.hidden)) { search.value = ""; filter(); }
+        toast(msg("toast.logins.weeks"), true);
+        return;
+      }
       if (!(await ask(plural("confirm.logins", chosen.length).textContent))) return;
       const at = location.hash;
+      const list = ref(d, "list"), label = [...create.childNodes];
       create.disabled = true;
+      list.inert = true;
       let made = 0, inRow = 0, stop = null;
       const failed = [];
       try {
@@ -1317,17 +1326,22 @@ function viewLogins() {
           } catch (e) {
             failed.push(msg("logins.failure", { host: x.host, username: x.username || "–", reason: e.message }));
             inRow++;
-            // Without an error code the service is out of reach; with 401 the access is gone.
+            // A rejected login (4xx) goes into the summary and the run goes on. Without an error
+            // code the service is out of reach and with 401 the access is gone: both stop at once;
+            // three errors of the service (5xx) in a row stop too.
+            if (e.code && e.code !== 401 && e.code < 500) { inRow = 0; continue; }
             if (!e.code || e.code === 401 || inRow >= 3) { stop = e; break; }
           }
         }
       } finally {
+        create.replaceChildren(...label);
         create.disabled = false;
+        list.inert = false;
       }
       if (stop && stop.code === 401) { fail(stop); render(); return; }
-      const list = failed.slice(0, 5).join(" · ") + (failed.length > 5 ? " · …" : "");
-      if (stop) toast(msg("toast.logins.stopped", { created: made, failed: failed.length, left: chosen.length - made - failed.length, list }), true);
-      else if (failed.length) toast(msg("toast.logins.summary", { created: made, failed: failed.length, list }), true);
+      const reasons = failed.slice(0, 5).join(" · ") + (failed.length > 5 ? " · …" : "");
+      if (stop) toast(msg("toast.logins.stopped", { created: made, failed: failed.length, left: chosen.length - made - failed.length, list: reasons }), true);
+      else if (failed.length) toast(msg("toast.logins.summary", { created: made, failed: failed.length, list: reasons }), true);
       else toast(plural("toast.logins.created", made).textContent);
       // Another view opened during the run renders itself.
       if (location.hash === at) render();
@@ -1417,8 +1431,7 @@ async function render() {
   }
   if (mySeq !== renderSeq) return; // a newer render has started
   view.replaceChildren(...(content ? [content] : []));
-  // A list read from a login export is lost by a language switch, as typed input would be.
-  state.dirty = r.view === "logins" && !!state.logins;
+  state.dirty = false;
 }
 
 async function boot() {

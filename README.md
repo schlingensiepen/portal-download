@@ -43,7 +43,7 @@ docker run -d --name portal-download --restart unless-stopped \
   && sed '/ is ready: /q' <(timeout 300 docker logs -f portal-download 2>&1)
 ```
 
-The last line shows the container's log until its ready block, which ends with the line `portal-download container: portal-download <version> is ready: https://<SITE>/` (see **First start** below). It needs bash or zsh; `docker logs portal-download` shows the block at any time later. `sed` reads from `<(…)` rather than from a pipe, so that the command ends at once: in a pipe, the shell would wait for `docker logs -f` to end, and it notices that `sed` is gone only when the next log line arrives. `timeout 300` ends that follower in the background after five minutes at the latest. macOS has no `timeout`; leave `timeout 300` out there, and the follower ends with the next log line.
+The last line shows the container's log until its ready block, which ends with the line `portal-download container: portal-download <version> is ready: https://<SITE>/` (see **First start** below); with `PROXY=external` the ready line names port 8080 of the container instead of an address. It needs bash or zsh; `docker logs portal-download` shows the block at any time later. `sed` reads from `<(…)` rather than from a pipe, so that the command ends at once: in a pipe, the shell would wait for `docker logs -f` to end, and it notices that `sed` is gone only when the next log line arrives. `timeout 300` ends that follower in the background after five minutes at the latest. macOS has no `timeout`, and there the line prints nothing: leave `timeout 300` out on a Mac, and the follower ends with the next log line.
 
 The same start with other runtimes:
 
@@ -58,14 +58,21 @@ wslc logs -f portal-download 2>&1 | Where-Object { Write-Host "$_"; "$_" -match 
 ```
 
 ```bash
-# macOS or Linux with Podman
+# Linux with Podman
 podman run -d --name portal-download --restart unless-stopped \
   -p 443:443 -v portal-download:/data \
   -e SITE=downloads.intra.example -e TZ=Europe/Berlin \
   ghcr.io/schlingensiepen/portal-download \
   && sed '/ is ready: /q' <(timeout 300 podman logs -f portal-download 2>&1)
 
-# macOS with Docker Desktop: the docker command above, unchanged
+# macOS with Podman: macOS has no timeout, so the last line follows the log without it
+podman run -d --name portal-download --restart unless-stopped \
+  -p 443:443 -v portal-download:/data \
+  -e SITE=downloads.intra.example -e TZ=Europe/Berlin \
+  ghcr.io/schlingensiepen/portal-download \
+  && sed '/ is ready: /q' <(podman logs -f portal-download 2>&1)
+
+# macOS with Docker Desktop: the docker command above, without "timeout 300"
 
 # macOS with Apple's container (once: container system start)
 container volume create portal-download

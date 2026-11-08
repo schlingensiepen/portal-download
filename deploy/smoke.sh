@@ -89,7 +89,7 @@ for sni in other.example none; do
     [ "$(fingerprint "$sni")" = "$served" ] || fail "a handshake with SNI $sni does not present the certificate of SITE"
 done
 moved=$(curl -ksS -o /dev/null --max-time 5 -w '%{http_code} %{redirect_url}' --resolve "other.example:$port:127.0.0.1" "https://other.example:$port/x?y=1")
-[ "$moved" = "308 https://localhost/x?y=1" ] || fail "a request for another name does not lead to https://localhost/: $moved"
+[ "$moved" = "307 https://localhost/x?y=1" ] || fail "a request for another name does not lead to https://localhost/: $moved"
 echo "step 1: the image starts, answers through Caddy, shows the ready block, and leads other names to SITE"
 
 step="2 (revision)"
