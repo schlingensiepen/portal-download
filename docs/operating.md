@@ -16,7 +16,7 @@ The service writes only the state directory and never its configuration. Run the
 1. Write the configuration and run `portal-download check`. Every value is shown with its source.
 2. Start the service. The log line `not set up yet. Setup secret: pds_…` names the secret and how long it is valid. Once somebody is set up, the start log names only the setup file, not the secret.
 3. Open the service over its HTTPS address, enter the setup secret and your name. This creates the first person with the right to administer people and opens their invitation in that browser.
-4. Create the first job with the portal's login. Every person of the circle sees the logins in plain text; agents see them only with the ability *Read jobs with logins*.
+4. Create the first job with the portal's login. Every person of the circle sees the logins in plain text; agents see them only with the ability *Read jobs with logins* (`logins.read`).
 
 ## Daily operation
 
@@ -32,7 +32,7 @@ The service writes only the state directory and never its configuration. Run the
   ```
 
   The response holds `invitation_token`. Open `https://downloads.intra.example/#invite=<invitation_token>` with the token from that response.
-- **An agent or a script** works with an agent token in the header `Authorization: Bearer`, not with a person's cookie. It registers itself through the API and names an eight-letter display string. Under **People → Agents**, check that the display string and the introduction match what the agent said, and grant exactly one ability. Reject registrations you do not recognise. A script that only needs the due list gets *Read jobs*. The token lives in that machine's environment as `PORTAL_DOWNLOAD_AGENT_TOKEN`. Revoke it there at any time.
+- **An agent or a script** works with an agent token in the header `Authorization: Bearer`, not with a person's cookie. It registers itself through the API and names an eight-letter display string. Under **People → Agents**, check that the display string and the introduction match what the agent said, and grant exactly one ability. Reject registrations you do not recognise. A script that only needs the due list gets *Read jobs* (`jobs.read`); an agent that logs into the portals gets *Read jobs with logins* (`logins.read`), which lists the jobs as well. The token lives in that machine's environment as `PORTAL_DOWNLOAD_AGENT_TOKEN`. Revoke it under **People → Agents** at any time.
 
 ## Backup
 
@@ -43,6 +43,8 @@ The backup is one JSONL file: a head line, then one record per line (people, inv
   ```sh
   curl -fsS -H "Authorization: Bearer pda_…" https://downloads.intra.example/backup -o portal-download-$(date +%F).jsonl
   ```
+
+  The file holds every login in plain text: let the job run with `umask 077`, so that only its user can read the files, and keep them where only the people of the circle get to.
 
   When the service's certificate is not one the backup machine trusts, as with the one the container image creates, add `--cacert` with that certificate (see the README's container section). The image's own certificate changes every 90 days, so a nightly job takes it anew before each run.
 
