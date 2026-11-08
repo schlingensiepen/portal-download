@@ -84,13 +84,16 @@ served=$(fingerprint)
 block_secret=${BASH_REMATCH[1]}
 # Caddy writes warnings and errors only.
 ! grep -q '"level":"info"' <<<"$log" || fail "Caddy writes lines at level info: $(grep '"level":"info"' <<<"$log" | head -n 3)"
-# Another name, or none, still gets the certificate of SITE and a way to it.
+# Another name, or none, gets the certificate of SITE and the service itself, which sees the
+# name the browser used.
 for sni in other.example none; do
     [ "$(fingerprint "$sni")" = "$served" ] || fail "a handshake with SNI $sni does not present the certificate of SITE"
 done
-moved=$(curl -ksS -o /dev/null --max-time 5 -w '%{http_code} %{redirect_url}' --resolve "other.example:$port:127.0.0.1" "https://other.example:$port/x?y=1")
-[ "$moved" = "307 https://localhost/x?y=1" ] || fail "a request for another name does not lead to https://localhost/: $moved"
-echo "step 1: the image starts, answers through Caddy, shows the ready block, and leads other names to SITE"
+for url in "https://other.example:$port" "https://127.0.0.1:$port"; do
+    usage=$(curl -ksS --max-time 5 --resolve "other.example:$port:127.0.0.1" "$url/describe/usage") || usage=""
+    grep -qF "$url/" <<<"$usage" || fail "a request to $url/ does not reach the service under that address: $(head -c 300 <<<"$usage")"
+done
+echo "step 1: the image starts, answers through Caddy, shows the ready block, and serves other names too"
 
 step="2 (revision)"
 reported=$(docker exec "$name" portal-download version | jq -r .revision)

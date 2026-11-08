@@ -17,15 +17,12 @@
 	}
 }
 
-{$SITE} {
-	tls /data/tls/cert.pem /data/tls/key.pem
-	reverse_proxy 127.0.0.1:8080
-}
-
-# Every other name, and a handshake without one (a bare IP address), gets the certificate of
-# $SITE, so that the browser warns about the name instead of ending the handshake with an
-# internal error, and leads to the address of $SITE.
+# Every name serves the service: $SITE, the IP address, another host name, and a handshake
+# without a name. All of them get the certificate of $SITE, so that under another name the
+# browser warns about the name and can still accept it, instead of ending the handshake with
+# an internal error. No redirect to $SITE: a client that cannot resolve $SITE could not
+# follow it.
 https:// {
 	tls /data/tls/cert.pem /data/tls/key.pem
-	redir https://{$SITE}{uri} 307
+	reverse_proxy 127.0.0.1:8080
 }
