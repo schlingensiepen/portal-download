@@ -9,3 +9,4 @@
 !deploy/start.sh
 !deploy/Caddyfile
 !deploy/config.toml
+!deploy/config-external.toml

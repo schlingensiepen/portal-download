@@ -133,9 +133,10 @@ if ! docker exec "$name" openssl x509 -in /data/tls/cert.pem -noout -checkend $(
     || docker exec "$name" openssl x509 -in /data/tls/cert.pem -noout -checkend $((121 * 86400)) >/dev/null; then
     fail "the new certificate is not valid for 120 days: $(docker exec "$name" openssl x509 -in /data/tls/cert.pem -noout -enddate)"
 fi
-[ "$(docker exec "$name" pidof portal-download)" = "$pid" ] \
-    && [ "$(docker inspect -f '{{.State.StartedAt}}' "$name")" = "$started" ] \
-    || fail "the service or the container was started anew for the renewal"
+if [ "$(docker exec "$name" pidof portal-download)" != "$pid" ] \
+    || [ "$(docker inspect -f '{{.State.StartedAt}}' "$name")" != "$started" ]; then
+    fail "the service or the container was started anew for the renewal"
+fi
 # A certificate the operator put there is never replaced, even when it runs out soon.
 docker exec "$name" sh -c 'cd /data/tls && umask 077 \
     && openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 10 -subj /CN=localhost \
@@ -173,7 +174,9 @@ t0=$(date +%s)
 docker stop -t 10 "$name" >/dev/null
 seconds=$(( $(date +%s) - t0 ))
 code=$(docker inspect -f '{{.State.ExitCode}}' "$name")
-[ "$code" = 0 ] && [ "$seconds" -lt 10 ] || fail "docker stop ended the container with exit code $code after $seconds seconds"
+if [ "$code" != 0 ] || [ "$seconds" -ge 10 ]; then
+    fail "docker stop ended the container with exit code $code after $seconds seconds"
+fi
 echo "step 8: PROXY=external serves port 8080 without Caddy and follows the proxy's headers"
 docker rm -f "$name" >/dev/null
 
