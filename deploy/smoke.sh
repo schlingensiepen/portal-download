@@ -79,8 +79,9 @@ ready=$(sed -n 3p <<<"$block")
 served=$(fingerprint)
 [ "$(sed -n 1p <<<"$block")" = "certificate SHA-256 fingerprint ${served#*=}; compare it with what the browser shows before accepting." ] \
     || fail "the block does not begin with the fingerprint of the served certificate ${served#*=}: $block"
-[[ "$(sed -n 2p <<<"$block")" =~ ^not\ set\ up\ yet\.\ Setup\ secret:\ pds_[^\ ]+\ \(valid\ until\  ]] \
-    || fail "the block does not name the setup secret before the setup: $block"
+[[ "$(sed -n 2p <<<"$block")" =~ ^not\ set\ up\ yet\.\ Setup\ secret:\ (pds_[^\ ]+)\ \(valid\ until\ [0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z\)\;\  ]] \
+    || fail "the block does not name the setup secret and its expiry before the setup: $block"
+block_secret=${BASH_REMATCH[1]}
 # Caddy writes warnings and errors only.
 ! grep -q '"level":"info"' <<<"$log" || fail "Caddy writes lines at level info: $(grep '"level":"info"' <<<"$log" | head -n 3)"
 # Another name, or none, still gets the certificate of SITE and a way to it.
@@ -88,7 +89,7 @@ for sni in other.example none; do
     [ "$(fingerprint "$sni")" = "$served" ] || fail "a handshake with SNI $sni does not present the certificate of SITE"
 done
 moved=$(curl -ksS -o /dev/null --max-time 5 -w '%{http_code} %{redirect_url}' --resolve "other.example:$port:127.0.0.1" "https://other.example:$port/x?y=1")
-[ "$moved" = "302 https://localhost/x?y=1" ] || fail "a request for another name does not lead to https://localhost/: $moved"
+[ "$moved" = "308 https://localhost/x?y=1" ] || fail "a request for another name does not lead to https://localhost/: $moved"
 echo "step 1: the image starts, answers through Caddy, shows the ready block, and leads other names to SITE"
 
 step="2 (revision)"
@@ -102,6 +103,7 @@ log=$(docker logs "$name" 2>&1)
 # The service's own line, not the one of the ready block.
 secret=$(sed -n 's/^portal-download: not set up yet\. Setup secret: \([^ ]*\) .*/\1/p' <<<"$log" | sed -n 1p)
 [ -n "$secret" ] || fail "no setup secret in the log of the service"
+[ "$block_secret" = "$secret" ] || fail "the ready block names the setup secret $block_secret, the service $secret"
 answer=$(rpc setup.createAdmin '{"name":"Smoke"}' -H "X-Setup-Secret: $secret")
 invitation=$(jq -r '.result.invitation_token // empty' <<<"$answer")
 [ -n "$invitation" ] || fail "setup.createAdmin with the logged secret answered: $answer"
@@ -206,10 +208,9 @@ curl -sf -o /dev/null --max-time 5 "$direct/healthz" || fail "no answer at $dire
 ! docker exec "$name" pidof caddy >/dev/null || fail "Caddy runs although PROXY=external"
 users=$(docker exec "$name" portal-download status | jq -r .store.users)
 [ "$users" = 1 ] || fail "the container sees $users people on the volume, expected 1"
-host=$(docker inspect -f '{{.Config.Hostname}}' "$name")
 ready_log
 ready=$(grep ' is ready: ' <<<"$log")
-[[ "$ready" == *" is ready: http://$host:8080/ "* ]] || fail "the ready line does not name http://$host:8080/: $ready"
+[[ "$ready" == *" is ready: port 8080 of this container ("* ]] || fail "the ready line does not name port 8080 of this container: $ready"
 page=$(curl -sS --max-time 5 -H 'X-Forwarded-Proto: https' -H 'X-Forwarded-Host: downloads.intra.example' "$direct/")
 grep -q 'https://downloads.intra.example/' <<<"$page" || fail "the forwarded scheme and host do not reach the entry page: $(head -c 200 <<<"$page")"
 t0=$(date +%s)

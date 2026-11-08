@@ -217,7 +217,7 @@ if [ -z "$up" ]; then
 fi
 
 if [ "$PROXY" = external ]; then
-    ready_block "http://$(hostname):8080/" " (PROXY=external, no Caddy here: the reverse proxy reaches it on port 8080; do not publish that port)"
+    ready_block "port 8080 of this container" " (PROXY=external, no Caddy here: the reverse proxy reaches it by the container's name or its compose service name, for example http://portal-download:8080/; do not publish that port)"
     while :; do
         if [ -n "$stopping" ]; then
             shutdown

@@ -27,5 +27,5 @@
 # internal error, and leads to the address of $SITE.
 https:// {
 	tls /data/tls/cert.pem /data/tls/key.pem
-	redir https://{$SITE}{uri}
+	redir https://{$SITE}{uri} 308
 }

@@ -77,6 +77,7 @@ tr.current td { background: var(--chip); }
 .medium { max-width: 760px; }
 .wide-page { max-width: 900px; }
 .pre { white-space: pre-line; }
+input.invalid { border-color: var(--bad); outline: 1px solid var(--bad); }
 .ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* work bar */
@@ -182,7 +183,13 @@ tr.current td { background: var(--chip); }
   <span data-msg="toast.logins.none" data-i18n="toast.logins.none">Tick at least one login first.</span>
   <span data-msg="toast.logins.created.one" data-i18n="toast.logins.created.one">1 job created.</span>
   <span data-msg="toast.logins.created.other" data-i18n="toast.logins.created.other"><span data-field="n"></span> jobs created.</span>
-  <span data-msg="toast.logins.failed" data-i18n="toast.logins.failed">Not created: <span data-field="host"></span> (<span data-field="username"></span>) – <span data-field="reason"></span></span>
+  <span data-msg="logins.damaged" data-i18n="logins.damaged">The file is damaged: a quote is not closed.</span>
+  <span data-msg="logins.ticked" data-i18n="logins.ticked">ticked: <span data-field="n"></span></span>
+  <span data-msg="logins.progress" data-i18n="logins.progress">Creating … <span data-field="done"></span> of <span data-field="n"></span></span>
+  <span data-msg="logins.failure" data-i18n="logins.failure"><span data-field="host"></span> (<span data-field="username"></span>): <span data-field="reason"></span></span>
+  <span data-msg="toast.logins.weeks" data-i18n="toast.logins.weeks">Give every ticked login an interval of 1 to 520 whole weeks; the marked rows have none.</span>
+  <span data-msg="toast.logins.summary" data-i18n="toast.logins.summary">Created: <span data-field="created"></span>. Not created: <span data-field="failed"></span> – <span data-field="list"></span></span>
+  <span data-msg="toast.logins.stopped" data-i18n="toast.logins.stopped">Stopped. Created: <span data-field="created"></span>, not created: <span data-field="failed"></span>, not tried: <span data-field="left"></span> – <span data-field="list"></span></span>
   <span data-msg="confirm.import.delete" data-i18n="confirm.import.delete">Delete “<span data-field="name"></span>”?</span>
   <span data-msg="ability.jobs.read" data-i18n="ability.jobs.read">Read jobs</span>
   <span data-msg="ability.logins.read" data-i18n="ability.logins.read">Read jobs with logins</span>
@@ -537,6 +544,7 @@ tr.current td { background: var(--chip); }
       <div class="grow"><input type="text" data-ref="search" placeholder="Search host or username" data-i18n-placeholder="logins.search"></div>
       <button class="btn" type="button" data-action="all" data-i18n="logins.select_shown">Tick all shown</button>
       <button class="btn" type="button" data-action="none" data-i18n="logins.select_none">Untick all</button>
+      <span class="muted small" data-ref="ticked"></span>
     </div>
     <table>
       <thead><tr>
@@ -555,7 +563,7 @@ tr.current td { background: var(--chip); }
   <td><input type="checkbox" data-ref="pick" aria-label="tick" data-i18n-aria-label="logins.pick"></td>
   <td data-field="host"></td>
   <td data-field="username"></td>
-  <td><input type="number" min="1" max="520" required style="width:6em" data-ref="weeks" aria-label="weeks" data-i18n-aria-label="logins.weeks"></td>
+  <td><input type="number" min="1" max="520" step="1" required style="width:6em" data-ref="weeks" aria-label="weeks" data-i18n-aria-label="logins.weeks"></td>
   <td><span class="chip" data-ref="existing" data-i18n="logins.existing">already there</span><span class="chip" data-ref="not-web" data-i18n="logins.not_web">not a web address</span></td>
 </tr></template>
 
@@ -1215,19 +1223,20 @@ function webHost(url) {
 // Duplicate rule: same host name (case-insensitive; scheme, port and path ignored) and the same
 // username, exactly as written. It holds within the file and against the entry address of a job.
 const loginKey = (hostname, username) => `${hostname.toLowerCase()}\n${username}`;
-/** Reads a Firefox export into one entry per host name and username; null when it is none. */
+/** Reads a Firefox export into one entry per host name and username, or names the message why not. */
 function readLogins(text) {
   const rows = parseCsv(text);
-  if (!rows || !rows.length) return null;
-  const head = rows[0].map((h) => h.trim().toLowerCase());
+  if (!rows) return { error: "logins.damaged" };
+  const head = (rows[0] || []).map((h) => h.trim().toLowerCase());
   const col = (name) => head.indexOf(name);
   const [iu, in_, ip, it] = [col("url"), col("username"), col("password"), col("timepasswordchanged")];
-  if (iu < 0 || in_ < 0 || ip < 0) return null;
+  if (iu < 0 || in_ < 0 || ip < 0) return { error: "logins.bad_file" };
   const byKey = new Map();
   let n = 0;
   for (const r of rows.slice(1)) {
-    n++;
     const url = (r[iu] || "").trim(), username = r[in_] || "", password = r[ip] || "";
+    if (!url) continue;
+    n++;
     const u = webHost(url);
     const x = { url, username, password, host: u ? u.host : url, key: u ? loginKey(u.hostname, username) : `\n${url}\n${username}`, web: !!u, changed: Number(r[it]) || 0, picked: false, weeks: 4 };
     // Of two entries for the same login, the one whose password changed last counts.
@@ -1252,7 +1261,7 @@ function viewLogins() {
     if (!f) return;
     const read = readLogins(await f.text());
     file.value = "";
-    if (!read) { state.logins = null; toast(msg("logins.bad_file"), true); render(); return; }
+    if (read.error) { state.logins = null; toast(msg(read.error), true); render(); return; }
     state.logins = read;
     render();
   });
@@ -1262,6 +1271,8 @@ function viewLogins() {
   const free = (x) => x.web && !existing.has(x.key);
   ref(d, "summary").textContent = msg("logins.summary", { n: L.n, dupes: L.dupes, existing: L.items.filter((x) => existing.has(x.key)).length });
   const shown = [];
+  // Counts every ticked login, also one the search hides.
+  const count = () => { ref(d, "ticked").textContent = msg("logins.ticked", { n: L.items.filter((x) => x.picked && free(x)).length }); };
   for (const x of L.items) {
     const tr = put(T("tpl-logins-row"), { host: x.host, username: x.username || "–" });
     const pick = ref(tr, "pick"), weeks = ref(tr, "weeks");
@@ -1270,9 +1281,9 @@ function viewLogins() {
     weeks.value = x.weeks; weeks.disabled = !free(x);
     show(ref(tr, "existing"), x.web && existing.has(x.key));
     show(ref(tr, "not-web"), !x.web);
-    pick.addEventListener("change", () => { x.picked = pick.checked; });
-    weeks.addEventListener("input", () => { x.weeks = Number(weeks.value); });
-    shown.push({ x, tr, pick });
+    pick.addEventListener("change", () => { x.picked = pick.checked; count(); });
+    weeks.addEventListener("input", () => { x.weeks = Number(weeks.value); weeks.classList.remove("invalid"); });
+    shown.push({ x, tr, pick, weeks });
     ref(d, "rows").append(tr);
   }
   const search = ref(d, "search");
@@ -1280,28 +1291,46 @@ function viewLogins() {
     const q = search.value.trim().toLowerCase();
     for (const s of shown) show(s.tr, !q || s.x.host.toLowerCase().includes(q) || s.x.username.toLowerCase().includes(q));
   });
-  const tickShown = (on) => () => { for (const s of shown) if (!s.tr.hidden && free(s.x)) { s.x.picked = on; s.pick.checked = on; } };
+  const tickShown = (on) => () => { for (const s of shown) if (!s.tr.hidden && free(s.x)) { s.x.picked = on; s.pick.checked = on; } count(); };
   const create = ref(d, "create");
+  count();
   return bind(d, {
     all: tickShown(true),
     none: tickShown(false),
     create: async () => {
       const chosen = L.items.filter((x) => x.picked && free(x));
       if (!chosen.length) { toast(msg("toast.logins.none"), true); return; }
+      const bad = shown.filter((s) => chosen.includes(s.x) && !(Number.isInteger(s.x.weeks) && s.x.weeks >= 1 && s.x.weeks <= 520));
+      for (const s of bad) s.weeks.classList.add("invalid");
+      if (bad.length) { toast(msg("toast.logins.weeks"), true); return; }
       if (!(await ask(plural("confirm.logins", chosen.length).textContent))) return;
+      const at = location.hash;
       create.disabled = true;
-      let made = 0;
-      for (const x of chosen) {
-        try {
-          await rpc("job.create", { title: x.host, entry_url: x.url, username: x.username, password: x.password, instructions_md: "", interval_weeks: x.weeks });
-          made++; x.picked = false;
-        } catch (e) {
-          if (e.code === 401) throw e;
-          toast(msg("toast.logins.failed", { host: x.host, username: x.username || "–", reason: e.message }), true);
+      let made = 0, inRow = 0, stop = null;
+      const failed = [];
+      try {
+        for (const x of chosen) {
+          create.textContent = msg("logins.progress", { done: made + failed.length, n: chosen.length });
+          try {
+            await rpc("job.create", { title: x.host, entry_url: x.url, username: x.username, password: x.password, instructions_md: "", interval_weeks: x.weeks });
+            made++; inRow = 0; x.picked = false;
+          } catch (e) {
+            failed.push(msg("logins.failure", { host: x.host, username: x.username || "–", reason: e.message }));
+            inRow++;
+            // Without an error code the service is out of reach; with 401 the access is gone.
+            if (!e.code || e.code === 401 || inRow >= 3) { stop = e; break; }
+          }
         }
+      } finally {
+        create.disabled = false;
       }
-      if (made) toast(plural("toast.logins.created", made).textContent);
-      render();
+      if (stop && stop.code === 401) { fail(stop); render(); return; }
+      const list = failed.slice(0, 5).join(" · ") + (failed.length > 5 ? " · …" : "");
+      if (stop) toast(msg("toast.logins.stopped", { created: made, failed: failed.length, left: chosen.length - made - failed.length, list }), true);
+      else if (failed.length) toast(msg("toast.logins.summary", { created: made, failed: failed.length, list }), true);
+      else toast(plural("toast.logins.created", made).textContent);
+      // Another view opened during the run renders itself.
+      if (location.hash === at) render();
     },
   });
 }
@@ -1388,7 +1417,8 @@ async function render() {
   }
   if (mySeq !== renderSeq) return; // a newer render has started
   view.replaceChildren(...(content ? [content] : []));
-  state.dirty = false;
+  // A list read from a login export is lost by a language switch, as typed input would be.
+  state.dirty = r.view === "logins" && !!state.logins;
 }
 
 async function boot() {
