@@ -29,11 +29,13 @@ const COOKIE_MAX_AGE: u64 = 400 * 24 * 3600;
 pub struct AppState {
     pub store: Mutex<Store>,
     pub state_dir: PathBuf,
+    /// `trust_forwarded_headers` from the configuration.
+    pub trust_forwarded: bool,
     csp: String,
 }
 
-pub fn app(store: Store, state_dir: PathBuf) -> Router {
-    let state = Arc::new(AppState { store: Mutex::new(store), state_dir, csp: content_security_policy() });
+pub fn app(store: Store, state_dir: PathBuf, trust_forwarded: bool) -> Router {
+    let state = Arc::new(AppState { store: Mutex::new(store), state_dir, trust_forwarded, csp: content_security_policy() });
     Router::new()
         .route("/", get(root))
         .route("/index.html", get(index))
@@ -68,11 +70,17 @@ fn content_security_policy() -> String {
     )
 }
 
-/// The base URL as the caller sees it: scheme and host of the request. The forwarding
-/// headers count only when the request comes from the local reverse proxy.
-pub fn base_url(h: &HeaderMap, peer: SocketAddr) -> String {
+/// Whether the forwarding headers of this request count: from the local reverse proxy
+/// always, from every sender when the configuration trusts them.
+fn proxied(peer: SocketAddr, trust: bool) -> bool {
+    trust || peer.ip().is_loopback()
+}
+
+/// The base URL as the caller sees it: scheme and host of the request, as the reverse
+/// proxy forwards them when its headers count.
+pub fn base_url(h: &HeaderMap, peer: SocketAddr, trust: bool) -> String {
     let get = |n: &str| h.get(n).and_then(|v| v.to_str().ok()).map(|s| s.split(',').next().unwrap_or("").trim().to_string()).filter(|s| !s.is_empty());
-    let proxied = peer.ip().is_loopback();
+    let proxied = proxied(peer, trust);
     let fwd = |n: &str| if proxied { get(n) } else { None };
     let proto = fwd("x-forwarded-proto").filter(|p| p == "https" || p == "http").unwrap_or_else(|| "http".into());
     let host = fwd("x-forwarded-host").or_else(|| get("host")).unwrap_or_else(|| "localhost".into());
@@ -128,7 +136,7 @@ async fn root(State(st): State<Arc<AppState>>, ConnectInfo(peer): ConnectInfo<So
     if let Form::Html = form(&h, true) {
         return html(&st);
     }
-    let base = base_url(&h, peer);
+    let base = base_url(&h, peer, st.trust_forwarded);
     let set_up = lock(&st).has_users().unwrap_or(false);
     prose(&h, if set_up { describe::entry_page(&base) } else { describe::setup_page(&base) })
 }
@@ -158,21 +166,21 @@ async fn language(axum::extract::Path(file): axum::extract::Path<String>) -> Res
     }
 }
 
-async fn usage(ConnectInfo(peer): ConnectInfo<SocketAddr>, h: HeaderMap) -> Response {
-    prose(&h, describe::usage(&base_url(&h, peer)))
+async fn usage(State(st): State<Arc<AppState>>, ConnectInfo(peer): ConnectInfo<SocketAddr>, h: HeaderMap) -> Response {
+    prose(&h, describe::usage(&base_url(&h, peer, st.trust_forwarded)))
 }
 
-async fn skill(ConnectInfo(peer): ConnectInfo<SocketAddr>, h: HeaderMap) -> Response {
-    prose(&h, describe::skill(&base_url(&h, peer)))
+async fn skill(State(st): State<Arc<AppState>>, ConnectInfo(peer): ConnectInfo<SocketAddr>, h: HeaderMap) -> Response {
+    prose(&h, describe::skill(&base_url(&h, peer, st.trust_forwarded)))
 }
 
-async fn contract(ConnectInfo(peer): ConnectInfo<SocketAddr>, h: HeaderMap) -> Response {
-    let body = serde_json::to_string_pretty(&describe::contract(&base_url(&h, peer))).expect("serializes");
+async fn contract(State(st): State<Arc<AppState>>, ConnectInfo(peer): ConnectInfo<SocketAddr>, h: HeaderMap) -> Response {
+    let body = serde_json::to_string_pretty(&describe::contract(&base_url(&h, peer, st.trust_forwarded))).expect("serializes");
     ([(header::CONTENT_TYPE, "application/json")], body).into_response()
 }
 
-async fn fallback(ConnectInfo(peer): ConnectInfo<SocketAddr>, h: HeaderMap) -> Response {
-    let base = base_url(&h, peer);
+async fn fallback(State(st): State<Arc<AppState>>, ConnectInfo(peer): ConnectInfo<SocketAddr>, h: HeaderMap) -> Response {
+    let base = base_url(&h, peer, st.trust_forwarded);
     (
         StatusCode::NOT_FOUND,
         [(header::CONTENT_TYPE, "text/plain; charset=utf-8")],
@@ -210,8 +218,8 @@ fn cookie_value(h: &HeaderMap, name: &str) -> Option<String> {
     })
 }
 
-fn client_address(h: &HeaderMap, peer: SocketAddr) -> String {
-    if peer.ip().is_loopback() {
+fn client_address(h: &HeaderMap, peer: SocketAddr, trust: bool) -> String {
+    if proxied(peer, trust) {
         if let Some(x) = h.get("x-forwarded-for").and_then(|v| v.to_str().ok()).and_then(|s| s.split(',').next()) {
             return x.trim().to_string();
         }
@@ -235,7 +243,7 @@ fn authenticate(store: &Store, h: &HeaderMap, user_agent: &str, address: &str) -
 /// The backup as a file, for `curl -o` and for the download button of the application.
 async fn backup(State(st): State<Arc<AppState>>, ConnectInfo(peer): ConnectInfo<SocketAddr>, h: HeaderMap) -> Response {
     let user_agent = h.get(header::USER_AGENT).and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
-    let address = client_address(&h, peer);
+    let address = client_address(&h, peer, st.trust_forwarded);
     let store = lock(&st);
     let harden = |mut r: Response| {
         let h = r.headers_mut();
@@ -286,7 +294,7 @@ async fn api(State(st): State<Arc<AppState>>, ConnectInfo(peer): ConnectInfo<Soc
         return protocol_error(StatusCode::METHOD_NOT_ALLOWED, -32600, "Invalid Request: the API accepts only POST with a JSON-RPC 2.0 body.", Value::Null);
     }
     let limit = match cookie_value(&h, COOKIE) {
-        Some(c) => match lock(&st).authenticate_device(&c, h.get(header::USER_AGENT).and_then(|v| v.to_str().ok()).unwrap_or(""), &client_address(&h, peer)) {
+        Some(c) => match lock(&st).authenticate_device(&c, h.get(header::USER_AGENT).and_then(|v| v.to_str().ok()).unwrap_or(""), &client_address(&h, peer, st.trust_forwarded)) {
             Ok(Principal::Device { is_admin: true, .. }) => BODY_LIMIT_ADMIN,
             _ => BODY_LIMIT,
         },
@@ -322,7 +330,7 @@ async fn api(State(st): State<Arc<AppState>>, ConnectInfo(peer): ConnectInfo<Soc
     }
 
     let user_agent = h.get(header::USER_AGENT).and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
-    let address = client_address(&h, peer);
+    let address = client_address(&h, peer, st.trust_forwarded);
     let setup_secret = h.get("x-setup-secret").and_then(|v| v.to_str().ok()).map(str::to_string);
     let device_cred = cookie_value(&h, COOKIE);
     let store = lock(&st);
@@ -377,7 +385,7 @@ mod tests {
     fn setup() -> T {
         let dir = tempfile::tempdir().unwrap();
         let store = Store::open(dir.path()).unwrap();
-        T { app: app(store, dir.path().to_path_buf()), dir }
+        T { app: app(store, dir.path().to_path_buf(), false), dir }
     }
 
     async fn send(t: &T, req: Request<Body>) -> (StatusCode, HeaderMap, Vec<u8>) {
@@ -492,8 +500,18 @@ mod tests {
         h.insert("x-forwarded-proto", "https".parse().unwrap());
         let local = SocketAddr::from(([127, 0, 0, 1], 1));
         let remote = SocketAddr::from(([10, 0, 0, 9], 1));
-        assert_eq!(base_url(&h, local), "https://downloads.intra.test");
-        assert_eq!(base_url(&h, remote), "http://127.0.0.1:8080", "forwarding headers from elsewhere are ignored");
+        assert_eq!(base_url(&h, local, false), "https://downloads.intra.test");
+        assert_eq!(base_url(&h, remote, false), "http://127.0.0.1:8080", "forwarding headers from elsewhere are ignored");
+        assert_eq!(base_url(&h, remote, true), "https://downloads.intra.test", "trusted, they count from every sender");
+    }
+
+    #[test]
+    fn client_address_follows_the_trusted_proxy() {
+        let mut h = HeaderMap::new();
+        h.insert("x-forwarded-for", "192.0.2.7, 10.0.0.9".parse().unwrap());
+        let remote = SocketAddr::from(([10, 0, 0, 9], 1));
+        assert_eq!(client_address(&h, remote, false), "10.0.0.9");
+        assert_eq!(client_address(&h, remote, true), "192.0.2.7");
     }
 
     #[tokio::test]

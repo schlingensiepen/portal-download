@@ -23,7 +23,7 @@
 | `static/index.html` | The whole browser application: every view, dialog, row and message as a `<template>` in English, and the script that clones, fills and binds them. No data, no third-party code. |
 | `static/i18n/<code>.json` | The texts of one further language, by key. Listed in `static/config.json`, embedded through `LANGUAGES` in `src/http.rs`. |
 | `src/frontend_check.rs` | Tests that hold the building-block and translation rules below. |
-| `deploy/Dockerfile`, `deploy/start.sh`, `deploy/Caddyfile`, `deploy/config.toml` | The container image: the service and Caddy in one container, the entry point that checks `SITE` and the volume, creates the certificate and supervises both processes. |
+| `deploy/Dockerfile`, `deploy/start.sh`, `deploy/Caddyfile`, `deploy/config.toml`, `deploy/config-external.toml` | The container image: the service and Caddy in one container, the entry point that checks `PROXY`, `SITE` and the volume, creates and renews the certificate and supervises the processes; with `PROXY=external` the service alone behind a proxy of the operator's. |
 | `deploy/smoke.sh`, `deploy/smoke-red.sh` | The smoke test every image passes before it is published, and the proof that each of its steps fails with its safeguard removed. |
 | `.github/workflows/` | `ci.yml` (tests, build without warnings, shellcheck), `build-image.yml` (both platforms, smoke test, publish to ghcr.io), `smoke-red.yml` (the proof above, on changes to `deploy/`). |
 
@@ -53,7 +53,7 @@
 | a language | its file in `static/i18n/`, `LANGUAGES` in `src/http.rs`, the list in `static/config.json` |
 | what a caller may do or must do | the usage description in `src/describe.rs` and `README.md` |
 | commands or exit codes in `src/main.rs` | the table in `README.md` and the head comment of `src/main.rs` |
-| configuration keys | `src/config.rs` messages, `examples/config.toml`, `README.md` |
+| configuration keys | `src/config.rs` messages, `examples/config.toml`, `README.md`, and `deploy/config.toml` or `deploy/config-external.toml` where the image needs them |
 | the invitation lifetime, the setup window length, the agent token deadlines or limit, the KDF parameters | `README.md`, `docs/operating.md`, the texts in `src/describe.rs` and `static/index.html` |
 | the entry point, the Caddyfile or the image | `deploy/smoke.sh` and its mutations in `deploy/smoke-red.sh`, the container sections of `README.md` and `docs/operating.md` |
 | the store's structure | a new step in `Store::migrate` with the next `user_version`, never an edit of an old step; and `backup_text` and `backup_import` |

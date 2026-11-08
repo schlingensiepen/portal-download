@@ -34,7 +34,7 @@ RUN apk add --no-cache bash openssl tzdata \
 COPY --from=build /src/target/release/portal-download /usr/local/bin/portal-download
 COPY deploy/start.sh /usr/local/bin/start.sh
 COPY deploy/Caddyfile /etc/caddy/Caddyfile
-COPY deploy/config.toml /etc/portal-download/config.toml
+COPY deploy/config.toml deploy/config-external.toml /etc/portal-download/
 ENV PORTAL_DOWNLOAD_CONFIG=/etc/portal-download/config.toml
 
 # Never root: Caddy may open port 443 through the capability the Caddy image binds to
@@ -42,7 +42,8 @@ ENV PORTAL_DOWNLOAD_CONFIG=/etc/portal-download/config.toml
 # over that ownership when Docker creates it.
 USER 10001:10001
 WORKDIR /data
-EXPOSE 443
+# 443 for browsers; 8080 only with PROXY=external, for a reverse proxy in the same network.
+EXPOSE 443 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD wget -q -O /dev/null http://127.0.0.1:8080/ || exit 1
 ENTRYPOINT ["/usr/local/bin/start.sh"]

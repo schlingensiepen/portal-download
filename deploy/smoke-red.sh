@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Proves that the smoke test catches what it is there for: each of its seven steps is
+# Proves that the smoke test catches what it is there for: each of its nine steps is
 # run against an image with exactly that safeguard removed, and must fail at that step.
 #
 #   deploy/smoke-red.sh IMAGE REVISION
@@ -16,14 +16,22 @@ trap 'rm -rf "$work"' EXIT
 
 # step | what is removed | command run in the derived image (as root)
 mutations=(
-    "1|Caddy is never started|sed -i 's|^caddy run .*|sleep 100000 \&|' /usr/local/bin/start.sh"
+    "1|Caddy is never started|sed -i 's|^    caddy run .*|    sleep 100000 \&|' /usr/local/bin/start.sh"
     "3|the service's log does not reach the container log|sed -i 's|^portal-download serve &|portal-download serve 2>/dev/null \&|' /usr/local/bin/start.sh"
     "4|the stop signal is not passed on|sed -i 's|^trap stop TERM INT|:|' /usr/local/bin/start.sh"
     "5|the state lies outside the volume|sed -i 's|^state_dir = .*|state_dir = \"/tmp/portal-download\"|' /etc/portal-download/config.toml"
-    "5|the certificate is created anew at every start|sed -i 's|^if \[ ! -s \"\$TLS/cert.pem\" \]|if true \|\| [ ! -s \"\$TLS/cert.pem\" ]|' /usr/local/bin/start.sh"
+    "5|the certificate is created anew at every start|sed -i 's|^    if \[ ! -s \"\$TLS/cert.pem\" \]|    if true \|\| [ ! -s \"\$TLS/cert.pem\" ]|' /usr/local/bin/start.sh"
     "6|the backup does not reach the service|awk '/reverse_proxy/ { print \"\\trespond /backup 404\" } 1' /etc/caddy/Caddyfile > /tmp/Caddyfile && cp /tmp/Caddyfile /etc/caddy/Caddyfile"
-    "7|the check for a writable volume is gone|sed -i 's|^if ! { : > \"\$probe\"; } 2>/dev/null; then|if false; then|' /usr/local/bin/start.sh"
-    "7|the check for SITE is gone|sed -i 's|^    exit 3\$|    :|' /usr/local/bin/start.sh"
+    "7|the running container never checks the certificate|sed -i 's|^    sleep \"\$CHECK_SECONDS\" &|    sleep 100000 \&|' /usr/local/bin/start.sh"
+    "7|Caddy keeps the old certificate after a renewal|sed -i 's|^        if \[ \$? = 10 \]; then|        if false; then|' /usr/local/bin/start.sh"
+    "7|the certificate is valid for ten years|sed -i 's|^CERT_DAYS=120|CERT_DAYS=3650|' /usr/local/bin/start.sh"
+    "8|PROXY=external still starts Caddy|sed -i 's|^if \[ \"\$PROXY\" = external \]; then|if false; then|' /usr/local/bin/start.sh"
+    "8|PROXY=external listens only on loopback|sed -i 's|^listen = .*|listen = \"127.0.0.1:8080\"|' /etc/portal-download/config-external.toml"
+    "8|PROXY=external ignores the proxy's headers|sed -i 's|^trust_forwarded_headers = true|trust_forwarded_headers = false|' /etc/portal-download/config-external.toml"
+    "9|the check for a writable volume is gone|sed -i 's|^if ! { : > \"\$probe\"; } 2>/dev/null; then|if false; then|' /usr/local/bin/start.sh"
+    "9|the check for SITE is gone|sed -i -e '/SITE is not set/{n;s/exit 3/:/}' -e '/is neither a host name/{n;s/exit 3/:/}' /usr/local/bin/start.sh"
+    "9|the check of the interval is gone|sed -i 's|^    if ! \[\[ \"\$CHECK_SECONDS\" =~ .*|    if false; then|' /usr/local/bin/start.sh"
+    "9|the check of PROXY is gone|sed -i '/is not a mode/{n;s/exit 3/:/}' /usr/local/bin/start.sh"
 )
 
 failures=0
@@ -54,8 +62,8 @@ for m in "${mutations[@]}"; do
         continue
     fi
     # The mutation must really change the file; a sed that matches nothing proves nothing.
-    if docker run --rm --entrypoint sh "$image" -c 'cat /usr/local/bin/start.sh /etc/portal-download/config.toml /etc/caddy/Caddyfile' >"$work/a" \
-        && docker run --rm --entrypoint sh "$tag" -c 'cat /usr/local/bin/start.sh /etc/portal-download/config.toml /etc/caddy/Caddyfile' >"$work/b" \
+    if docker run --rm --entrypoint sh "$image" -c 'cat /usr/local/bin/start.sh /etc/portal-download/config.toml /etc/portal-download/config-external.toml /etc/caddy/Caddyfile' >"$work/a" \
+        && docker run --rm --entrypoint sh "$tag" -c 'cat /usr/local/bin/start.sh /etc/portal-download/config.toml /etc/portal-download/config-external.toml /etc/caddy/Caddyfile' >"$work/b" \
         && cmp -s "$work/a" "$work/b"; then
         echo "::error::the mutation changed nothing: $what"
         failures=$((failures + 1))

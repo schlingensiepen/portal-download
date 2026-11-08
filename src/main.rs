@@ -157,7 +157,7 @@ fn serve(cfg: config::Config) -> ExitCode {
             Err(e) => return fail(EXIT_RUNTIME, format!("cannot listen on {listen} ({}): {e}. Choose another `listen` address in the configuration.", cfg.listen.source)),
         };
         eprintln!("portal-download {} ({}) listening on http://{listen}, state in {}", env!("CARGO_PKG_VERSION"), env!("PORTAL_DOWNLOAD_BUILD_REVISION"), state_dir.display());
-        let app = http::app(store, state_dir).into_make_service_with_connect_info::<std::net::SocketAddr>();
+        let app = http::app(store, state_dir, cfg.trust_forwarded_headers.value).into_make_service_with_connect_info::<std::net::SocketAddr>();
         let shutdown = async {
             #[cfg(unix)]
             {

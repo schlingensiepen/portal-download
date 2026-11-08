@@ -40,12 +40,42 @@ docker run -d --name portal-download --restart unless-stopped \
   ghcr.io/schlingensiepen/portal-download
 ```
 
+The same one-liner for other runtimes:
+
+```powershell
+# Windows with WSLC (PowerShell)
+wslc volume create portal-download
+wslc run -d --name portal-download `
+  -p 443:443 -v portal-download:/data `
+  -e SITE=downloads.intra.example -e TZ=Europe/Berlin `
+  ghcr.io/schlingensiepen/portal-download
+```
+
+```sh
+# macOS or Linux with Podman
+podman run -d --name portal-download --restart unless-stopped \
+  -p 443:443 -v portal-download:/data \
+  -e SITE=downloads.intra.example -e TZ=Europe/Berlin \
+  ghcr.io/schlingensiepen/portal-download
+
+# macOS with Docker Desktop: the docker command above, unchanged
+
+# macOS with Apple's container (once: container system start)
+container volume create portal-download
+container run -d --name portal-download \
+  -p 443:443 -v portal-download:/data \
+  -e SITE=downloads.intra.example -e TZ=Europe/Berlin \
+  ghcr.io/schlingensiepen/portal-download
+```
+
+On a Mac with Apple silicon every runtime takes the `arm64` image, with no emulation. WSLC and `container` start the container again only when told to (`wslc start portal-download`, `container start portal-download`); the volume keeps everything in between. The smoke test runs with Docker; the other runtimes are not tested by it.
+
 `SITE` is the host name or IPv4 address the browsers use. It must lead them to this Docker host, and port 443 there must be reachable. `TZ` is the circle's time zone (see the schedule below). The image holds the service and [Caddy](https://caddyserver.com) in front of it. Everything that has to survive lies in the volume `/data`: the store, the setup file, the certificate and Caddy's working files. Images exist for `amd64` and `arm64`. `docker exec` runs as the image's own user, so `docker exec portal-download portal-download status` (and likewise `check`, `version`, `bootstrap`) needs nothing else.
 
 **First start:**
 
 1. `docker logs portal-download` shows, among the start lines, the certificate's SHA-256 fingerprint and the setup secret (`Setup secret: pds_…`). The secret appears in the log only while nobody is set up, and it is valid for 30 minutes. If it has run out, `docker exec portal-download portal-download bootstrap` prints a fresh one.
-2. Open `https://<SITE>/`. The browser warns about the certificate once: the image created it for `SITE` at first start, valid for ten years. Open the certificate details on the warning page, compare the SHA-256 fingerprint with the one from the log, then accept it.
+2. Open `https://<SITE>/`. The browser warns about the certificate: the image created it for `SITE` at first start, valid for 120 days. The running container renews it every 90 days, and the browser then asks once more; until then a page that is open reports that the connection failed, and reloading it brings up the warning. Open the certificate details on the warning page, compare the SHA-256 fingerprint with the one from the log, then accept it.
 3. Enter the setup secret and your name, and continue with the vault passphrase and the first job. To restore a backup on this instance instead, do not create a vault; see [docs/operating.md](docs/operating.md#backup).
 
 **Operating it:**
@@ -64,6 +94,63 @@ docker run -d --name portal-download --restart unless-stopped \
   A certificate you put there is never replaced; the log warns when it does not match `SITE` or runs out within 30 days. Deleting both files makes the image create its own again.
 - **A host directory instead of the named volume** must belong to the image's user: `chown -R 10001:10001 <directory>`. Otherwise the container ends with exit code 4 and `docker logs` says why; with `--restart unless-stopped` Docker keeps starting it again until the directory is fixed. With rootless Docker or Podman the UID is mapped, and with SELinux the mount needs `:Z`.
 - **Do not use `--network host`.** The service trusts proxy headers from the loopback interface, which is the container's own only while the container has its own network.
+
+**With Docker Compose**, the same container as above:
+
+```yaml
+services:
+  portal-download:
+    image: ghcr.io/schlingensiepen/portal-download:0.5
+    restart: unless-stopped
+    ports:
+      - "443:443"
+    volumes:
+      - portal-download:/data
+    environment:
+      SITE: downloads.intra.example
+      TZ: Europe/Berlin
+
+volumes:
+  portal-download:
+```
+
+**Behind a reverse proxy of your own**, for example Caddy as a second service in the stack: `PROXY=external` starts the service without the Caddy inside the image, with no certificate and no `SITE`. The service then listens on port 8080 of its container and takes scheme, host and client address from the `X-Forwarded-*` headers of whoever reaches it. Publish port 8080 nowhere, so that only the proxy in the same network reaches it.
+
+```yaml
+services:
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./certs:/certs:ro
+      - caddy:/data
+  portal-download:
+    image: ghcr.io/schlingensiepen/portal-download:0.5
+    restart: unless-stopped
+    volumes:
+      - portal-download:/data
+    environment:
+      PROXY: external
+      TZ: Europe/Berlin
+
+volumes:
+  caddy:
+  portal-download:
+```
+
+with this `Caddyfile` beside it, and the certificate and key in `./certs` (or any other `tls` setting of Caddy):
+
+```caddyfile
+downloads.intra.example {
+	tls /certs/cert.pem /certs/key.pem
+	reverse_proxy portal-download:8080
+}
+```
+
+Caddy sends the `X-Forwarded-*` headers on its own. The setup secret is in `docker compose logs portal-download`.
 
 ## Running it
 
@@ -96,7 +183,7 @@ Exit codes: `0` success · `1` runtime error · `2` wrong arguments · `3` confi
 
 ### Configuration
 
-There is one TOML file with two keys, `listen` and `state_dir` (see [`examples/config.toml`](examples/config.toml)). The file is selected by `--config PATH`, then by `PORTAL_DOWNLOAD_CONFIG`, then from `$XDG_CONFIG_HOME/portal-download/config.toml` (usually `~/.config/…`), then from `/etc/portal-download/config.toml`. Without a file, `listen` is `127.0.0.1:8080` and `state_dir` is `$XDG_STATE_HOME/portal-download` (usually `~/.local/state/portal-download`). All values come from that one file, so it can be versioned and rolled back as a whole. An empty `listen` means the default `127.0.0.1:8080`. An empty `state_dir` aborts the start instead of silently writing somewhere else.
+There is one TOML file with three keys, `listen`, `state_dir` and `trust_forwarded_headers` (see [`examples/config.toml`](examples/config.toml)). The file is selected by `--config PATH`, then by `PORTAL_DOWNLOAD_CONFIG`, then from `$XDG_CONFIG_HOME/portal-download/config.toml` (usually `~/.config/…`), then from `/etc/portal-download/config.toml`. Without a file, `listen` is `127.0.0.1:8080` and `state_dir` is `$XDG_STATE_HOME/portal-download` (usually `~/.local/state/portal-download`). All values come from that one file, so it can be versioned and rolled back as a whole. An empty `listen` means the default `127.0.0.1:8080`. An empty `state_dir` aborts the start instead of silently writing somewhere else. `trust_forwarded_headers` is `false` by default: scheme, host and client address are taken from the `X-Forwarded-*` headers only when the request comes from the loopback interface, where the reverse proxy runs. `true` takes them from every sender; set it only when nothing but the reverse proxy reaches the service.
 
 ## For agents and scripts
 

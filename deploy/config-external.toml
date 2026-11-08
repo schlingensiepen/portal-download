@@ -1,0 +1,7 @@
+# Configuration inside the container with PROXY=external. The service listens on every
+# interface of the container, where the reverse proxy in front reaches it on port 8080,
+# and takes scheme, host and client address from that proxy's X-Forwarded-* headers.
+# Port 8080 belongs only to the network the proxy shares with this container.
+listen = "0.0.0.0:8080"
+state_dir = "/data/portal-download"
+trust_forwarded_headers = true

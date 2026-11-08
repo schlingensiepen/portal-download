@@ -10,3 +10,9 @@ listen = "127.0.0.1:8080"
 # Directory for the store (portal-download.sqlite) and the setup file
 # (bootstrap.toml). Must be writable for the service user. Empty aborts the start.
 state_dir = "/var/lib/portal-download"
+
+# Whether scheme, host and client address are taken from the X-Forwarded-* headers of
+# every sender. false (the default): only from the loopback interface, where the
+# reverse proxy runs. true: only when nothing but the reverse proxy reaches `listen`,
+# for example when it runs in another container of the same network.
+trust_forwarded_headers = false

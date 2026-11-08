@@ -3,7 +3,7 @@
 #
 #   deploy/smoke.sh IMAGE REVISION
 #
-# Exits 0 when the image passes all seven steps, and 1 with an ::error:: line naming
+# Exits 0 when the image passes all nine steps, and 1 with an ::error:: line naming
 # the step otherwise. Needs docker, curl, jq and openssl on the machine that runs it.
 set -euo pipefail
 
@@ -30,7 +30,7 @@ fail() {
 }
 start() {
     docker run -d --name "$name" --health-interval 2s \
-        -p "127.0.0.1:$port:443" -v "$volume:/data" -e SITE=localhost "$image" >/dev/null
+        -p "127.0.0.1:$port:443" -v "$volume:/data" -e SITE=localhost -e CERT_CHECK_SECONDS=2 "$image" >/dev/null
 }
 # Through Caddy, the way a browser reaches the service, and the image's own HEALTHCHECK.
 wait_up() {
@@ -105,9 +105,67 @@ curl -ksSf --max-time 10 -H "Authorization: Bearer $token" "$base/backup" -o "$w
 head -n 1 "$work/backup.jsonl" | jq -e '.type == "backup" and .format == "portal-download-backup"' >/dev/null \
     || fail "the first line of the backup is not its head: $(head -c 200 "$work/backup.jsonl")"
 echo "step 6: the backup token fetches the backup"
+
+step="7 (renewal while running)"
+# The volume gets a certificate of this image that runs out in 10 days; the next check
+# must replace it with one valid for 120 days and start Caddy anew, the service unchanged.
+pid=$(docker exec "$name" pidof portal-download)
+started=$(docker inspect -f '{{.State.StartedAt}}' "$name")
+docker exec "$name" sh -c 'cd /data/tls && umask 077 \
+    && openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 10 -subj /CN=localhost \
+        -addext subjectAltName=DNS:localhost -keyout key.pem.new -out cert.pem.new 2>/dev/null \
+    && mv -f key.pem.new key.pem && mv -f cert.pem.new cert.pem \
+    && openssl x509 -in cert.pem -noout -fingerprint -sha256 > generated && cat generated' >"$work/short" \
+    || fail "could not put a certificate that runs out soon into the volume"
+short=$(cat "$work/short")
+renewed=""
+for _ in $(seq 1 30); do
+    stored=$(docker exec "$name" openssl x509 -in /data/tls/cert.pem -noout -fingerprint -sha256 2>/dev/null || true)
+    served=$(fingerprint)
+    if [ -n "$served" ] && [ "$served" = "$stored" ] && [ "$stored" != "$short" ] && [ "$stored" != "$before" ]; then
+        renewed=1
+        break
+    fi
+    sleep 1
+done
+[ -n "$renewed" ] || fail "a certificate that runs out in 10 days was not replaced and served within 30 seconds (served: ${served:-none})"
+if ! docker exec "$name" openssl x509 -in /data/tls/cert.pem -noout -checkend $((119 * 86400)) >/dev/null \
+    || docker exec "$name" openssl x509 -in /data/tls/cert.pem -noout -checkend $((121 * 86400)) >/dev/null; then
+    fail "the new certificate is not valid for 120 days: $(docker exec "$name" openssl x509 -in /data/tls/cert.pem -noout -enddate)"
+fi
+[ "$(docker exec "$name" pidof portal-download)" = "$pid" ] \
+    && [ "$(docker inspect -f '{{.State.StartedAt}}' "$name")" = "$started" ] \
+    || fail "the service or the container was started anew for the renewal"
+echo "step 7: the running container replaces a certificate that runs out soon, the service keeps running"
 docker rm -f "$name" >/dev/null
 
-step="7 (volume not writable)"
+step="8 (PROXY=external)"
+# Without Caddy: port 8080 answers directly, and the headers of the proxy in front count,
+# although it reaches the service from another address than loopback.
+direct=http://127.0.0.1:18080
+docker run -d --name "$name" --health-interval 2s -p "127.0.0.1:18080:8080" -v "$volume:/data" -e PROXY=external "$image" >/dev/null
+health=""
+for _ in $(seq 1 30); do
+    health=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{end}}' "$name" 2>/dev/null || true)
+    if [ "$health" = healthy ] && curl -sf -o /dev/null --max-time 5 "$direct/healthz"; then break; fi
+    sleep 1
+done
+curl -sf -o /dev/null --max-time 5 "$direct/healthz" || fail "no answer at $direct/healthz within 30 seconds (health: ${health:-none})"
+[ "$health" = healthy ] || fail "the HEALTHCHECK does not report healthy (health: ${health:-none})"
+! docker exec "$name" pidof caddy >/dev/null || fail "Caddy runs although PROXY=external"
+users=$(docker exec "$name" portal-download status | jq -r .store.users)
+[ "$users" = 1 ] || fail "the container sees $users people on the volume, expected 1"
+page=$(curl -sS --max-time 5 -H 'X-Forwarded-Proto: https' -H 'X-Forwarded-Host: downloads.intra.example' "$direct/")
+grep -q 'https://downloads.intra.example/' <<<"$page" || fail "the forwarded scheme and host do not reach the entry page: $(head -c 200 <<<"$page")"
+t0=$(date +%s)
+docker stop -t 10 "$name" >/dev/null
+seconds=$(( $(date +%s) - t0 ))
+code=$(docker inspect -f '{{.State.ExitCode}}' "$name")
+[ "$code" = 0 ] && [ "$seconds" -lt 10 ] || fail "docker stop ended the container with exit code $code after $seconds seconds"
+echo "step 8: PROXY=external serves port 8080 without Caddy and follows the proxy's headers"
+docker rm -f "$name" >/dev/null
+
+step="9 (wrong start)"
 mkdir "$work/not-writable"
 chmod 755 "$work/not-writable"
 set +e
@@ -121,6 +179,16 @@ out=$(timeout 60 docker run --rm --name "$name" -v "$volume:/data" "$image" 2>&1
 code=$?
 set -e
 [ "$code" = 3 ] || fail "a start without SITE ended with exit code $code, expected 3: $out"
-echo "step 7: an unwritable volume ends with exit code 4 and names the chown; a missing SITE with 3"
+set +e
+out=$(timeout 60 docker run --rm --name "$name" -v "$volume:/data" -e SITE=localhost -e CERT_CHECK_SECONDS=soon "$image" 2>&1)
+code=$?
+set -e
+[ "$code" = 3 ] || fail "CERT_CHECK_SECONDS=soon ended with exit code $code, expected 3: $out"
+set +e
+out=$(timeout 60 docker run --rm --name "$name" -v "$volume:/data" -e PROXY=internal "$image" 2>&1)
+code=$?
+set -e
+[ "$code" = 3 ] || fail "PROXY=internal ended with exit code $code, expected 3: $out"
+echo "step 9: an unwritable volume ends with exit code 4 and names the chown; a missing SITE, a wrong interval or an unknown PROXY with 3"
 
 echo "smoke test passed: $image"

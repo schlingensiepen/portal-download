@@ -57,19 +57,19 @@ The backup is one JSONL file: a head line, then one record per line (vault, peop
 
 ## In a container
 
-The image `ghcr.io/schlingensiepen/portal-download` runs the service and Caddy together; its start is described in the README. Inside it:
+The image `ghcr.io/schlingensiepen/portal-download` runs the service and Caddy together, or with `PROXY=external` the service alone behind a reverse proxy of the operator's; both starts are described in the README. Inside it:
 
 | What | Where |
 |---|---|
 | Volume | `/data`, owned by UID/GID `10001`, which the image runs as; nothing in the container runs as root |
 | State directory | `/data/portal-download` (store and setup file) |
-| Certificate | `/data/tls/cert.pem` and `key.pem`. Created at first start for `SITE`, valid ten years; `generated` beside it holds that certificate's fingerprint and `site` its name. Only a certificate with that fingerprint is created anew, when `SITE` changes or it runs out within 30 days. One the operator put there has another fingerprint and is never replaced, only warned about. |
+| Certificate | `/data/tls/cert.pem` and `key.pem`. Created at first start for `SITE`, valid 120 days; `generated` beside it holds that certificate's fingerprint and `site` its name. Checked at start and once a day. Only a certificate with that fingerprint is created anew, when `SITE` changes or it runs out within 30 days, so every 90 days; the running container then starts Caddy anew, while the service keeps running. One the operator put there has another fingerprint and is never replaced, only warned about, at start and once a day. Not used with `PROXY=external`. |
 | Caddy's working files | `/data/caddy`; Caddy's configuration is not persisted |
-| Configuration | `/etc/portal-download/config.toml` in the image: `listen = "127.0.0.1:8080"`, reached by Caddy over the container's loopback interface |
+| Configuration | `/etc/portal-download/config.toml` in the image: `listen = "127.0.0.1:8080"`, reached by Caddy over the container's loopback interface. With `PROXY=external`, `/etc/portal-download/config-external.toml`: `listen = "0.0.0.0:8080"` and `trust_forwarded_headers = true` |
 
-The entry point checks `SITE` (exit code `3` when it is missing or neither a host name nor an IPv4 address) and that `/data` is writable (exit code `4`, with the `chown` that is missing), then starts the service, waits until it answers, and starts Caddy. `docker stop` reaches both. When either ends by itself, the container ends with a non-zero exit code, and `--restart unless-stopped` brings both back. A container that fails the checks at start is restarted the same way, again and again; `docker logs` names the cause. The health check asks the service; `docker ps` shows it. Caddy serves HTTP/1.1 and HTTP/2 on 443/tcp only, with no redirect from port 80.
+The entry point checks `PROXY` (exit code `3` for any value but `external`), then, without `PROXY`, `SITE` (exit code `3` when it is missing or neither a host name nor an IPv4 address) and that `/data` is writable (exit code `4`, with the `chown` that is missing), then starts the service, waits until it answers, and starts Caddy; with `PROXY=external` it starts only the service. `docker stop` reaches both. When either ends by itself, the container ends with a non-zero exit code, and `--restart unless-stopped` brings both back. A container that fails the checks at start is restarted the same way, again and again; `docker logs` names the cause. The health check asks the service; `docker ps` shows it. Caddy serves HTTP/1.1 and HTTP/2 on 443/tcp only, with no redirect from port 80. When the certificate is renewed, browsers ask once more to accept it; a page that is open reports a failed connection until it is reloaded.
 
-Each image was built for its revision (`portal-download version`) and passed a smoke test on its platform before it was published: start through Caddy, revision, first setup with the logged secret, a stop within ten seconds with exit code 0, a new container on the same volume with the same person and certificate, the backup fetched with a token, and the refusal of an unwritable volume.
+Each image was built for its revision (`portal-download version`) and passed a smoke test on its platform before it was published: start through Caddy, revision, first setup with the logged secret, a stop within ten seconds with exit code 0, a new container on the same volume with the same person and certificate, the backup fetched with a token, the renewal of a certificate that runs out soon in the running container, the start with `PROXY=external` and its trust in the proxy's headers, and the refusal of an unwritable volume, a missing `SITE` and an unknown `PROXY`.
 
 ## Upgrading
 

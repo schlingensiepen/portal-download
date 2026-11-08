@@ -20,6 +20,7 @@ pub const DEFAULT_LISTEN: &str = "127.0.0.1:8080";
 struct FileConfig {
     listen: Option<String>,
     state_dir: Option<String>,
+    trust_forwarded_headers: Option<bool>,
 }
 
 #[derive(Debug, Clone)]
@@ -36,6 +37,8 @@ pub struct Config {
     pub file_source: String,
     pub listen: Value<String>,
     pub state_dir: Value<PathBuf>,
+    /// Whether `X-Forwarded-*` count from every sender, not only from the loopback interface.
+    pub trust_forwarded_headers: Value<bool>,
 }
 
 #[derive(Debug)]
@@ -108,7 +111,7 @@ pub fn load(cli: Option<&Path>) -> Result<Config, ConfigError> {
                 .map_err(|e| ConfigError(format!("The configuration file {} cannot be read: {e}. Check its permissions.", p.display())))?;
             toml::from_str(&text).map_err(|e| {
                 ConfigError(format!(
-                    "The configuration file {} is not valid: {e}. Allowed keys are `listen` and `state_dir`; see examples/config.toml.",
+                    "The configuration file {} is not valid: {e}. Allowed keys are `listen`, `state_dir` and `trust_forwarded_headers`; see examples/config.toml.",
                     p.display()
                 ))
             })?
@@ -146,7 +149,12 @@ pub fn load(cli: Option<&Path>) -> Result<Config, ConfigError> {
         None => Value { value: default_state_dir(), source: from(false) },
     };
 
-    Ok(Config { file, file_source, listen, state_dir })
+    let trust_forwarded_headers = match parsed.trust_forwarded_headers {
+        Some(b) => Value { value: b, source: from(true) },
+        None => Value { value: false, source: from(false) },
+    };
+
+    Ok(Config { file, file_source, listen, state_dir, trust_forwarded_headers })
 }
 
 impl Config {
@@ -157,6 +165,7 @@ impl Config {
             "file_source": self.file_source,
             "listen": { "value": self.listen.value, "source": self.listen.source },
             "state_dir": { "value": self.state_dir.value.display().to_string(), "source": self.state_dir.source },
+            "trust_forwarded_headers": { "value": self.trust_forwarded_headers.value, "source": self.trust_forwarded_headers.source },
         })
     }
 }
@@ -188,6 +197,19 @@ mod tests {
         let c = load(Some(&p)).unwrap();
         assert_eq!(c.listen.value, DEFAULT_LISTEN);
         assert_eq!(c.listen.source, "default (set empty)");
+    }
+
+    #[test]
+    fn forwarded_headers_are_trusted_only_when_set() {
+        let d = tempfile::tempdir().unwrap();
+        let c = load(Some(&write(d.path(), "listen = \"0.0.0.0:8080\"\n"))).unwrap();
+        assert!(!c.trust_forwarded_headers.value);
+        assert_eq!(c.trust_forwarded_headers.source, "default");
+        let c = load(Some(&write(d.path(), "trust_forwarded_headers = true\n"))).unwrap();
+        assert!(c.trust_forwarded_headers.value);
+        assert!(c.trust_forwarded_headers.source.starts_with("file "));
+        let e = load(Some(&write(d.path(), "trust_forwarded_headers = \"yes\"\n"))).unwrap_err();
+        assert!(e.0.contains("trust_forwarded_headers"));
     }
 
     #[test]
