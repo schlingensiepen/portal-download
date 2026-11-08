@@ -220,6 +220,7 @@ while :; do
     elif ! kill -0 "$caddy" 2>/dev/null; then
         say "Caddy ended (exit code $code); stopping the service and the container."
     elif ! kill -0 "$timer" 2>/dev/null; then
+        timer=""
         if [ "$code" -ne 0 ]; then
             say "the timer of the daily certificate check failed (exit code $code); stopping the container."
             code=1
