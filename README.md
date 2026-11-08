@@ -40,7 +40,7 @@ docker run -d --name portal-download --restart unless-stopped \
   ghcr.io/schlingensiepen/portal-download
 ```
 
-The same one-liner for other runtimes:
+The same start with other runtimes:
 
 ```powershell
 # Windows with WSLC (PowerShell)
@@ -68,19 +68,19 @@ container run -d --name portal-download \
   ghcr.io/schlingensiepen/portal-download
 ```
 
-On a Mac with Apple silicon every runtime takes the `arm64` image, with no emulation. WSLC and `container` start the container again only when told to (`wslc start portal-download`, `container start portal-download`); the volume keeps everything in between. The smoke test runs with Docker; the other runtimes are not tested by it.
+On a Mac with Apple silicon every runtime takes the `arm64` image, with no emulation. WSLC and `container` start the container again only when told to (`wslc start portal-download`, `container start portal-download`); the volume keeps everything in between, also across a reboot of the machine. The smoke test runs with Docker; the other runtimes are not tested by it. Below, `docker logs`, `docker exec` and `docker cp` stand for the same command of the runtime in use (`wslc logs`, `podman logs`, `container logs` and so on).
 
-`SITE` is the host name or IPv4 address the browsers use. It must lead them to this Docker host, and port 443 there must be reachable. `TZ` is the circle's time zone (see the schedule below). The image holds the service and [Caddy](https://caddyserver.com) in front of it. Everything that has to survive lies in the volume `/data`: the store, the setup file, the certificate and Caddy's working files. Images exist for `amd64` and `arm64`. `docker exec` runs as the image's own user, so `docker exec portal-download portal-download status` (and likewise `check`, `version`, `bootstrap`) needs nothing else.
+`SITE` is the host name or IPv4 address the browsers use. It must lead them to this Docker host, and port 443 there must be reachable. For a trial on the same machine, `SITE=localhost` does. `TZ` is the circle's time zone (see the schedule below). The image holds the service and [Caddy](https://caddyserver.com) in front of it. Everything that has to survive lies in the volume `/data`: the store, the setup file, the certificate and Caddy's working files. Images exist for `amd64` and `arm64`. `docker exec` runs as the image's own user, so `docker exec portal-download portal-download status` (and likewise `check`, `version`, `bootstrap`) needs nothing else.
 
 **First start:**
 
 1. `docker logs portal-download` shows, among the start lines, the certificate's SHA-256 fingerprint and the setup secret (`Setup secret: pds_…`). The secret appears in the log only while nobody is set up, and it is valid for 30 minutes. If it has run out, `docker exec portal-download portal-download bootstrap` prints a fresh one.
-2. Open `https://<SITE>/`. The browser warns about the certificate: the image created it for `SITE` at first start, valid for 120 days. The running container renews it every 90 days, and the browser then asks once more; until then a page that is open reports that the connection failed, and reloading it brings up the warning. Open the certificate details on the warning page, compare the SHA-256 fingerprint with the one from the log, then accept it.
+2. Open `https://<SITE>/`. The browser warns about the certificate: the image created it for `SITE` at first start, valid for 120 days. The running container renews it every 90 days, and the browser then asks once more; until then a page that is open reports that the connection failed, and reloading it brings up the warning. Open the certificate details on the warning page, compare the SHA-256 fingerprint with the one from the log, then accept it. After each renewal the log shows the new fingerprint; `docker exec portal-download openssl x509 -in /data/tls/cert.pem -noout -fingerprint -sha256 -enddate` shows the current one and when it runs out. Tell the browser users in advance that every 90 days they are asked once more.
 3. Enter the setup secret and your name, and continue with the vault passphrase and the first job. To restore a backup on this instance instead, do not create a vault; see [docs/operating.md](docs/operating.md#backup).
 
 **Operating it:**
 
-- **Backup with `curl`:** as described under [Backup](#backup). The line the application shows needs `--cacert cert.pem` added, with the certificate taken once from `docker cp portal-download:/data/tls/cert.pem .`; take it again when the certificate changes. Or write the backup inside the container, copy it out and delete it there, because the file holds the sealed logins: `docker exec portal-download portal-download backup /data/backup.jsonl`, `docker cp portal-download:/data/backup.jsonl .`, `docker exec portal-download rm /data/backup.jsonl`.
+- **Backup with `curl`:** as described under [Backup](#backup). The line the application shows needs `--cacert cert.pem` added, with the certificate from `docker cp portal-download:/data/tls/cert.pem .`. The certificate changes every 90 days, so a job that runs unattended takes it anew right before each run: `docker cp portal-download:/data/tls/cert.pem . && curl --cacert cert.pem …`, on the Docker host. Or write the backup inside the container, copy it out and delete it there, because the file holds the sealed logins: `docker exec portal-download portal-download backup /data/backup.jsonl`, `docker cp portal-download:/data/backup.jsonl .`, `docker exec portal-download rm /data/backup.jsonl`.
 - **Tags:** without a tag the image is `latest`, the last release. A tag `X.Y` such as `0.4` follows the fixes of one minor version, `X.Y.Z` such as `0.4.0` stays put, `edge` follows the main branch.
 - **Upgrading:** take a backup first, because a store written by a newer version is refused by an older one. Then `docker pull ghcr.io/schlingensiepen/portal-download`, `docker stop portal-download`, `docker rm portal-download`, and the same `docker run` as at first start, with all its options. The volume keeps everything.
 - **A certificate of your own** (from an intranet CA, for example): copy it in as the image's user, then restart:
@@ -151,7 +151,7 @@ downloads.intra.example {
 }
 ```
 
-Caddy sends the `X-Forwarded-*` headers on its own. The setup secret is in `docker compose logs portal-download`.
+Caddy sends the `X-Forwarded-*` headers on its own. The image's configuration for `PROXY=external` already sets `listen = "0.0.0.0:8080"` and `trust_forwarded_headers = true`; nothing needs to be mounted. When Caddy runs in another compose project, both must share a Docker network (an `external: true` network in both files), and Caddy reaches the service by its container name. The certificate in `./certs` is yours, from an intranet CA for example; a backup with `curl` goes through Caddy and needs `--cacert` only when the backup machine does not trust that certificate. The setup secret is in `docker compose logs portal-download`.
 
 ## Running it
 

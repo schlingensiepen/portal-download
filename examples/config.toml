@@ -5,6 +5,8 @@
 
 # Address and port the service listens on. Keep it local; a reverse proxy in
 # front holds the public name and the TLS certificate. Empty means the default.
+# (The container image's mode PROXY=external uses "0.0.0.0:8080" with
+# trust_forwarded_headers = true, for a proxy in another container.)
 listen = "127.0.0.1:8080"
 
 # Directory for the store (portal-download.sqlite) and the setup file

@@ -44,7 +44,7 @@ The backup is one JSONL file: a head line, then one record per line (vault, peop
   curl -fsS -H "Authorization: Bearer pda_…" https://downloads.intra.example/backup -o portal-download-$(date +%F).jsonl
   ```
 
-  When the service's certificate is not one the backup machine trusts, as with the one the container image creates, add `--cacert` with that certificate (see the README's container section).
+  When the service's certificate is not one the backup machine trusts, as with the one the container image creates, add `--cacert` with that certificate (see the README's container section). The image's own certificate changes every 90 days, so a nightly job takes it anew before each run.
 
   A person with the right to administer people can also click **Download backup** under **People**.
 - **On the server:** `portal-download backup /some/dir/portal-download-$(date +%F).jsonl`. It never overwrites a file and makes it readable by its owner only.
