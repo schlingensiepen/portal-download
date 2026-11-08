@@ -14,11 +14,16 @@ use std::path::Path;
 pub const INVITATION_DAYS: i64 = 7;
 /// The abilities an agent token can carry, one per token, with what each permits.
 pub const ABILITIES: &[(&str, &str)] = &[
-    ("jobs.read", "read jobs, their instructions and history, without the sealed logins"),
-    ("jobs.write", "create, change and delete jobs, without setting logins"),
+    ("jobs.read", "read jobs, their instructions and history, without the logins"),
+    ("logins.read", "read jobs, their instructions and history, with the logins (username and password)"),
+    ("jobs.write", "create, change and delete jobs, also setting their logins; the jobs it receives back come without the logins"),
     ("jobs.complete", "close runs as succeeded or failed"),
-    ("backup.read", "download the whole backup, including the sealed logins and the hashes of all accesses"),
+    ("backup.read", "download the whole backup, including the logins in plain text and the hashes of all accesses"),
 ];
+/// The abilities that admit reading jobs; only logins.read receives the logins with them.
+pub const READ_JOBS: &[&str] = &["jobs.read", "logins.read"];
+/// The ability that admits reading jobs together with their logins.
+pub const LOGINS_READ: &str = "logins.read";
 /// A registered agent token that nobody grants an ability expires after this many hours.
 pub const AGENT_PENDING_HOURS: i64 = 24;
 /// A granted agent token expires after this many days without use.
@@ -26,7 +31,7 @@ pub const AGENT_IDLE_DAYS: i64 = 180;
 /// At most this many registrations wait for a grant at the same time.
 pub const AGENT_PENDING_MAX: i64 = 10;
 
-const SCHEMA_VERSION: i64 = 1;
+const SCHEMA_VERSION: i64 = 2;
 /// The store file inside the state directory.
 pub const STORE_FILE: &str = "portal-download.sqlite";
 
@@ -59,24 +64,28 @@ impl Principal {
             )),
         }
     }
-    /// Admits a person, or an agent whose token carries exactly this ability.
-    pub fn require_ability(&self, ability: &str) -> OpResult<()> {
+    /// Admits a person, or an agent whose token carries one of these abilities.
+    pub fn require_ability(&self, abilities: &[&str]) -> OpResult<()> {
+        let needed = abilities.join(" or ");
         match self {
             Principal::Device { .. } => Ok(()),
-            Principal::Agent { ability: Some(a), .. } if a == ability => Ok(()),
+            Principal::Agent { ability: Some(a), .. } if abilities.contains(&a.as_str()) => Ok(()),
             Principal::Agent { ability: Some(a), .. } => Err(OpError::forbidden(format!(
-                "This agent token carries the ability {a}; this call needs {ability}. Register a second token for {ability} and have it granted."
+                "This agent token carries the ability {a}; this call needs {needed}. Register a second token for {needed} and have it granted."
             ))),
             Principal::Agent { display, ability: None, .. } => Err(OpError::new(
                 403,
                 "agent_pending",
-                format!("This agent token has no ability yet. Tell the user its display string {display} and ask them to have a person with the right to administer people grant it {ability} in the application under Personen."),
+                format!("This agent token has no ability yet. Tell the user its display string {display} and ask them to have a person with the right to administer people grant it {needed} in the application under Personen."),
             )),
         }
     }
-    /// Only a person's device sees the sealed logins; agents never do.
-    pub fn sees_sealed(&self) -> bool {
-        matches!(self, Principal::Device { .. })
+    /// Every person sees the logins; an agent only with a token for logins.read.
+    pub fn sees_logins(&self) -> bool {
+        match self {
+            Principal::Device { .. } => true,
+            Principal::Agent { ability, .. } => ability.as_deref() == Some(LOGINS_READ),
+        }
     }
     pub fn require_admin(&self) -> OpResult<i64> {
         let (_, user_id, is_admin) = self.require_person()?;
@@ -98,8 +107,8 @@ pub struct JobInput {
     pub interval_weeks: Option<u32>,
     pub retry_days: Option<u32>,
     pub next_due: Option<String>,
-    pub username_sealed: Option<String>,
-    pub password_sealed: Option<String>,
+    pub username: Option<String>,
+    pub password: Option<String>,
     pub instructions_md: Option<String>,
 }
 
@@ -116,9 +125,9 @@ pub struct Job {
     /// Number of closed runs; sent back with job.complete to detect a run closed meanwhile.
     pub run_count: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub username_sealed: Option<String>,
+    pub username: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub password_sealed: Option<String>,
+    pub password: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub instructions_md: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -144,27 +153,17 @@ fn parse_date(field: &str, s: &str) -> OpResult<NaiveDate> {
     Ok(d)
 }
 
-fn check_sealed(field: &str, s: &str) -> OpResult<()> {
-    if s.is_empty() {
-        return Ok(());
+/// A login is kept exactly as entered, spaces included; only its length and control
+/// characters are checked.
+fn check_login(field: &str, s: &str) -> OpResult<()> {
+    let n = s.chars().count();
+    if n > 1000 {
+        return Err(OpError::bad("field_length", format!("`{field}` may have at most 1000 characters; it has {n}. Shorten it and send again.")));
     }
-    let bad = || {
-        OpError::bad(
-            "sealed_invalid",
-            format!("`{field}` must be empty or a value sealed in the browser with the vault key: a JSON object whose fields `iv` (12 bytes) and `ct` (ciphertext with its 16-byte tag) are standard Base64. Unlock the vault in the application and save the job again."),
-        )
-    };
-    if s.len() > 8192 {
-        return Err(bad());
+    if s.chars().any(char::is_control) {
+        return Err(OpError::bad("login_invalid", format!("`{field}` contains a line break or another control character. Enter the login in one line and send again.")));
     }
-    let v: Value = serde_json::from_str(s).map_err(|_| bad())?;
-    use base64::Engine;
-    let b64 = |k: &str| v.get(k).and_then(Value::as_str).and_then(|x| base64::engine::general_purpose::STANDARD.decode(x).ok());
-    match (b64("iv"), b64("ct")) {
-        // AES-GCM: a 12-byte nonce, and a ciphertext that at least carries its 16-byte tag.
-        (Some(iv), Some(ct)) if iv.len() == 12 && ct.len() >= 16 => Ok(()),
-        _ => Err(bad()),
-    }
+    Ok(())
 }
 
 fn text(field: &str, s: &str, min: usize, max: usize) -> OpResult<String> {
@@ -324,6 +323,21 @@ PRAGMA user_version = 1;
             )?;
             tx.commit()?;
         }
+        if v < 2 {
+            // Logins are kept in plain text; the sealed values and their vault go without conversion.
+            let tx = self.conn.transaction()?;
+            tx.execute_batch(
+                r#"
+DROP TABLE vault;
+ALTER TABLE jobs DROP COLUMN username_sealed;
+ALTER TABLE jobs DROP COLUMN password_sealed;
+ALTER TABLE jobs ADD COLUMN username TEXT NOT NULL DEFAULT '';
+ALTER TABLE jobs ADD COLUMN password TEXT NOT NULL DEFAULT '';
+PRAGMA user_version = 2;
+"#,
+            )?;
+            tx.commit()?;
+        }
         self.check_structure()
     }
 
@@ -336,8 +350,7 @@ PRAGMA user_version = 1;
             ("invitations", &["id", "user_id", "token_hash", "created_by", "created_at", "expires_at", "withdrawn_at"]),
             ("devices", &["id", "user_id", "invitation_id", "credential_hash", "label", "user_agent", "last_address", "created_at", "last_seen_at", "revoked_at"]),
             ("agents", &["id", "token_hash", "display", "introduction", "ability", "granted_by", "granted_at", "created_at", "last_used_at", "revoked_at"]),
-            ("vault", &["id", "salt", "iterations", "verifier", "created_by", "created_at"]),
-            ("jobs", &["id", "title", "entry_url", "embeddable", "interval_weeks", "retry_days", "next_due", "username_sealed", "password_sealed", "instructions_md", "created_at", "updated_at"]),
+            ("jobs", &["id", "title", "entry_url", "embeddable", "interval_weeks", "retry_days", "next_due", "username", "password", "instructions_md", "created_at", "updated_at"]),
             ("runs", &["id", "job_id", "user_id", "device_id", "agent_id", "by_name", "outcome", "note", "finished_at", "due_before", "due_after"]),
         ];
         for (table, columns) in EXPECTED {
@@ -412,7 +425,6 @@ PRAGMA user_version = 1;
             "devices": q("SELECT COUNT(*) FROM devices WHERE revoked_at IS NULL")?,
             "jobs": q("SELECT COUNT(*) FROM jobs")?,
             "jobs_due": due,
-            "vault_exists": q("SELECT COUNT(*) FROM vault")? > 0,
         }))
     }
 
@@ -800,45 +812,9 @@ PRAGMA user_version = 1;
         Ok(json!({ "agent_id": agent_id, "revoked": true }))
     }
 
-    // ---------------------------------------------------------------- vault
-
-    pub fn vault_get(&self, p: &Principal) -> OpResult<Value> {
-        p.require_person()?;
-        let row = self
-            .conn
-            .query_row("SELECT salt, iterations, verifier, created_at FROM vault WHERE id = 1", [], |r| {
-                Ok(json!({ "exists": true, "salt": r.get::<_, String>(0)?, "iterations": r.get::<_, i64>(1)?, "verifier": r.get::<_, String>(2)?, "created_at": r.get::<_, String>(3)? }))
-            })
-            .optional()?;
-        Ok(row.unwrap_or_else(|| json!({ "exists": false })))
-    }
-
-    pub fn vault_create(&self, p: &Principal, salt: &str, iterations: i64, verifier: &str) -> OpResult<Value> {
-        let (_, user_id, _) = p.require_person()?;
-        if salt.len() < 16 || salt.len() > 200 {
-            return Err(OpError::bad("salt_invalid", "`salt` must be the Base64 text of at least 16 random bytes, as the application creates it. Create the vault from the application."));
-        }
-        if !(100_000..=10_000_000).contains(&iterations) {
-            return Err(OpError::bad("iterations_invalid", "`iterations` must lie between 100000 and 10000000. The application uses 600000."));
-        }
-        check_sealed("verifier", verifier)?;
-        if verifier.is_empty() {
-            return Err(OpError::bad("verifier_missing", "`verifier` must be the sealed check value the application creates with the new key."));
-        }
-        let exists: bool = self.conn.query_row("SELECT EXISTS(SELECT 1 FROM vault)", [], |r| r.get(0))?;
-        if exists {
-            return Err(OpError::conflict("vault_exists", "A vault already exists. Unlock it with the shared passphrase instead; call vault.get for its salt and check value."));
-        }
-        self.conn.execute(
-            "INSERT INTO vault(id, salt, iterations, verifier, created_by, created_at) VALUES (1, ?1, ?2, ?3, ?4, ?5)",
-            params![salt, iterations, verifier, user_id, now()],
-        )?;
-        self.vault_get(p)
-    }
-
     // ---------------------------------------------------------------- jobs
 
-    fn row_to_job(&self, r: &rusqlite::Row, today: NaiveDate, with_sealed: bool) -> rusqlite::Result<Job> {
+    fn row_to_job(&self, r: &rusqlite::Row, today: NaiveDate, with_logins: bool) -> rusqlite::Result<Job> {
         let next_due: String = r.get(6)?;
         let due = NaiveDate::parse_from_str(&next_due, "%Y-%m-%d").unwrap_or(today);
         let md: String = r.get(9)?;
@@ -852,15 +828,15 @@ PRAGMA user_version = 1;
             urgency_days: schedule::urgency_days(today, due),
             run_count: r.get(10)?,
             next_due,
-            username_sealed: with_sealed.then(|| r.get(7)).transpose()?,
-            password_sealed: with_sealed.then(|| r.get(8)).transpose()?,
+            username: with_logins.then(|| r.get(7)).transpose()?,
+            password: with_logins.then(|| r.get(8)).transpose()?,
             instructions_html: Some(render_markdown(&md)),
             instructions_md: Some(md),
             last_run: None,
         })
     }
 
-    const JOB_COLS: &'static str = "id, title, entry_url, embeddable, interval_weeks, retry_days, next_due, username_sealed, password_sealed, instructions_md, (SELECT COUNT(*) FROM runs WHERE runs.job_id = jobs.id)";
+    const JOB_COLS: &'static str = "id, title, entry_url, embeddable, interval_weeks, retry_days, next_due, username, password, instructions_md, (SELECT COUNT(*) FROM runs WHERE runs.job_id = jobs.id)";
 
     fn last_run(&self, job_id: i64) -> OpResult<Option<Value>> {
         Ok(self
@@ -875,9 +851,9 @@ PRAGMA user_version = 1;
 
     /// All jobs, most urgent first (smallest number of days to the next due date).
     pub fn job_list(&self, p: &Principal, today: NaiveDate) -> OpResult<Value> {
-        p.require_ability("jobs.read")?;
+        p.require_ability(READ_JOBS)?;
         let mut st = self.conn.prepare(&format!("SELECT {} FROM jobs ORDER BY next_due, title COLLATE NOCASE", Self::JOB_COLS))?;
-        let mut jobs: Vec<Job> = st.query_map([], |r| self.row_to_job(r, today, p.sees_sealed()))?.collect::<Result<_, _>>()?;
+        let mut jobs: Vec<Job> = st.query_map([], |r| self.row_to_job(r, today, p.sees_logins()))?.collect::<Result<_, _>>()?;
         for j in &mut jobs {
             j.last_run = self.last_run(j.job_id)?;
         }
@@ -895,28 +871,18 @@ PRAGMA user_version = 1;
     }
 
     pub fn job_get(&self, p: &Principal, job_id: i64, today: NaiveDate) -> OpResult<Value> {
-        p.require_ability("jobs.read")?;
+        p.require_ability(READ_JOBS)?;
         self.job_for(p, job_id, today)
     }
 
-    /// A job as the caller may see it: agents never receive the sealed logins.
+    /// A job as the caller may see it: an agent receives the logins only with logins.read.
     fn job_for(&self, p: &Principal, job_id: i64, today: NaiveDate) -> OpResult<Value> {
         let mut job = self.job_get_inner(job_id, today)?;
-        if !p.sees_sealed() {
-            job.username_sealed = None;
-            job.password_sealed = None;
+        if !p.sees_logins() {
+            job.username = None;
+            job.password = None;
         }
         Ok(serde_json::to_value(job).expect("job serializes"))
-    }
-
-    /// Logins are sealed with the vault key in a person's browser, so only a person sets them.
-    fn refuse_logins_from_agents(p: &Principal, input: &JobInput) -> OpResult<()> {
-        if !p.sees_sealed() && (input.username_sealed.is_some() || input.password_sealed.is_some()) {
-            return Err(OpError::forbidden(
-                "An agent cannot set a portal login; logins are sealed in a person's browser. Leave username_sealed and password_sealed out, and ask the user to enter the login in the application.",
-            ));
-        }
-        Ok(())
     }
 
     fn validate_job(input: &JobInput, creating: bool) -> OpResult<()> {
@@ -951,11 +917,11 @@ PRAGMA user_version = 1;
         if let Some(d) = &input.next_due {
             parse_date("next_due", d)?;
         }
-        if let Some(s) = &input.username_sealed {
-            check_sealed("username_sealed", s)?;
+        if let Some(s) = &input.username {
+            check_login("username", s)?;
         }
-        if let Some(s) = &input.password_sealed {
-            check_sealed("password_sealed", s)?;
+        if let Some(s) = &input.password {
+            check_login("password", s)?;
         }
         if let Some(m) = &input.instructions_md {
             if m.len() > 65536 {
@@ -966,12 +932,11 @@ PRAGMA user_version = 1;
     }
 
     pub fn job_create(&self, p: &Principal, input: JobInput, today: NaiveDate) -> OpResult<Value> {
-        p.require_ability("jobs.write")?;
-        Self::refuse_logins_from_agents(p, &input)?;
+        p.require_ability(&["jobs.write"])?;
         Self::validate_job(&input, true)?;
         let ts = now();
         self.conn.execute(
-            "INSERT INTO jobs(title, entry_url, embeddable, interval_weeks, retry_days, next_due, username_sealed, password_sealed, instructions_md, created_at, updated_at)
+            "INSERT INTO jobs(title, entry_url, embeddable, interval_weeks, retry_days, next_due, username, password, instructions_md, created_at, updated_at)
              VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?10)",
             params![
                 input.title.unwrap().trim(),
@@ -980,8 +945,8 @@ PRAGMA user_version = 1;
                 input.interval_weeks.unwrap(),
                 input.retry_days.unwrap_or(2),
                 input.next_due.unwrap_or_else(|| today.format("%Y-%m-%d").to_string()),
-                input.username_sealed.unwrap_or_default(),
-                input.password_sealed.unwrap_or_default(),
+                input.username.unwrap_or_default(),
+                input.password.unwrap_or_default(),
                 input.instructions_md.unwrap_or_default(),
                 ts
             ],
@@ -990,13 +955,12 @@ PRAGMA user_version = 1;
     }
 
     pub fn job_update(&self, p: &Principal, job_id: i64, input: JobInput, today: NaiveDate) -> OpResult<Value> {
-        p.require_ability("jobs.write")?;
-        Self::refuse_logins_from_agents(p, &input)?;
+        p.require_ability(&["jobs.write"])?;
         Self::validate_job(&input, false)?;
         let cur = self.job_get_inner(job_id, today)?;
         self.conn.execute(
             "UPDATE jobs SET title=?1, entry_url=?2, embeddable=?3, interval_weeks=?4, retry_days=?5, next_due=?6,
-             username_sealed=?7, password_sealed=?8, instructions_md=?9, updated_at=?10 WHERE id=?11",
+             username=?7, password=?8, instructions_md=?9, updated_at=?10 WHERE id=?11",
             params![
                 input.title.map(|s| s.trim().to_string()).unwrap_or(cur.title),
                 input.entry_url.map(|s| s.trim().to_string()).unwrap_or(cur.entry_url),
@@ -1004,8 +968,8 @@ PRAGMA user_version = 1;
                 input.interval_weeks.unwrap_or(cur.interval_weeks),
                 input.retry_days.unwrap_or(cur.retry_days),
                 input.next_due.unwrap_or(cur.next_due),
-                input.username_sealed.or(cur.username_sealed).unwrap_or_default(),
-                input.password_sealed.or(cur.password_sealed).unwrap_or_default(),
+                input.username.or(cur.username).unwrap_or_default(),
+                input.password.or(cur.password).unwrap_or_default(),
                 input.instructions_md.or(cur.instructions_md).unwrap_or_default(),
                 now(),
                 job_id
@@ -1015,7 +979,7 @@ PRAGMA user_version = 1;
     }
 
     pub fn job_delete(&self, p: &Principal, job_id: i64) -> OpResult<Value> {
-        p.require_ability("jobs.write")?;
+        p.require_ability(&["jobs.write"])?;
         let n = self.conn.execute("DELETE FROM jobs WHERE id = ?1", [job_id])?;
         if n == 0 {
             return Err(OpError::not_found("job_unknown", format!("There is no job {job_id}. Call job.list for the valid identifiers.")));
@@ -1025,7 +989,7 @@ PRAGMA user_version = 1;
 
     /// Closes a run: records it and moves the next due date according to the outcome.
     pub fn job_complete(&self, p: &Principal, job_id: i64, outcome: &str, note: &str, expected_run_count: Option<i64>, today: NaiveDate) -> OpResult<Value> {
-        p.require_ability("jobs.complete")?;
+        p.require_ability(&["jobs.complete"])?;
         let (user_id, device_id, agent_id, by_name) = match p {
             Principal::Device { device_id, user_id, name, .. } => (Some(*user_id), Some(*device_id), None, name.clone()),
             Principal::Agent { agent_id, display, .. } => (None, None, Some(*agent_id), format!("Agent {display}")),
@@ -1054,7 +1018,7 @@ PRAGMA user_version = 1;
     }
 
     pub fn job_history(&self, p: &Principal, job_id: i64, today: NaiveDate) -> OpResult<Value> {
-        p.require_ability("jobs.read")?;
+        p.require_ability(READ_JOBS)?;
         self.job_get_inner(job_id, today)?;
         let mut st = self.conn.prepare(&format!(
             "SELECT r.id, r.outcome, r.note, r.finished_at, r.due_before, r.due_after, {RUN_BY} FROM runs r WHERE r.job_id = ?1 ORDER BY r.id DESC LIMIT 200"
@@ -1075,19 +1039,17 @@ PRAGMA user_version = 1;
 
 /// The first line of every backup.
 pub const BACKUP_FORMAT: &str = "portal-download-backup";
-pub const BACKUP_VERSION: i64 = 1;
+pub const BACKUP_VERSION: i64 = 2;
 
 /// What one import did; the renamed entries are listed so the user can delete them.
 #[derive(Debug, Default, Serialize)]
 pub struct ImportReport {
-    pub vault: &'static str,
     pub people_added: usize,
     pub invitations_added: usize,
     pub devices_added: usize,
     pub agents_added: usize,
     pub jobs_added: usize,
     pub runs_added: usize,
-    pub logins_dropped: usize,
     /// People and accesses left out on request.
     pub skipped_left_out: usize,
     /// Credentials or tokens that exist here already.
@@ -1128,7 +1090,7 @@ impl Store {
     pub fn require_backup_reader(p: &Principal) -> OpResult<()> {
         match p {
             Principal::Device { .. } => p.require_admin().map(|_| ()),
-            Principal::Agent { .. } => p.require_ability("backup.read"),
+            Principal::Agent { .. } => p.require_ability(&["backup.read"]),
         }
     }
 
@@ -1151,9 +1113,6 @@ impl Store {
             }
             Ok(())
         };
-        each("SELECT salt, iterations, verifier, created_at FROM vault", &|r| {
-            Ok(json!({ "type": "vault", "salt": r.get::<_, String>(0)?, "iterations": r.get::<_, i64>(1)?, "verifier": r.get::<_, String>(2)?, "created_at": r.get::<_, String>(3)? }))
-        })?;
         each("SELECT id, name, email, is_admin, deactivated_at, created_at FROM users ORDER BY id", &|r| {
             Ok(json!({ "type": "person", "id": r.get::<_, i64>(0)?, "name": r.get::<_, String>(1)?, "email": r.get::<_, String>(2)?, "is_admin": r.get::<_, bool>(3)?, "deactivated_at": r.get::<_, Option<String>>(4)?, "created_at": r.get::<_, String>(5)? }))
         })?;
@@ -1166,8 +1125,8 @@ impl Store {
         each("SELECT id, token_hash, display, introduction, ability, granted_at, created_at, last_used_at, revoked_at, granted_by FROM agents ORDER BY id", &|r| {
             Ok(json!({ "type": "agent", "id": r.get::<_, i64>(0)?, "token_hash": r.get::<_, String>(1)?, "display": r.get::<_, String>(2)?, "introduction": r.get::<_, String>(3)?, "ability": r.get::<_, Option<String>>(4)?, "granted_at": r.get::<_, Option<String>>(5)?, "created_at": r.get::<_, String>(6)?, "last_used_at": r.get::<_, Option<String>>(7)?, "revoked_at": r.get::<_, Option<String>>(8)?, "granted_by": r.get::<_, Option<i64>>(9)? }))
         })?;
-        each("SELECT id, title, entry_url, embeddable, interval_weeks, retry_days, next_due, username_sealed, password_sealed, instructions_md, created_at, updated_at FROM jobs ORDER BY id", &|r| {
-            Ok(json!({ "type": "job", "id": r.get::<_, i64>(0)?, "title": r.get::<_, String>(1)?, "entry_url": r.get::<_, String>(2)?, "embeddable": r.get::<_, bool>(3)?, "interval_weeks": r.get::<_, i64>(4)?, "retry_days": r.get::<_, i64>(5)?, "next_due": r.get::<_, String>(6)?, "username_sealed": r.get::<_, String>(7)?, "password_sealed": r.get::<_, String>(8)?, "instructions_md": r.get::<_, String>(9)?, "created_at": r.get::<_, String>(10)?, "updated_at": r.get::<_, String>(11)? }))
+        each("SELECT id, title, entry_url, embeddable, interval_weeks, retry_days, next_due, username, password, instructions_md, created_at, updated_at FROM jobs ORDER BY id", &|r| {
+            Ok(json!({ "type": "job", "id": r.get::<_, i64>(0)?, "title": r.get::<_, String>(1)?, "entry_url": r.get::<_, String>(2)?, "embeddable": r.get::<_, bool>(3)?, "interval_weeks": r.get::<_, i64>(4)?, "retry_days": r.get::<_, i64>(5)?, "next_due": r.get::<_, String>(6)?, "username": r.get::<_, String>(7)?, "password": r.get::<_, String>(8)?, "instructions_md": r.get::<_, String>(9)?, "created_at": r.get::<_, String>(10)?, "updated_at": r.get::<_, String>(11)? }))
         })?;
         each("SELECT id, job_id, user_id, agent_id, by_name, outcome, note, finished_at, due_before, due_after, device_id FROM runs ORDER BY id", &|r| {
             Ok(json!({ "type": "run", "id": r.get::<_, i64>(0)?, "job_id": r.get::<_, i64>(1)?, "person_id": r.get::<_, Option<i64>>(2)?, "agent_id": r.get::<_, Option<i64>>(3)?, "by": r.get::<_, String>(4)?, "outcome": r.get::<_, String>(5)?, "note": r.get::<_, String>(6)?, "finished_at": r.get::<_, String>(7)?, "due_before": r.get::<_, String>(8)?, "due_after": r.get::<_, String>(9)?, "device_id": r.get::<_, Option<i64>>(10)? }))
@@ -1195,9 +1154,16 @@ impl Store {
             let v: Value = serde_json::from_str(line).map_err(|e| OpError::bad("backup_invalid", format!("Line {} of the backup is not JSON: {e}. Upload the file exactly as it was downloaded.", n + 1)))?;
             records.push((n + 1, v));
         }
-        let head_ok = records.first().map(|(_, h)| s_of(h, "type") == "backup" && s_of(h, "format") == BACKUP_FORMAT && i_of(h, "version") == Some(BACKUP_VERSION)).unwrap_or(false);
-        if !head_ok {
+        let head = records.first().map(|(_, h)| h).filter(|h| s_of(h, "type") == "backup" && s_of(h, "format") == BACKUP_FORMAT);
+        let Some(head) = head else {
             return Err(OpError::bad("backup_invalid", format!("The first line must be the head of a {BACKUP_FORMAT} file of version {BACKUP_VERSION}. Upload a file this service wrote.")));
+        };
+        if i_of(head, "version") != Some(BACKUP_VERSION) {
+            let found = field(head, "version");
+            return Err(OpError::bad(
+                "backup_version",
+                format!("This backup has version {found}; this service reads version {BACKUP_VERSION} only. Take a new backup with a service of this version and upload that file."),
+            ));
         }
         let bad = |n: usize, what: &str| OpError::bad("backup_invalid", format!("Line {n} of the backup: {what}. Upload the file exactly as it was downloaded."));
         let ts = |n: usize, v: &Value, k: &str| -> OpResult<String> { canonical_ts(&s_of(v, k)).ok_or_else(|| bad(n, &format!("`{k}` is not a time stamp"))) };
@@ -1213,41 +1179,8 @@ impl Store {
             if h.len() == 64 && h.bytes().all(|c| matches!(c, b'0'..=b'9' | b'a'..=b'f')) { Ok(h) } else { Err(bad(n, &format!("`{k}` is not a hash"))) }
         };
 
-        let mut rep = ImportReport { vault: "none", ..Default::default() };
+        let mut rep = ImportReport::default();
         let tx = self.conn.unchecked_transaction()?;
-
-        // The vault decides first whether the logins in the file can be opened here.
-        let target_vault: Option<(String, i64, String)> = tx.query_row("SELECT salt, iterations, verifier FROM vault WHERE id = 1", [], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).optional()?;
-        let vaults: Vec<&(usize, Value)> = records.iter().skip(1).filter(|(_, v)| s_of(v, "type") == "vault").collect();
-        if vaults.len() > 1 {
-            return Err(bad(vaults[1].0, "a second vault"));
-        }
-        let keep_logins = match (vaults.first(), &target_vault) {
-            (Some((n, v)), None) => {
-                let n = *n;
-                let salt = s_of(v, "salt");
-                use base64::Engine;
-                if !base64::engine::general_purpose::STANDARD.decode(&salt).is_ok_and(|b| b.len() >= 16) || salt.len() > 200 {
-                    return Err(bad(n, "the vault salt is not Base64 of at least 16 bytes"));
-                }
-                let iterations = i_of(v, "iterations").filter(|i| (100_000..=10_000_000).contains(i)).ok_or_else(|| bad(n, "the vault iterations lie outside 100000 to 10000000"))?;
-                let verifier = s_of(v, "verifier");
-                check_sealed("verifier", &verifier).map_err(|_| bad(n, "the vault check value is not a sealed value"))?;
-                if verifier.is_empty() {
-                    return Err(bad(n, "the vault has no check value"));
-                }
-                tx.execute("INSERT INTO vault(id, salt, iterations, verifier, created_at) VALUES (1, ?1, ?2, ?3, ?4)", params![salt, iterations, verifier, ts(n, v, "created_at")?])?;
-                rep.vault = "adopted";
-                true
-            }
-            (Some((_, v)), Some((salt, iterations, verifier))) => {
-                let same = *salt == s_of(v, "salt") && Some(*iterations) == i_of(v, "iterations") && *verifier == s_of(v, "verifier");
-                rep.vault = if same { "same" } else { "different" };
-                same
-            }
-            // Logins without the vault they were sealed with can never be opened.
-            (None, _) => false,
-        };
 
         let mut people = std::collections::HashMap::new();
         let mut invitations = std::collections::HashMap::new();
@@ -1258,7 +1191,6 @@ impl Store {
         for (n, v) in records.iter().skip(1) {
             let n = *n;
             match s_of(v, "type").as_str() {
-                "vault" => {}
                 "person" | "invitation" | "device" | "agent" if !include_access => rep.skipped_left_out += 1,
                 "person" => {
                     let name = txt(n, v, "name", 1, 120)?;
@@ -1328,30 +1260,24 @@ impl Store {
                     rep.agents_added += 1;
                 }
                 "job" => {
-                    let mut input: JobInput = serde_json::from_value(json!({
+                    let input: JobInput = serde_json::from_value(json!({
                         "title": field(v, "title"), "entry_url": field(v, "entry_url"), "embeddable": field(v, "embeddable"),
                         "interval_weeks": field(v, "interval_weeks"), "retry_days": field(v, "retry_days"), "next_due": field(v, "next_due"),
-                        "username_sealed": field(v, "username_sealed"), "password_sealed": field(v, "password_sealed"), "instructions_md": field(v, "instructions_md"),
+                        "username": field(v, "username"), "password": field(v, "password"), "instructions_md": field(v, "instructions_md"),
                     }))
                     .map_err(|e| bad(n, &format!("a job does not fit ({e})")))?;
                     Self::validate_job(&input, true).map_err(|e| bad(n, &e.message))?;
-                    let has_login = |s: &Option<String>| s.as_deref().is_some_and(|x| !x.is_empty());
-                    if !keep_logins && (has_login(&input.username_sealed) || has_login(&input.password_sealed)) {
-                        input.username_sealed = None;
-                        input.password_sealed = None;
-                        rep.logins_dropped += 1;
-                    }
                     let title = input.title.clone().unwrap_or_default().trim().to_string();
                     let url = input.entry_url.clone().unwrap_or_default().trim().to_string();
                     let exists = self.job_exists(&tx, &title, &url)?;
                     let final_title = if exists { self.free_name(&tx, "jobs", "title", &title, 200, today)? } else { title };
                     tx.execute(
-                        "INSERT INTO jobs(title, entry_url, embeddable, interval_weeks, retry_days, next_due, username_sealed, password_sealed, instructions_md, created_at, updated_at)
+                        "INSERT INTO jobs(title, entry_url, embeddable, interval_weeks, retry_days, next_due, username, password, instructions_md, created_at, updated_at)
                          VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
                         params![
                             final_title, url, input.embeddable.unwrap_or(false), input.interval_weeks, input.retry_days.unwrap_or(2),
                             input.next_due.unwrap_or_else(|| today.format("%Y-%m-%d").to_string()),
-                            input.username_sealed.unwrap_or_default(), input.password_sealed.unwrap_or_default(), input.instructions_md.unwrap_or_default(),
+                            input.username.unwrap_or_default(), input.password.unwrap_or_default(), input.instructions_md.unwrap_or_default(),
                             ts(n, v, "created_at")?, now()
                         ],
                     )?;
@@ -1419,7 +1345,7 @@ mod tests {
         NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap()
     }
 
-    const SEALED: &str = r#"{"v":1,"iv":"AAAAAAAAAAAAAAAA","ct":"AAAAAAAAAAAAAAAAAAAAAA=="}"#;
+    const PASSWORD: &str = "hunter2 with spaces ";
 
     #[test]
     fn dates_are_stored_only_in_canonical_form() {
@@ -1540,17 +1466,20 @@ mod tests {
     }
 
     #[test]
-    fn plain_text_credentials_are_refused() {
+    fn a_login_in_two_lines_is_refused() {
         let s = Store::open_in_memory().unwrap();
         let a = admin(&s);
         let input = JobInput {
             title: Some("x".into()),
             entry_url: Some("https://example.org".into()),
             interval_weeks: Some(1),
-            password_sealed: Some(r#"{"iv":"","ct":"hunter2"}"#.into()),
+            password: Some("hunter2\nsecond line".into()),
             ..Default::default()
         };
-        assert_eq!(s.job_create(&a, input, d("2026-11-06")).unwrap_err().kind, "sealed_invalid");
+        assert_eq!(s.job_create(&a, input, d("2026-11-06")).unwrap_err().kind, "login_invalid");
+        let long = JobInput { username: Some("u".repeat(1001)), ..Default::default() };
+        let job = job_with_login(&s, &a);
+        assert_eq!(s.job_update(&a, job, long, d("2026-11-06")).unwrap_err().kind, "field_length");
     }
 
     fn job_with_login(s: &Store, a: &Principal) -> i64 {
@@ -1558,10 +1487,28 @@ mod tests {
             title: Some("x".into()),
             entry_url: Some("https://example.org".into()),
             interval_weeks: Some(1),
-            password_sealed: Some(SEALED.into()),
+            username: Some("ada@example.org".into()),
+            password: Some(PASSWORD.into()),
             ..Default::default()
         };
         s.job_create(a, input, d("2026-11-06")).unwrap()["job_id"].as_i64().unwrap()
+    }
+
+    #[test]
+    fn every_person_sees_the_login_as_entered_and_a_change_applies_for_all() {
+        let s = Store::open_in_memory().unwrap();
+        let a = admin(&s);
+        let job = job_with_login(&s, &a);
+        let r = s.user_create(&a, "Bob", "", false).unwrap();
+        let (c, _) = s.redeem_invitation(r["invitation_token"].as_str().unwrap(), "Laptop", "", "").unwrap();
+        let b = s.authenticate_device(&c, "", "").unwrap();
+        let seen = s.job_get(&b, job, d("2026-11-06")).unwrap();
+        assert_eq!(seen["username"], "ada@example.org");
+        assert_eq!(seen["password"], PASSWORD);
+        s.job_update(&b, job, JobInput { password: Some("new one".into()), ..Default::default() }, d("2026-11-06")).unwrap();
+        let list = s.job_list(&a, d("2026-11-06")).unwrap();
+        assert_eq!(list["jobs"][0]["password"], "new one");
+        assert_eq!(list["jobs"][0]["username"], "ada@example.org");
     }
 
     /// Registers an agent token and, if an ability is given, has the administrator grant it.
@@ -1590,25 +1537,58 @@ mod tests {
     }
 
     #[test]
-    fn an_agent_never_sees_or_sets_a_login() {
+    fn jobs_write_sets_logins_without_reading_them_and_jobs_read_gets_jobs_without_them() {
         let s = Store::open_in_memory().unwrap();
         let a = admin(&s);
-        let job = job_with_login(&s, &a);
+        let (w, _) = agent(&s, &a, Some("jobs.write"));
+        let w = s.authenticate_agent(&w).unwrap();
+        let new = JobInput {
+            title: Some("n".into()),
+            entry_url: Some("https://example.org".into()),
+            interval_weeks: Some(1),
+            username: Some("bot@example.org".into()),
+            password: Some("set by agent".into()),
+            ..Default::default()
+        };
+        let made = s.job_create(&w, new, d("2026-11-06")).unwrap();
+        assert!(made.get("username").is_none() && made.get("password").is_none(), "{made}");
+        let job = made["job_id"].as_i64().unwrap();
+        let changed = s.job_update(&w, job, JobInput { password: Some("changed by agent".into()), ..Default::default() }, d("2026-11-06")).unwrap();
+        assert!(changed.get("password").is_none());
+
         let (r, _) = agent(&s, &a, Some("jobs.read"));
         let r = s.authenticate_agent(&r).unwrap();
         let list = s.job_list(&r, d("2026-11-06")).unwrap();
-        assert!(list["jobs"][0].get("password_sealed").is_none());
+        assert!(list["jobs"][0].get("password").is_none());
+        assert!(list["jobs"][0].get("username").is_none());
         assert!(list["jobs"][0].get("instructions_md").is_some());
-        assert!(s.job_get(&r, job, d("2026-11-06")).unwrap().get("password_sealed").is_none());
-        let (w, _) = agent(&s, &a, Some("jobs.write"));
-        let w = s.authenticate_agent(&w).unwrap();
-        let with_login = JobInput { password_sealed: Some(SEALED.into()), ..Default::default() };
-        assert_eq!(s.job_update(&w, job, with_login, d("2026-11-06")).unwrap_err().code, 403);
+        let got = s.job_get(&r, job, d("2026-11-06")).unwrap();
+        assert!(got.get("password").is_none() && got.get("username").is_none());
+
+        let (l, _) = agent(&s, &a, Some("logins.read"));
+        let l = s.authenticate_agent(&l).unwrap();
+        let seen = s.job_get(&l, job, d("2026-11-06")).unwrap();
+        assert_eq!(seen["username"], "bot@example.org");
+        assert_eq!(seen["password"], "changed by agent");
+        assert_eq!(s.job_get(&a, job, d("2026-11-06")).unwrap()["password"], "changed by agent");
+    }
+
+    #[test]
+    fn logins_read_gets_jobs_with_their_logins_and_nothing_else() {
+        let s = Store::open_in_memory().unwrap();
+        let a = admin(&s);
+        let job = job_with_login(&s, &a);
+        let (l, _) = agent(&s, &a, Some("logins.read"));
+        let l = s.authenticate_agent(&l).unwrap();
+        let list = s.job_list(&l, d("2026-11-06")).unwrap();
+        assert_eq!(list["jobs"][0]["username"], "ada@example.org");
+        assert_eq!(list["jobs"][0]["password"], PASSWORD);
+        assert_eq!(s.job_get(&l, job, d("2026-11-06")).unwrap()["password"], PASSWORD);
+        s.job_history(&l, job, d("2026-11-06")).unwrap();
         let rename = JobInput { title: Some("y".into()), ..Default::default() };
-        let v = s.job_update(&w, job, rename, d("2026-11-06")).unwrap();
-        assert!(v.get("password_sealed").is_none());
-        // The login the person set stays in place.
-        assert_eq!(s.job_get(&a, job, d("2026-11-06")).unwrap()["password_sealed"], SEALED);
+        assert_eq!(s.job_update(&l, job, rename, d("2026-11-06")).unwrap_err().code, 403);
+        assert_eq!(s.job_complete(&l, job, "succeeded", "", None, d("2026-11-06")).unwrap_err().code, 403);
+        assert_eq!(s.backup_export(&l).unwrap_err().code, 403);
     }
 
     #[test]
@@ -1620,7 +1600,6 @@ mod tests {
         let r = s.authenticate_agent(&r).unwrap();
         assert_eq!(s.job_delete(&r, job).unwrap_err().code, 403);
         assert_eq!(s.job_complete(&r, job, "succeeded", "", None, d("2026-11-06")).unwrap_err().code, 403);
-        assert_eq!(s.vault_get(&r).unwrap_err().code, 403);
         assert_eq!(s.user_list(&r).unwrap_err().code, 403);
         assert_eq!(s.agent_list(&r).unwrap_err().code, 403);
         let (c, _) = agent(&s, &a, Some("jobs.complete"));
@@ -1675,7 +1654,6 @@ mod tests {
     fn import_into_a_fresh_store_restores_everything_including_access() {
         let src = Store::open_in_memory().unwrap();
         let a = admin(&src);
-        src.vault_create(&a, "c2FsdHNhbHRzYWx0c2FsdA==", 600_000, SEALED).unwrap();
         let job = job_with_login(&src, &a);
         src.job_complete(&a, job, "succeeded", "filed", None, d("2026-11-06")).unwrap();
         let r = src.user_create(&a, "Bob", "", false).unwrap();
@@ -1685,14 +1663,14 @@ mod tests {
         let dst = Store::open_in_memory().unwrap();
         let x = admin_named(&dst, "Setup");
         let rep = dst.backup_import(&x, &text, true, d("2026-11-07")).unwrap();
-        assert_eq!(rep["vault"], "adopted");
         assert_eq!(rep["jobs_added"], 1);
         assert_eq!(rep["runs_added"], 1);
         assert_eq!(rep["renamed"].as_array().unwrap().len(), 0);
         // The imported device credential works on the new store, and the login came along.
         dst.authenticate_device(&bob_cred, "", "").unwrap();
         let jobs = dst.job_list(&x, d("2026-11-07")).unwrap();
-        assert_eq!(jobs["jobs"][0]["password_sealed"], SEALED);
+        assert_eq!(jobs["jobs"][0]["username"], "ada@example.org");
+        assert_eq!(jobs["jobs"][0]["password"], PASSWORD);
         assert_eq!(jobs["jobs"][0]["last_run"]["by"], "Ada");
     }
 
@@ -1719,19 +1697,28 @@ mod tests {
     }
 
     #[test]
-    fn import_from_another_vault_drops_the_logins_it_cannot_open() {
+    fn the_backup_holds_the_logins_in_plain_text_and_another_version_is_refused() {
         let src = Store::open_in_memory().unwrap();
         let a = admin(&src);
-        src.vault_create(&a, "c2FsdHNhbHRzYWx0c2FsdA==", 600_000, SEALED).unwrap();
         job_with_login(&src, &a);
+        let text = src.backup_text().unwrap();
+        let head: Value = serde_json::from_str(text.lines().next().unwrap()).unwrap();
+        assert_eq!(head["version"], BACKUP_VERSION);
+        let job_line: Value = serde_json::from_str(text.lines().find(|l| l.contains("\"type\":\"job\"")).unwrap()).unwrap();
+        assert_eq!(job_line["username"], "ada@example.org");
+        assert_eq!(job_line["password"], PASSWORD);
+
         let dst = Store::open_in_memory().unwrap();
         let b = admin(&dst);
-        dst.vault_create(&b, "b3RoZXJzYWx0b3RoZXJzYQ==", 600_000, SEALED).unwrap();
-        let rep = dst.backup_import(&b, &src.backup_text().unwrap(), false, d("2026-11-07")).unwrap();
-        assert_eq!(rep["vault"], "different");
-        assert_eq!(rep["logins_dropped"], 1);
-        assert!(dst.job_list(&b, d("2026-11-07")).unwrap()["jobs"][0]["password_sealed"].as_str().unwrap().is_empty());
+        let old = text.replacen(&format!("\"version\":{BACKUP_VERSION}"), "\"version\":1", 1);
+        let e = dst.backup_import(&b, &old, false, d("2026-11-07")).unwrap_err();
+        assert_eq!(e.kind, "backup_version");
+        assert!(e.message.contains("version 1") && e.message.contains(&format!("version {BACKUP_VERSION} only")), "{}", e.message);
+        assert_eq!(dst.job_list(&b, d("2026-11-07")).unwrap()["jobs"].as_array().unwrap().len(), 0);
         assert_eq!(dst.backup_import(&b, "{\"type\":\"nonsense\"}", true, d("2026-11-07")).unwrap_err().kind, "backup_invalid");
+
+        dst.backup_import(&b, &text, false, d("2026-11-07")).unwrap();
+        assert_eq!(dst.job_list(&b, d("2026-11-07")).unwrap()["jobs"][0]["password"], PASSWORD);
     }
 
     #[test]
@@ -1744,7 +1731,7 @@ mod tests {
         assert_eq!(s.backup_export(&s.authenticate_agent(&r).unwrap()).unwrap_err().code, 403);
         let made = s.agent_create(&a, "NAS nightly backup", "backup.read").unwrap();
         let b = s.authenticate_agent(made["token"].as_str().unwrap()).unwrap();
-        assert!(s.backup_export(&b).unwrap().contains("\"password_sealed\""));
+        assert!(s.backup_export(&b).unwrap().contains(&format!("\"password\":\"{PASSWORD}\"")));
         let u = s.user_create(&a, "Bob", "", false).unwrap();
         let (c, _) = s.redeem_invitation(u["invitation_token"].as_str().unwrap(), "Phone", "", "").unwrap();
         assert_eq!(s.backup_export(&s.authenticate_device(&c, "", "").unwrap()).unwrap_err().code, 403);
@@ -1754,26 +1741,16 @@ mod tests {
     fn import_checks_the_file_like_api_input() {
         let src = Store::open_in_memory().unwrap();
         let a = admin(&src);
-        src.vault_create(&a, "c2FsdHNhbHRzYWx0c2FsdA==", 600_000, SEALED).unwrap();
         job_with_login(&src, &a);
         src.agent_create(&a, "NAS nightly backup", "backup.read").unwrap();
         let text = src.backup_text().unwrap();
-        let lines: Vec<&str> = text.lines().collect();
         let dst = Store::open_in_memory().unwrap();
         let b = admin_named(&dst, "Setup");
 
-        // The vault line after the jobs still decides about the logins.
-        let vault = lines.iter().find(|l| l.contains("\"type\":\"vault\"")).unwrap();
-        let mut moved: Vec<&str> = lines.iter().filter(|l| *l != vault).copied().collect();
-        moved.push(vault);
-        dst.vault_create(&b, "b3RoZXJzYWx0b3RoZXJzYQ==", 600_000, SEALED).unwrap();
-        let rep = dst.backup_import(&b, &moved.join("\n"), false, d("2026-11-07")).unwrap();
-        assert_eq!(rep["logins_dropped"], 1);
-        // Without any vault line, logins cannot be opened anywhere.
-        let no_vault: Vec<&str> = lines.iter().filter(|l| *l != vault).copied().collect();
-        let fresh = Store::open_in_memory().unwrap();
-        let f = admin_named(&fresh, "Setup");
-        assert_eq!(fresh.backup_import(&f, &no_vault.join("\n"), false, d("2026-11-07")).unwrap()["logins_dropped"], 1);
+        // A login in two lines is refused like at the API.
+        let two_lines = text.replace(&format!("\"password\":\"{PASSWORD}\""), "\"password\":\"a\\nb\"");
+        assert_ne!(two_lines, text);
+        assert_eq!(dst.backup_import(&b, &two_lines, false, d("2026-11-07")).unwrap_err().kind, "backup_invalid");
 
         // A time stamp the store could not compare is refused, and nothing is kept.
         let jobs_before = dst.job_list(&b, d("2026-11-07")).unwrap()["jobs"].as_array().unwrap().len();
@@ -1808,19 +1785,50 @@ mod tests {
     #[test]
     fn a_store_with_the_same_version_but_another_structure_is_refused() {
         let c = Connection::open_in_memory().unwrap();
-        c.execute_batch("CREATE TABLE users(id INTEGER PRIMARY KEY); PRAGMA user_version = 1;").unwrap();
+        c.execute_batch("CREATE TABLE users(id INTEGER PRIMARY KEY); PRAGMA user_version = 2;").unwrap();
         let e = Store::from_conn(c).err().unwrap();
         assert!(e.message.contains("table users lacks name"), "{}", e.message);
     }
 
+    /// A store of structure version 1 is brought to version 2: the vault and the sealed
+    /// fields go, the jobs stay and get plain login fields.
     #[test]
-    fn vault_is_created_once() {
-        let s = Store::open_in_memory().unwrap();
+    fn migration_to_plain_logins_keeps_the_jobs() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join(STORE_FILE);
+        {
+            let c = Connection::open(&file).unwrap();
+            c.execute_batch(V1_STRUCTURE).unwrap();
+            c.execute_batch(
+                r#"INSERT INTO vault(id, salt, iterations, verifier, created_at) VALUES (1, 'c2FsdA==', 600000, '{}', '2026-11-01T00:00:00Z');
+                INSERT INTO jobs(title, entry_url, interval_weeks, next_due, username_sealed, password_sealed, created_at, updated_at)
+                VALUES ('Energy', 'https://example.org', 4, '2026-11-06', '{"v":1}', '{"v":1}', '2026-11-01T00:00:00Z', '2026-11-01T00:00:00Z');"#,
+            )
+            .unwrap();
+        }
+        let s = Store::open(dir.path()).unwrap();
+        assert_eq!(s.schema_version().unwrap(), 2);
+        let has = |sql: &str| -> bool { s.conn.query_row(sql, [], |r| r.get(0)).unwrap() };
+        assert!(!has("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name = 'vault')"));
+        assert!(!has("SELECT EXISTS(SELECT 1 FROM pragma_table_info('jobs') WHERE name LIKE '%sealed%')"));
         let a = admin(&s);
-        let v = SEALED;
-        s.vault_create(&a, "c2FsdHNhbHRzYWx0c2FsdA==", 600_000, v).unwrap();
-        assert_eq!(s.vault_create(&a, "c2FsdHNhbHRzYWx0c2FsdA==", 600_000, v).unwrap_err().kind, "vault_exists");
+        let job = &s.job_list(&a, d("2026-11-06")).unwrap()["jobs"][0];
+        assert_eq!(job["title"], "Energy");
+        assert_eq!(job["username"], "");
+        assert_eq!(job["password"], "");
     }
+
+    /// The structure of version 1, as its step in `Store::migrate` creates it.
+    const V1_STRUCTURE: &str = r#"
+CREATE TABLE users(id INTEGER PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL DEFAULT '', is_admin INTEGER NOT NULL DEFAULT 0, deactivated_at TEXT, created_at TEXT NOT NULL);
+CREATE TABLE invitations(id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, token_hash TEXT NOT NULL UNIQUE, created_by INTEGER REFERENCES users(id) ON DELETE SET NULL, created_at TEXT NOT NULL, expires_at TEXT NOT NULL, withdrawn_at TEXT);
+CREATE TABLE devices(id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE, invitation_id INTEGER NOT NULL REFERENCES invitations(id) ON DELETE CASCADE, credential_hash TEXT NOT NULL UNIQUE, label TEXT NOT NULL, user_agent TEXT NOT NULL DEFAULT '', last_address TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, last_seen_at TEXT NOT NULL, revoked_at TEXT);
+CREATE TABLE agents(id INTEGER PRIMARY KEY, token_hash TEXT NOT NULL UNIQUE, display TEXT NOT NULL, introduction TEXT NOT NULL, ability TEXT, granted_by INTEGER REFERENCES users(id) ON DELETE SET NULL, granted_at TEXT, created_at TEXT NOT NULL, last_used_at TEXT, revoked_at TEXT);
+CREATE TABLE vault(id INTEGER PRIMARY KEY CHECK (id = 1), salt TEXT NOT NULL, iterations INTEGER NOT NULL, verifier TEXT NOT NULL, created_by INTEGER REFERENCES users(id) ON DELETE SET NULL, created_at TEXT NOT NULL);
+CREATE TABLE jobs(id INTEGER PRIMARY KEY, title TEXT NOT NULL, entry_url TEXT NOT NULL, embeddable INTEGER NOT NULL DEFAULT 0, interval_weeks INTEGER NOT NULL, retry_days INTEGER NOT NULL DEFAULT 2, next_due TEXT NOT NULL, username_sealed TEXT NOT NULL DEFAULT '', password_sealed TEXT NOT NULL DEFAULT '', instructions_md TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+CREATE TABLE runs(id INTEGER PRIMARY KEY, job_id INTEGER NOT NULL REFERENCES jobs(id) ON DELETE CASCADE, user_id INTEGER REFERENCES users(id) ON DELETE SET NULL, device_id INTEGER REFERENCES devices(id) ON DELETE SET NULL, agent_id INTEGER REFERENCES agents(id) ON DELETE SET NULL, by_name TEXT NOT NULL, outcome TEXT NOT NULL, note TEXT NOT NULL DEFAULT '', finished_at TEXT NOT NULL, due_before TEXT NOT NULL, due_after TEXT NOT NULL);
+PRAGMA user_version = 1;
+"#;
 
     #[test]
     fn markdown_is_sanitized() {

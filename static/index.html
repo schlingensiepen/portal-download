@@ -134,7 +134,7 @@ tr.current td { background: var(--chip); }
 
 <!-- texts the script needs on its own: toasts, questions, chips, short phrases -->
 <template id="messages"><div>
-  <span data-msg="app.insecure" data-i18n="app.insecure">This page needs HTTPS (or localhost) so that encryption and the clipboard work in the browser. Open it through the service's HTTPS address.</span>
+  <span data-msg="app.insecure" data-i18n="app.insecure">This page needs HTTPS (or localhost) so that copying to the clipboard works in the browser. Open it through the service's HTTPS address.</span>
   <span data-msg="app.unreadable" data-i18n="app.unreadable">The service answers unintelligibly (HTTP <span data-field="status"></span>).</span>
   <span data-msg="copy.done" data-i18n="copy.done">Copied ✓</span>
   <span data-msg="device.guess" data-i18n="device.guess"><span data-field="browser"></span> on <span data-field="os"></span></span>
@@ -159,13 +159,6 @@ tr.current td { background: var(--chip); }
   <span data-msg="toast.popup_blocked" data-i18n="toast.popup_blocked">The window was blocked. Allow pop-ups for this page and click “Run” again.</span>
   <span data-msg="toast.popup_redirect" data-i18n="toast.popup_redirect">The portal window could not be redirected; close it and click “Run” again.</span>
   <span data-msg="toast.choose_file" data-i18n="toast.choose_file">Choose a backup file first.</span>
-  <span data-msg="vault.toast.key_not_kept" data-i18n="vault.toast.key_not_kept">This browser could not keep the key; after reloading, the passphrase has to be entered again.</span>
-  <span data-msg="vault.toast.locked" data-i18n="vault.toast.locked">Vault locked.</span>
-  <span data-msg="vault.toast.created" data-i18n="vault.toast.created">Vault created.</span>
-  <span data-msg="vault.toast.exists_meanwhile" data-i18n="vault.toast.exists_meanwhile">Somebody else has created the vault meanwhile; enter their passphrase.</span>
-  <span data-msg="vault.toast.too_short" data-i18n="vault.toast.too_short">The passphrase needs at least 12 characters.</span>
-  <span data-msg="vault.toast.mismatch" data-i18n="vault.toast.mismatch">The two entries do not match.</span>
-  <span data-msg="vault.toast.wrong" data-i18n="vault.toast.wrong">The passphrase does not fit this vault.</span>
   <span data-msg="confirm.finish.succeeded" data-i18n="confirm.finish.succeeded">Close “<span data-field="title"></span>” as “succeeded”?</span>
   <span data-msg="confirm.finish.failed" data-i18n="confirm.finish.failed">Close “<span data-field="title"></span>” as “failed”?</span>
   <span data-msg="confirm.job.delete" data-i18n="confirm.job.delete">Delete “<span data-field="title"></span>” and its history for good?</span>
@@ -184,6 +177,7 @@ tr.current td { background: var(--chip); }
   <span data-msg="confirm.lang.discard" data-i18n="confirm.lang.discard">Switching the language discards what you entered here. Switch anyway?</span>
   <span data-msg="confirm.import.delete" data-i18n="confirm.import.delete">Delete “<span data-field="name"></span>”?</span>
   <span data-msg="ability.jobs.read" data-i18n="ability.jobs.read">Read jobs</span>
+  <span data-msg="ability.logins.read" data-i18n="ability.logins.read">Read jobs with logins</span>
   <span data-msg="ability.jobs.write" data-i18n="ability.jobs.write">Change jobs</span>
   <span data-msg="ability.jobs.complete" data-i18n="ability.jobs.complete">Close runs</span>
   <span data-msg="ability.backup.read" data-i18n="ability.backup.read">Take the backup</span>
@@ -200,11 +194,6 @@ tr.current td { background: var(--chip); }
   <span data-msg="invitation.state.open" class="chip ok" data-i18n="invitation.state.open">open</span>
   <span data-msg="invitation.state.expired" class="chip" data-i18n="invitation.state.expired">expired</span>
   <span data-msg="invitation.state.withdrawn" class="chip" data-i18n="invitation.state.withdrawn">withdrawn</span>
-  <span data-msg="import.vault.adopted" data-i18n="import.vault.adopted">Vault taken from the backup – its passphrase applies.</span>
-  <span data-msg="import.vault.same" data-i18n="import.vault.same">Same vault – the logins work.</span>
-  <span data-msg="import.vault.different" data-i18n="import.vault.different">Different vault – logins from the backup were left out.</span>
-  <span data-msg="import.vault.none" data-i18n="import.vault.none">No vault in the backup.</span>
-  <span data-msg="import.logins_dropped" data-i18n="import.logins_dropped">Logins left out: <span data-field="n"></span>.</span>
   <span data-msg="import.kind.job" data-i18n="import.kind.job">Job</span>
   <span data-msg="import.kind.person" data-i18n="import.kind.person">Person</span>
   <span data-msg="line.curl" translate="no">curl -fsS -H "Authorization: Bearer <span data-field="token"></span>" <span data-field="url"></span> -o portal-download-$(date +%F).jsonl</span>
@@ -237,11 +226,6 @@ tr.current td { background: var(--chip); }
     <a href="#/new" data-i18n="nav.new">New job</a>
     <span data-ref="nav-people">· <a href="#/people" data-i18n="nav.people">People</a></span> ·
     <a href="#/devices" data-i18n="nav.devices">My devices</a>
-    <span data-ref="vault-ctl">·
-      <button class="btn link small" type="button" data-ref="vault-lock" data-action="vault-lock" data-i18n="vault.lock">Lock vault</button>
-      <button class="btn link small" type="button" data-ref="vault-unlock" data-action="vault-open" data-i18n="vault.unlock">Unlock vault</button>
-      <button class="btn link small" type="button" data-ref="vault-create" data-action="vault-open" data-i18n="vault.create">Create vault</button>
-    </span>
   </div>
 </div></template>
 
@@ -279,13 +263,7 @@ tr.current td { background: var(--chip); }
 
 <template id="tpl-instructions"><div class="instructions"></div></template>
 <template id="tpl-no-instructions"><p class="muted small" data-i18n="current.no_instructions">No instructions stored.</p></template>
-<template id="tpl-creds-decrypting"><div class="muted small" data-i18n="creds.decrypting">Decrypting the login …</div></template>
 <template id="tpl-creds-none"><p class="muted small" data-i18n="creds.none">No login stored.</p></template>
-<template id="tpl-creds-locked"><div class="row small">
-  <span class="muted grow" data-i18n="creds.locked">The login is in the locked vault.</span>
-  <button class="btn" type="button" data-action="unlock" data-i18n="creds.unlock">Unlock</button>
-</div></template>
-<template id="tpl-creds-error"><p class="small" style="color:var(--bad)" data-i18n="creds.error">The login cannot be decrypted with this vault key. Enter it again under “Edit”.</p></template>
 <template id="tpl-creds-user"><div class="field">
   <span class="k" data-i18n="creds.username">Username</span>
   <span class="v" data-field="value"></span>
@@ -355,11 +333,7 @@ tr.current td { background: var(--chip); }
     <div class="grow"><label data-i18n="edit.next_due">Next due date</label><input type="date" required data-ref="next_due"></div>
   </div>
   <h2 data-i18n="edit.login">Login</h2>
-  <div class="row small" data-ref="locked">
-    <span class="muted grow" data-i18n="edit.locked">The vault is locked; the login can be changed only after unlocking. The stored one stays unchanged.</span>
-    <button class="btn" type="button" data-ref="unlock" data-action="vault-open" data-i18n="edit.unlock">Unlock</button>
-    <button class="btn" type="button" data-ref="create-vault" data-action="vault-open" data-i18n="edit.create_vault">Create vault</button>
-  </div>
+  <p class="muted small" data-i18n="edit.login_hint">Kept in plain text on the service: everybody in the circle sees it, and a change applies for everybody at once.</p>
   <label data-i18n="edit.username">Username</label>
   <input type="text" autocomplete="off" data-ref="username">
   <label data-i18n="edit.password">Password</label>
@@ -454,7 +428,7 @@ tr.current td { background: var(--chip); }
   <div data-ref="people"></div>
 
   <h2 data-i18n="agents.title">Agents</h2>
-  <p class="muted small" data-i18n="agents.hint">Agents register themselves and tell you a display string of eight letters. Give each registration exactly one right. No agent sees portal logins; only the right “Take the backup” receives them, sealed.</p>
+  <p class="muted small" data-i18n="agents.hint">Agents register themselves and tell you a display string of eight letters. Give each registration exactly one right. Agents receive portal logins only with the right “Read jobs with logins”, or as part of the backup with “Take the backup”. The right “Change jobs” sets logins but does not receive them.</p>
   <form class="card" data-action="create-token">
     <h3 data-i18n="agents.create.title">Create a token</h3>
     <p class="muted small" style="margin-top:0" data-i18n="agents.create.hint">For a script that cannot register itself, for example the nightly backup.</p>
@@ -470,13 +444,13 @@ tr.current td { background: var(--chip); }
 
   <h2 data-i18n="backup.title">Backup</h2>
   <div class="card">
-    <p class="small" style="margin-top:0" data-i18n="backup.hint">The backup holds everything: jobs with history, vault, people and accesses. Logins only sealed – without the vault passphrase nobody can read them.</p>
+    <p class="small" style="margin-top:0" data-i18n="backup.hint">The backup holds everything: jobs with history and their logins in plain text, people and accesses. Keep the file where only those who may see the logins can reach it.</p>
     <a class="btn" download data-ref="download" data-i18n="backup.download">Download backup</a>
     <form style="margin-top:14px" data-action="import">
       <label data-i18n="backup.import.label">Import a backup (it is added)</label>
       <input type="file" accept=".jsonl,application/jsonl,text/plain" data-ref="file">
       <p class="muted small" style="margin:4px 0" data-i18n="backup.import.warning">Import only a backup you took from this service yourself: with people and accesses it also brings rights to administer and working accesses.</p>
-      <label class="check"><input type="checkbox" data-ref="omit"><span data-i18n="backup.import.omit">Leave people and accesses out (only jobs, history and vault)</span></label>
+      <label class="check"><input type="checkbox" data-ref="omit"><span data-i18n="backup.import.omit">Leave people and accesses out (only jobs with their logins and history)</span></label>
       <div style="margin-top:10px"><button class="btn primary" type="submit" data-i18n="backup.import.submit">Import</button></div>
     </form>
   </div>
@@ -528,7 +502,6 @@ tr.current td { background: var(--chip); }
   <h1 data-i18n="import.title">Import</h1>
   <div data-ref="report">
     <p data-i18n="import.summary">Added – jobs: <span data-field="jobs"></span>, runs: <span data-field="runs"></span>, people: <span data-field="people"></span>, devices: <span data-field="devices"></span>, tokens: <span data-field="agents"></span>.</p>
-    <p class="small" data-ref="vault"></p>
     <p class="muted small" data-ref="skipped" data-i18n="import.skipped">Not taken – left out: <span data-field="left_out"></span>, already there: <span data-field="existing"></span>, without a reference: <span data-field="unrelated"></span>.</p>
     <div class="card alert" data-ref="admins"><strong data-i18n="import.admins">Imported with the right to administer people – please check:</strong> <span data-field="admins"></span></div>
     <div data-ref="renamed">
@@ -573,29 +546,6 @@ tr.current td { background: var(--chip); }
   <p class="muted small" data-i18n="noaccess.hint">No link (any more)? Ask a person in the circle who may administer people for a new invitation.</p>
 </div></template>
 
-<!-- vault dialogs -->
-<template id="tpl-vault-create"><form data-action="create">
-  <h1 data-i18n="vault.create.title">Create the vault</h1>
-  <p class="muted small" data-i18n="vault.create.text">Usernames and passwords of the portals are encrypted in this browser with a key from this passphrase. The service stores only encrypted values and never knows the passphrase. Everybody in the circle uses the same passphrase – pass it on in person, not through this service. If it is lost, the stored logins cannot be read any more.</p>
-  <label data-i18n="vault.create.passphrase">Passphrase (at least 12 characters)</label>
-  <input type="password" autocomplete="new-password" data-ref="p1">
-  <label data-i18n="vault.create.repeat">Repeat the passphrase</label>
-  <input type="password" autocomplete="new-password" data-ref="p2">
-  <div class="row" style="margin-top:16px">
-    <button class="btn primary" type="submit" data-ref="submit" data-i18n="vault.create">Create vault</button>
-    <button class="btn" type="button" data-action="later" data-i18n="vault.later">Later</button>
-  </div>
-</form></template>
-<template id="tpl-vault-unlock"><form data-action="unlock">
-  <h1 data-i18n="vault.unlock">Unlock vault</h1>
-  <p class="muted small" data-i18n="vault.unlock.text">Enter the shared passphrase. This browser keeps the key derived from it until you lock the vault or the browser clears its data.</p>
-  <label data-i18n="vault.unlock.passphrase">Passphrase</label>
-  <input type="password" autocomplete="current-password" data-ref="p">
-  <div class="row" style="margin-top:16px">
-    <button class="btn primary" type="submit" data-ref="submit" data-i18n="vault.unlock.submit">Unlock</button>
-    <button class="btn" type="button" data-action="later" data-i18n="vault.later">Later</button>
-  </div>
-</form></template>
 
 <script>
 "use strict";
@@ -794,122 +744,6 @@ async function rpc(method, params = {}, headers = {}) {
   return body.result;
 }
 
-// ------------------------------------------------------------------ vault (browser only)
-const enc = new TextEncoder(), dec = new TextDecoder();
-const b64 = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf)));
-const unb64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
-const VERIFIER_TEXT = "portal-download vault check";
-const vault = { meta: null, key: null };
-
-function idb() {
-  return new Promise((resolve, reject) => {
-    const r = indexedDB.open("portal-download", 1);
-    r.onupgradeneeded = () => r.result.createObjectStore("keys");
-    r.onsuccess = () => resolve(r.result);
-    r.onerror = () => reject(r.error);
-  });
-}
-async function idbDo(mode, fn) {
-  const db = await idb();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction("keys", mode);
-    const req = fn(tx.objectStore("keys"));
-    tx.oncomplete = () => { db.close(); resolve(req && req.result); };
-    tx.onerror = () => { db.close(); reject(tx.error); };
-  });
-}
-async function deriveKey(passphrase, saltB64, iterations) {
-  const base = await crypto.subtle.importKey("raw", enc.encode(passphrase), "PBKDF2", false, ["deriveKey"]);
-  return crypto.subtle.deriveKey({ name: "PBKDF2", hash: "SHA-256", salt: unb64(saltB64), iterations }, base, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
-}
-async function seal(key, purpose, plain) {
-  if (!plain) return "";
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const ct = await crypto.subtle.encrypt({ name: "AES-GCM", iv, additionalData: enc.encode(purpose) }, key, enc.encode(plain));
-  return JSON.stringify({ v: 1, iv: b64(iv), ct: b64(ct) });
-}
-async function unseal(key, purpose, sealed) {
-  if (!sealed) return "";
-  const o = JSON.parse(sealed);
-  const pt = await crypto.subtle.decrypt({ name: "AES-GCM", iv: unb64(o.iv), additionalData: enc.encode(purpose) }, key, unb64(o.ct));
-  return dec.decode(pt);
-}
-async function keyFits(key) {
-  try { return (await unseal(key, "verifier", vault.meta.verifier)) === VERIFIER_TEXT; } catch { return false; }
-}
-async function loadVault() {
-  vault.meta = await rpc("vault.get");
-  vault.key = null;
-  if (!vault.meta.exists) return;
-  try {
-    const stored = await idbDo("readonly", (s) => s.get("vault"));
-    if (stored && stored.salt === vault.meta.salt && (await keyFits(stored.key))) vault.key = stored.key;
-  } catch (e) { console.warn(e); }
-}
-async function rememberKey(key) {
-  try { await idbDo("readwrite", (s) => s.put({ salt: vault.meta.salt, key }, "vault")); }
-  catch { toast(msg("vault.toast.key_not_kept"), true); }
-}
-async function lockVault() {
-  vault.key = null;
-  try { await idbDo("readwrite", (s) => s.delete("vault")); } catch {}
-  decrypted.clear();
-  toast(msg("vault.toast.locked"));
-  render();
-}
-const decrypted = new Map(); // sealed username + sealed password -> {username, password}
-async function credsOf(job) {
-  if (!vault.key) return null;
-  const k = job.username_sealed + "\n" + job.password_sealed;
-  if (decrypted.has(k)) return decrypted.get(k);
-  try {
-    const c = { username: await unseal(vault.key, "username", job.username_sealed), password: await unseal(vault.key, "password", job.password_sealed) };
-    decrypted.set(k, c);
-    return c;
-  } catch { return { error: true }; }
-}
-function vaultDialog() {
-  if (!vault.meta) return;
-  if (!vault.meta.exists) {
-    const d = T("tpl-vault-create");
-    const submit = ref(d, "submit");
-    bind(d, {
-      later: closeModal,
-      create: async () => {
-        const p1 = ref(d, "p1").value, p2 = ref(d, "p2").value;
-        if (p1.length < 12) return toast(msg("vault.toast.too_short"), true);
-        if (p1 !== p2) return toast(msg("vault.toast.mismatch"), true);
-        submit.disabled = true;
-        try {
-          const salt = b64(crypto.getRandomValues(new Uint8Array(16)));
-          const key = await deriveKey(p1, salt, 600000);
-          vault.meta = await rpc("vault.create", { salt, iterations: 600000, verifier: await seal(key, "verifier", VERIFIER_TEXT) });
-          vault.key = key; await rememberKey(key); closeModal(); toast(msg("vault.toast.created")); render();
-        } catch (e) {
-          if (e.type === "vault_exists") { closeModal(); toast(msg("vault.toast.exists_meanwhile"), true); await loadVault(); vaultDialog(); return; }
-          submit.disabled = false; fail(e);
-        }
-      },
-    });
-    openModal(d);
-    return;
-  }
-  const d = T("tpl-vault-unlock");
-  const submit = ref(d, "submit");
-  bind(d, {
-    later: closeModal,
-    unlock: async () => {
-      submit.disabled = true;
-      try {
-        const key = await deriveKey(ref(d, "p").value, vault.meta.salt, vault.meta.iterations);
-        if (!(await keyFits(key))) { submit.disabled = false; return toast(msg("vault.toast.wrong"), true); }
-        vault.key = key; await rememberKey(key); closeModal(); render();
-      } catch (e) { submit.disabled = false; fail(e); }
-    },
-  });
-  openModal(d);
-}
-
 // ------------------------------------------------------------------ state & routing
 const state = { status: null, me: null, jobs: [], today: null, current: 0, running: null, importReport: null, authError: null, dirty: false };
 // Something typed into the view and not yet sent; rendering a view starts clean.
@@ -933,8 +767,6 @@ window.addEventListener("hashchange", () => render());
 async function loadJobs() {
   const r = await rpc("job.list");
   state.jobs = r.jobs; state.today = r.today;
-  const live = new Set(state.jobs.map((j) => j.username_sealed + "\n" + j.password_sealed));
-  for (const k of [...decrypted.keys()]) if (!live.has(k)) decrypted.delete(k);
   if (state.current >= state.jobs.length) state.current = Math.max(0, state.jobs.length - 1);
 }
 const currentJob = () => state.jobs[state.current] || null;
@@ -978,13 +810,9 @@ function renderBar(withAccess = true) {
   const me = withAccess ? state.me : null;
   const head = put(T("tpl-bar-head"), { app_name: CONFIG.app_name, me_name: me ? me.name : "" });
   fillLanguages(ref(head, "lang"));
-  bind(head, { lang: (e) => switchLanguage(e.target.value), "vault-lock": lockVault, "vault-open": vaultDialog });
+  bind(head, { lang: (e) => switchLanguage(e.target.value) });
   if (!me) { show(ref(head, "nav"), false); $("#bar").replaceChildren(head); return; }
   show(ref(head, "nav-people"), state.me.is_admin);
-  show(ref(head, "vault-ctl"), !!vault.meta);
-  show(ref(head, "vault-lock"), !!vault.key);
-  show(ref(head, "vault-unlock"), !vault.key && !!vault.meta && vault.meta.exists);
-  show(ref(head, "vault-create"), !vault.key && !!vault.meta && !vault.meta.exists);
   const body = T("tpl-bar-body");
   const job = currentJob();
   body.append(job ? renderCurrent(job) : T("tpl-bar-empty"));
@@ -1007,7 +835,6 @@ function renderCurrent(job) {
   show(ref(d, "run-frame"), job.embeddable);
   show(ref(d, "run-window"), !job.embeddable);
   const creds = ref(d, "creds");
-  creds.replaceChildren(T("tpl-creds-decrypting"));
   fillCreds(job, creds);
   ref(d, "instructions").replaceWith(job.instructions_html ? instructionsBlock(job.instructions_html) : T("tpl-no-instructions"));
   ref(d, "edit").href = `#/edit/${job.job_id}`;
@@ -1043,18 +870,16 @@ function instructionsBlock(html) {
   return d;
 }
 
-async function fillCreds(job, box) {
-  if (!job.username_sealed && !job.password_sealed) { box.replaceChildren(T("tpl-creds-none")); return; }
-  const c = await credsOf(job);
-  if (!c) { box.replaceChildren(bind(T("tpl-creds-locked"), { unlock: vaultDialog })); return; }
-  if (c.error) { box.replaceChildren(T("tpl-creds-error")); return; }
+function fillCreds(job, box) {
+  const c = { username: job.username || "", password: job.password || "" };
+  if (!c.username && !c.password) { box.replaceChildren(T("tpl-creds-none")); return; }
   const rows = [];
-  if (job.username_sealed) {
+  if (c.username) {
     const r = put(T("tpl-creds-user"), { value: c.username });
     r.querySelector('[data-field="value"]').title = c.username;
     rows.push(bind(r, { copy: (e) => copy(c.username, e.currentTarget) }));
   }
-  if (job.password_sealed) {
+  if (c.password) {
     const r = T("tpl-creds-password");
     const v = ref(r, "value"), masked = v.textContent;
     let shown = false;
@@ -1097,8 +922,6 @@ function viewRunning(job) {
 async function viewEdit(id) {
   const job = id ? state.jobs.find((j) => j.job_id === id) : null;
   if (id && !job) return T("tpl-gone");
-  const c = job ? await credsOf(job) : null;
-  const canCreds = !!vault.key;
   const d = put(T("tpl-edit"), { title: job ? job.title : "" });
   const f = (name) => ref(d, name);
   show(f("head-new"), !job); show(f("head-edit"), !!job);
@@ -1111,19 +934,11 @@ async function viewEdit(id) {
   f("retry_days").value = job ? job.retry_days : 2;
   f("next_due").value = job ? job.next_due : state.today;
   f("instructions_md").value = job ? job.instructions_md : "";
-  f("username").value = c && !c.error ? c.username : "";
-  f("password").value = c && !c.error ? c.password : "";
-  f("username").disabled = !canCreds; f("password").disabled = !canCreds;
-  show(f("locked"), !canCreds);
-  show(f("unlock"), !!vault.meta && vault.meta.exists);
-  show(f("create-vault"), !vault.meta || !vault.meta.exists);
+  f("username").value = job ? job.username || "" : "";
+  f("password").value = job ? job.password || "" : "";
   f("cancel").href = job ? `#/job/${job.job_id}` : "#/";
-  const touched = { username: false, password: false };
-  f("username").addEventListener("input", () => (touched.username = true));
-  f("password").addEventListener("input", () => (touched.password = true));
   const save = f("save");
   return bind(d, {
-    "vault-open": vaultDialog,
     "toggle-password": () => { const hide = f("password").type === "text"; f("password").type = hide ? "password" : "text"; show(f("pw-show"), hide); show(f("pw-hide"), !hide); },
     delete: async () => {
       if (!(await ask(msg("confirm.job.delete", { title: job.title })))) return;
@@ -1135,13 +950,11 @@ async function viewEdit(id) {
         const all = {
           title: f("title").value, entry_url: f("entry_url").value.trim(), embeddable: f("embeddable").checked,
           interval_weeks: Number(f("interval_weeks").value), retry_days: Number(f("retry_days").value), next_due: f("next_due").value,
-          instructions_md: f("instructions_md").value,
+          instructions_md: f("instructions_md").value, username: f("username").value, password: f("password").value,
         };
         // When editing, send only what was changed, so that a concurrent change by somebody else survives.
         const p = {};
         for (const [k, v] of Object.entries(all)) if (!job || job[k] !== v) p[k] = v;
-        if (canCreds && (!job || touched.username)) p.username_sealed = await seal(vault.key, "username", f("username").value);
-        if (canCreds && (!job || touched.password)) p.password_sealed = await seal(vault.key, "password", f("password").value);
         const r = job ? await rpc("job.update", { job_id: job.job_id, ...p }) : await rpc("job.create", p);
         await loadJobs(); selectJob(r.job_id);
         toast(msg(job ? "toast.saved" : "toast.created"));
@@ -1306,7 +1119,6 @@ function viewImport() {
     left_out: r.skipped_left_out, existing: r.skipped_existing, unrelated: r.skipped_unrelated,
     admins: r.admins_added.map((x) => x.name).join(", "),
   });
-  ref(d, "vault").textContent = [MSG[`import.vault.${r.vault}`] ? msg(`import.vault.${r.vault}`) : r.vault, r.logins_dropped ? msg("import.logins_dropped", { n: r.logins_dropped }) : ""].join(" ").trim();
   show(ref(d, "skipped"), !!(r.skipped_left_out || r.skipped_existing || r.skipped_unrelated));
   show(ref(d, "admins"), r.admins_added.length > 0);
   show(ref(d, "renamed"), r.renamed.length > 0);
@@ -1417,8 +1229,7 @@ async function boot() {
     state.status = await rpc("service.status");
     state.me = state.status.me && state.status.me.kind === "person" ? state.status.me : null;
     if (state.me) {
-      await Promise.all([loadJobs(), loadVault()]);
-      if (vault.meta && (!vault.meta.exists || !vault.key)) vaultDialog();
+      await loadJobs();
     }
   } catch (e) {
     state.authError = e.message;
@@ -1433,7 +1244,7 @@ async function start() {
   try { CONFIG = { ...CONFIG, ...(await (await fetch("config.json", { cache: "no-cache" })).json()) }; } catch (e) { console.error(e); }
   document.title = CONFIG.app_name;
   await setLanguage(chosenLanguage());
-  if (!window.isSecureContext || !window.crypto || !crypto.subtle) {
+  if (!window.isSecureContext) {
     ref($("#loading"), "text").textContent = msg("app.insecure");
     $("#loading").querySelector(".spinner").hidden = true;
     return;

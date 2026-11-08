@@ -16,7 +16,7 @@ The service writes only the state directory and never its configuration. Run the
 1. Write the configuration and run `portal-download check`. Every value is shown with its source.
 2. Start the service. The log line `not set up yet. Setup secret: pds_…` names the secret and how long it is valid. Once somebody is set up, the start log names only the setup file, not the secret.
 3. Open the service over its HTTPS address, enter the setup secret and your name. This creates the first person with the right to administer people and opens their invitation in that browser.
-4. Create the vault passphrase. Pass it to the other people of the circle in person, not through this service.
+4. Create the first job with the portal's login. Every person of the circle sees the logins in plain text; agents see them only with the ability *Read jobs with logins*.
 
 ## Daily operation
 
@@ -36,7 +36,7 @@ The service writes only the state directory and never its configuration. Run the
 
 ## Backup
 
-The backup is one JSONL file: a head line, then one record per line (vault, people, invitations, devices, agent tokens, jobs, runs). There are two ways to get it, and they write the same file:
+The backup is one JSONL file: a head line, then one record per line (people, invitations, devices, agent tokens, jobs with their logins in plain text, runs). There are two ways to get it, and they write the same file:
 
 - **With `curl`, from any machine:** under **People → Agents**, create a token with the right *Take the backup*. The application shows the complete line once, for example as a nightly cron job:
 
@@ -49,11 +49,11 @@ The backup is one JSONL file: a head line, then one record per line (vault, peop
   A person with the right to administer people can also click **Download backup** under **People**.
 - **On the server:** `portal-download backup /some/dir/portal-download-$(date +%F).jsonl`. It never overwrites a file and makes it readable by its owner only.
 
-**Restoring is adding.** Under **People → Backup**, a person with the right to administer people uploads the file. Nothing is overwritten. A job with the same title and entry address, or a person with the same name or e-mail, comes in a second time as "… (Import YYYY-MM-DD)". The application then lists those copies with a delete button each. *Leave people and accesses out* imports only jobs, their history and the vault. With people and accesses, a file brings in people with the right to administer people and working credentials. The application names those people after the import. **Import only a backup you took from this service yourself.** The file is checked line by line, and a faulty line rejects the whole import.
+**Restoring is adding.** Under **People → Backup**, a person with the right to administer people uploads the file. Nothing is overwritten. A job with the same title and entry address, or a person with the same name or e-mail, comes in a second time as "… (Import YYYY-MM-DD)". The application then lists those copies with a delete button each. *Leave people and accesses out* imports only jobs with their logins and their history. With people and accesses, a file brings in people with the right to administer people and working credentials. The application names those people after the import. **Import only a backup you took from this service yourself.** The file is checked line by line, and a faulty line rejects the whole import.
 
-**On a fresh instance**, set up with a name such as "Setup", **do not create a vault**, upload the backup with people and accesses, and delete "Setup" afterwards. Devices and tokens from the backup keep working when the instance runs under the same host name, because the browsers keep their device cookies per host name. If the instance has no vault yet, it adopts the one from the backup, and the old passphrase applies. If it has a different vault, or the file holds none, jobs come without their logins.
+**On a fresh instance**, set up with a name such as "Setup", upload the backup with people and accesses, and delete "Setup" afterwards. Devices and tokens from the backup keep working when the instance runs under the same host name, because the browsers keep their device cookies per host name. Jobs come with their logins. A backup of another format version is refused with a message naming the version this service reads.
 
-**Without the vault passphrase the logins in a backup cannot be read.** Keep the passphrase safe apart from the backup, for example in a password manager. Keep the backup file as carefully as a token anyway: it holds the sealed logins and the hashes of all accesses.
+**The backup holds the portal logins in plain text**, and the hashes of all accesses. Protect the way to it: grant *Take the backup* (`backup.read`) only to a script you trust and revoke it when its purpose ends, download it only to a machine where only the people of the circle can read it, and keep the files there with owner-only permissions. `portal-download backup` writes its file readable by its owner only.
 
 ## In a container
 
@@ -74,7 +74,3 @@ Each image was built for its revision (`portal-download version`) and passed a s
 ## Upgrading
 
 Replace the binary and restart. In a container, pull the new image and start a new container on the same volume. A newer version migrates the store at start, before it listens, and records the structure version (`portal-download status`). An older binary refuses a store written by a newer one.
-
-## What is known not to be solved yet
-
-- **Changing the vault passphrase** is not offered yet. Every sealed login would have to be re-sealed in a browser that knows both passphrases.

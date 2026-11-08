@@ -118,8 +118,8 @@ fn no_text_for_people_in_the_script() {
     let script = Regex::new(r"(?m)(^|\s)//\s.*$").unwrap().replace_all(&script, "");
     let literal = Regex::new(r#""((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)'|`((?:[^`\\]|\\.)*)`"#).unwrap();
     let words = Regex::new(r"(?i)[a-z]{2,}\s+[a-z]{2,}").unwrap();
-    // The strict-mode directive, a protocol constant and a link relation: not texts for people.
-    let allowed = ["use strict", "portal-download vault check", "noopener noreferrer"];
+    // The strict-mode directive and a link relation: not texts for people.
+    let allowed = ["use strict", "noopener noreferrer"];
     let found: Vec<&str> = literal
         .captures_iter(&script)
         .map(|c| c.get(1).or(c.get(2)).or(c.get(3)).unwrap().as_str())
