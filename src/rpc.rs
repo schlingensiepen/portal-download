@@ -89,7 +89,7 @@ pub const METHODS: &[Method] = &[
         summary: "Return the whole backup as JSONL text.",
         description: "The first line is the head with format and version; every further line is one record: person, invitation, device, agent, job or run. It holds the portal logins in plain text and the hashes of all accesses, which grant no access; keep the file as carefully as the logins themselves. The same text comes as a file from GET on /backup of this service, with the same credential.",
         params: r#"{}"#,
-        result: r#"{"jsonl":"{\"type\":\"backup\",\"format\":\"portal-download-backup\",\"version\":2,\"created_at\":\"2026-11-06T10:00:00Z\",\"app_version\":\"0.7.0\"}\n…"}"#,
+        result: r#"{"jsonl":"{\"type\":\"backup\",\"format\":\"portal-download-backup\",\"version\":2,\"created_at\":\"2026-11-06T10:00:00Z\",\"app_version\":\"0.7.1\"}\n…"}"#,
     },
     Method {
         name: "backup.import",
