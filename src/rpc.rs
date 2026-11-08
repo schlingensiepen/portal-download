@@ -206,7 +206,7 @@ pub const METHODS: &[Method] = &[
         summary: "Say whether the service is set up and who is calling.",
         description: "setup_required is true while nobody has been invited yet; the entry page then explains the setup. signed_in says whether the call carried a valid device credential or agent token; me describes the caller then, for an agent with its display string and its ability (null until granted).",
         params: r#"{}"#,
-        result: r#"{"name":"portal-download","version":"0.7.0","revision":"a1b2c3d4e5f6","setup_required":false,"signed_in":true,"me":{"kind":"person","user_id":1,"name":"Ada","is_admin":true,"device_id":3,"device_label":"Laptop"}}"#,
+        result: r#"{"name":"portal-download","version":"0.7.1","revision":"a1b2c3d4e5f6","setup_required":false,"signed_in":true,"me":{"kind":"person","user_id":1,"name":"Ada","is_admin":true,"device_id":3,"device_label":"Laptop"}}"#,
     },
     Method {
         name: "setup.createAdmin",
