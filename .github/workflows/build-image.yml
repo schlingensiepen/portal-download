@@ -38,7 +38,7 @@ jobs:
             || { echo "::error::tag $GITHUB_REF_NAME does not match version $version in Cargo.toml"; exit 1; }
       - uses: docker/setup-buildx-action@v3
       - id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ${{ env.IMAGE }}
 
@@ -121,7 +121,7 @@ jobs:
       # pre-release such as v1.2.0-rc1), so that the one-line start without a tag always
       # pulls the last release.
       - id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ${{ env.IMAGE }}
           flavor: latest=false
