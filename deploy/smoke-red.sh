@@ -23,7 +23,7 @@ mutations=(
     "5|the certificate is created anew at every start|sed -i 's|^    certificate start\$|    rm -f \"\$TLS/cert.pem\"; certificate start|' /usr/local/bin/start.sh"
     "6|the backup does not reach the service|awk '/reverse_proxy/ { print \"\\trespond /backup 404\" } 1' /etc/caddy/Caddyfile > /tmp/Caddyfile && cp /tmp/Caddyfile /etc/caddy/Caddyfile"
     "7|the running container never checks the certificate|sed -i 's|^    sleep \"\$CHECK_SECONDS\" &|    sleep 100000 \&|' /usr/local/bin/start.sh"
-    "7|Caddy keeps the old certificate after a renewal|sed -i 's|^        if \[ \$? = 10 \]; then|        if false; then|' /usr/local/bin/start.sh"
+    "7|Caddy keeps the old certificate after a renewal|sed -i 's|^            if \[ \$? = 10 \]; then|            if false; then|' /usr/local/bin/start.sh"
     "7|a certificate of the operator's is replaced like the image's own|sed -i 's|^    elif \[ \"\$(cat \"\$TLS/generated\" 2>/dev/null)\" = \"\$(fingerprint)\" \]; then|    elif true; then|' /usr/local/bin/start.sh"
     "7|the certificate is valid for ten years|sed -i 's|^CERT_DAYS=120|CERT_DAYS=3650|' /usr/local/bin/start.sh"
     "8|PROXY=external still starts Caddy|sed -i 's|^if \[ \"\$PROXY\" = external \]; then|if false; then|' /usr/local/bin/start.sh"

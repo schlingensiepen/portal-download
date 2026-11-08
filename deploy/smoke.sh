@@ -66,7 +66,9 @@ reported=$(docker exec "$name" portal-download version | jq -r .revision)
 echo "step 2: the binary reports revision $revision"
 
 step="3 (first setup)"
-secret=$(docker logs "$name" 2>&1 | sed -n 's/.*Setup secret: \([^ ]*\) .*/\1/p' | head -n 1)
+# The whole log first: under pipefail a reader that stops early would fail the pipe.
+log=$(docker logs "$name" 2>&1)
+secret=$(sed -n 's/.*Setup secret: \([^ ]*\) .*/\1/p' <<<"$log" | sed -n 1p)
 [ -n "$secret" ] || fail "no setup secret in the log"
 answer=$(rpc setup.createAdmin '{"name":"Smoke"}' -H "X-Setup-Secret: $secret")
 invitation=$(jq -r '.result.invitation_token // empty' <<<"$answer")
@@ -147,7 +149,8 @@ docker exec "$name" sh -c 'cd /data/tls && umask 077 \
 sleep 8 # four checks at CERT_CHECK_SECONDS=2, see start()
 [ "$(docker exec "$name" openssl x509 -in /data/tls/cert.pem -noout -fingerprint -sha256)" = "$(cat "$work/own")" ] \
     || fail "a certificate of the operator's was replaced"
-docker logs "$name" 2>&1 | grep -q 'warning: the certificate in /data/tls/cert.pem runs out within 30 days' \
+log=$(docker logs "$name" 2>&1)
+grep -q 'warning: the certificate in /data/tls/cert.pem runs out within 30 days' <<<"$log" \
     || fail "no warning about the operator's certificate that runs out soon"
 echo "step 7: the running container replaces its own certificate when it runs out soon, keeps one of the operator's, and the service keeps running"
 docker rm -f "$name" >/dev/null
