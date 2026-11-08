@@ -7,6 +7,11 @@
 # running. With PROXY=external: no Caddy and no certificate; the service listens on port
 # 8080 for a reverse proxy in front, for example in the same compose stack.
 #
+# Once everything answers, a block of up to three lines names what to open: the fingerprint of
+# the certificate (with Caddy), the state of the setup (the setup secret while nobody
+# administers people), and last the line with " is ready: " and the address, so that a
+# reader of the log stops at that one line.
+#
 # A stop signal goes to every process. When one of them ends on its own, the others are
 # stopped too and the container ends, so that the restart policy brings all back together.
 set -u
@@ -143,7 +148,8 @@ certificate() {
         say "$TLS/cert.pem is not a readable certificate."
         return 1
     fi
-    if [ "${1:-}" = start ] || [ -n "$create" ]; then
+    # At start the ready block names the fingerprint.
+    if [ "${1:-}" != start ] && [ -n "$create" ]; then
         say "certificate for $SITE, SHA-256 fingerprint ${current#*=}. Compare it with what the browser shows before accepting."
     fi
     [ -n "$create" ] && return 10
@@ -156,6 +162,35 @@ fi
 
 portal-download serve &
 service=$!
+
+# One value of the pretty-printed JSON of `portal-download status`, empty when missing.
+count() { sed -n "s/^ *\"$1\": \([0-9]*\),\{0,1\}\$/\1/p" <<<"$2" | sed -n 1p; }
+# One string value of the setup file the service wrote before it answered.
+window() { sed -n "s/^$1 = \"\(.*\)\"\$/\1/p" "$DATA/portal-download/bootstrap.toml" 2>/dev/null; }
+plural() { if [ "$1" = 1 ]; then echo "1 $2"; else echo "$1 $3"; fi; }
+# The ready block; $1 is the address, $2 what follows it on the ready line.
+ready_block() {
+    local status users admins jobs version setup
+    if [ -z "$PROXY" ]; then
+        local current
+        current=$(fingerprint)
+        say "certificate SHA-256 fingerprint ${current#*=}; compare it with what the browser shows before accepting."
+    fi
+    status=$(portal-download status 2>/dev/null)
+    users=$(count users "$status")
+    admins=$(count admins "$status")
+    jobs=$(count jobs "$status")
+    setup="set up: $(plural "$users" person people), $(plural "$jobs" job jobs)."
+    if [ "$users" = 0 ]; then
+        say "not set up yet. Setup secret: $(window secret) (valid until $(window expires_at)); enter it in the browser."
+    elif [ "$admins" = 0 ]; then
+        say "$setup Nobody administers people. Setup secret: $(window secret) (valid until $(window expires_at))."
+    elif [ -n "$users" ]; then
+        say "$setup"
+    fi
+    version=$(portal-download version | sed -n 's/.*"version":"\([^"]*\)".*/\1/p')
+    say "portal-download $version is ready: $1$2"
+}
 
 # Caddy starts only when the service answers, so the first request already reaches it.
 up=""
@@ -180,7 +215,7 @@ if [ -z "$up" ]; then
 fi
 
 if [ "$PROXY" = external ]; then
-    say "PROXY=external: no Caddy in this container. The reverse proxy in front reaches the service on port 8080; do not publish that port."
+    ready_block "http://$(hostname):8080/" " (PROXY=external, no Caddy here: the reverse proxy reaches it on port 8080; do not publish that port)"
     while :; do
         if [ -n "$stopping" ]; then
             shutdown
@@ -195,8 +230,17 @@ if [ "$PROXY" = external ]; then
     done
 fi
 
+# Before it has read the Caddyfile, whose global option keeps it at WARN, Caddy writes a few
+# lines at level info with no logger name; only those are left out of the log.
+caddy_log() {
+    local line
+    while IFS= read -r line; do
+        [[ $line == '{"level":"info",'* && $line != *'"logger":'* ]] && continue
+        printf '%s\n' "$line" >&2
+    done
+}
 start_caddy() {
-    caddy run --config /etc/caddy/Caddyfile --adapter caddyfile &
+    caddy run --config /etc/caddy/Caddyfile --adapter caddyfile 2> >(caddy_log) &
     caddy=$!
 }
 start_timer() {
@@ -204,6 +248,24 @@ start_timer() {
     timer=$!
 }
 start_caddy
+
+# The ready block comes once Caddy completes a TLS handshake, so that its address works.
+caddy_up=""
+for _ in $(seq 1 30); do
+    [ -n "$stopping" ] && break
+    if ! kill -0 "$caddy" 2>/dev/null || ! kill -0 "$service" 2>/dev/null; then break; fi
+    if timeout 5 openssl s_client -connect 127.0.0.1:443 -servername "$SITE" </dev/null >/dev/null 2>&1; then
+        caddy_up=1
+        break
+    fi
+    sleep 1 &
+    wait $!
+done
+if [ -n "$caddy_up" ]; then
+    ready_block "https://$SITE/" ""
+elif [ -z "$stopping" ] && kill -0 "$caddy" 2>/dev/null; then
+    say "Caddy does not answer on port 443 within 30 seconds; the lines above name the cause."
+fi
 start_timer
 
 # Returns when a process ends, the daily check is due or a stop signal arrives.

@@ -175,6 +175,14 @@ tr.current td { background: var(--chip); }
   <span data-msg="confirm.token.create" data-i18n="confirm.token.create">Create a token with the right “<span data-field="ability"></span>”?</span>
   <span data-msg="confirm.import" data-i18n="confirm.import">Import the backup? Nothing is overwritten: what exists already comes in as “… (Import date)”.</span>
   <span data-msg="confirm.lang.discard" data-i18n="confirm.lang.discard">Switching the language discards what you entered here. Switch anyway?</span>
+  <span data-msg="confirm.logins.one" data-i18n="confirm.logins.one">Create 1 job with its login? Every person of the circle sees the login.</span>
+  <span data-msg="confirm.logins.other" data-i18n="confirm.logins.other">Create <span data-field="n"></span> jobs with their logins? Every person of the circle sees these logins.</span>
+  <span data-msg="logins.bad_file" data-i18n="logins.bad_file">This file is not a login export of Firefox: its first line lacks the columns url, username and password.</span>
+  <span data-msg="logins.summary" data-i18n="logins.summary">Logins in the file: <span data-field="n"></span> · combined as duplicates: <span data-field="dupes"></span> · already a job: <span data-field="existing"></span></span>
+  <span data-msg="toast.logins.none" data-i18n="toast.logins.none">Tick at least one login first.</span>
+  <span data-msg="toast.logins.created.one" data-i18n="toast.logins.created.one">1 job created.</span>
+  <span data-msg="toast.logins.created.other" data-i18n="toast.logins.created.other"><span data-field="n"></span> jobs created.</span>
+  <span data-msg="toast.logins.failed" data-i18n="toast.logins.failed">Not created: <span data-field="host"></span> (<span data-field="username"></span>) – <span data-field="reason"></span></span>
   <span data-msg="confirm.import.delete" data-i18n="confirm.import.delete">Delete “<span data-field="name"></span>”?</span>
   <span data-msg="ability.jobs.read" data-i18n="ability.jobs.read">Read jobs</span>
   <span data-msg="ability.logins.read" data-i18n="ability.logins.read">Read jobs with logins</span>
@@ -278,7 +286,7 @@ tr.current td { background: var(--chip); }
 
 <!-- stage, left side -->
 <template id="tpl-overview"><div class="pad">
-  <div class="row"><h1 class="grow" data-i18n="overview.title">Download jobs</h1><a class="btn primary" href="#/new" data-i18n="overview.new">New job</a></div>
+  <div class="row"><h1 class="grow" data-i18n="overview.title">Download jobs</h1><a class="btn" href="#/logins" data-i18n="overview.logins">Import logins (Firefox CSV)</a><a class="btn primary" href="#/new" data-i18n="overview.new">New job</a></div>
   <table data-ref="table">
     <thead><tr>
       <th data-i18n="overview.col.urgency">Urgency</th><th data-i18n="overview.col.job">Job</th><th data-i18n="overview.col.due">Due</th>
@@ -518,6 +526,39 @@ tr.current td { background: var(--chip); }
   <td><button class="btn small" type="button" data-ref="delete" data-action="delete" data-i18n="import.delete">Delete</button><span class="chip" data-ref="deleted" data-i18n="import.deleted" hidden>deleted</span></td>
 </tr></template>
 
+<template id="tpl-logins"><div class="pad wide-page">
+  <h1 data-i18n="logins.title">Import logins (Firefox CSV)</h1>
+  <p class="muted small" data-i18n="logins.hint">In Firefox, open about:logins, choose “Export Passwords…” in its menu and pick the file here. The file is read in this browser; only the logins you tick become jobs, each with its login in plain text for every person of the circle. Delete the exported file afterwards: it holds every saved password.</p>
+  <label data-i18n="logins.file">Exported file (CSV)</label>
+  <input type="file" accept=".csv,text/csv" data-ref="file">
+  <div data-ref="list">
+    <p class="muted small" data-ref="summary"></p>
+    <div class="row">
+      <div class="grow"><input type="text" data-ref="search" placeholder="Search host or username" data-i18n-placeholder="logins.search"></div>
+      <button class="btn" type="button" data-action="all" data-i18n="logins.select_shown">Tick all shown</button>
+      <button class="btn" type="button" data-action="none" data-i18n="logins.select_none">Untick all</button>
+    </div>
+    <table>
+      <thead><tr>
+        <th></th><th data-i18n="logins.col.host">Host</th><th data-i18n="logins.col.username">Username</th>
+        <th data-i18n="logins.col.interval">Every … weeks</th><th></th>
+      </tr></thead>
+      <tbody data-ref="rows"></tbody>
+    </table>
+    <div class="row space">
+      <button class="btn primary" type="button" data-ref="create" data-action="create" data-i18n="logins.create">Create jobs from the ticked logins</button>
+      <a class="btn" href="#/" data-i18n="edit.cancel">Cancel</a>
+    </div>
+  </div>
+</div></template>
+<template id="tpl-logins-row"><tr>
+  <td><input type="checkbox" data-ref="pick" aria-label="tick" data-i18n-aria-label="logins.pick"></td>
+  <td data-field="host"></td>
+  <td data-field="username"></td>
+  <td><input type="number" min="1" max="520" required style="width:6em" data-ref="weeks" aria-label="weeks" data-i18n-aria-label="logins.weeks"></td>
+  <td><span class="chip" data-ref="existing" data-i18n="logins.existing">already there</span><span class="chip" data-ref="not-web" data-i18n="logins.not_web">not a web address</span></td>
+</tr></template>
+
 <!-- entry states without access -->
 <template id="tpl-invite"><form class="pad narrow" data-action="accept">
   <h1 data-i18n="invite.title">Accept the invitation</h1>
@@ -745,7 +786,7 @@ async function rpc(method, params = {}, headers = {}) {
 }
 
 // ------------------------------------------------------------------ state & routing
-const state = { status: null, me: null, jobs: [], today: null, current: 0, running: null, importReport: null, authError: null, dirty: false };
+const state = { status: null, me: null, jobs: [], today: null, current: 0, running: null, importReport: null, logins: null, authError: null, dirty: false };
 // Something typed into the view and not yet sent; rendering a view starts clean.
 $("#view").addEventListener("input", () => { state.dirty = true; });
 
@@ -1142,6 +1183,129 @@ function viewImport() {
   return d;
 }
 
+// ------------------------------------------------------------------ logins from a Firefox export
+/** Splits CSV text after RFC 4180 into rows of fields; null when a quoted field is never closed. */
+function parseCsv(text) {
+  const rows = [];
+  let row = [], field = "", quoted = false, closed = false;
+  const endField = () => { row.push(field); field = ""; closed = false; };
+  for (let i = text.charCodeAt(0) === 0xfeff ? 1 : 0; i < text.length; i++) {
+    const c = text[i];
+    if (quoted) {
+      if (c !== "\"") field += c;
+      else if (text[i + 1] === "\"") { field += c; i++; }
+      else { quoted = false; closed = true; }
+    } else if (c === "\"" && field === "" && !closed) quoted = true;
+    else if (c === ",") endField();
+    else if (c === "\r" || c === "\n") {
+      if (c === "\r" && text[i + 1] === "\n") i++;
+      endField();
+      if (row.length > 1 || row[0] !== "") rows.push(row);
+      row = [];
+    } else field += c;
+  }
+  if (quoted) return null;
+  if (field !== "" || closed || row.length) { endField(); rows.push(row); }
+  return rows;
+}
+/** The host name of an address in lower case, or null when it is no http or https address. */
+function webHost(url) {
+  try { const u = new URL(url); return u.protocol === "https:" || u.protocol === "http:" ? u : null; } catch { return null; }
+}
+// Duplicate rule: same host name (case-insensitive; scheme, port and path ignored) and the same
+// username, exactly as written. It holds within the file and against the entry address of a job.
+const loginKey = (hostname, username) => `${hostname.toLowerCase()}\n${username}`;
+/** Reads a Firefox export into one entry per host name and username; null when it is none. */
+function readLogins(text) {
+  const rows = parseCsv(text);
+  if (!rows || !rows.length) return null;
+  const head = rows[0].map((h) => h.trim().toLowerCase());
+  const col = (name) => head.indexOf(name);
+  const [iu, in_, ip, it] = [col("url"), col("username"), col("password"), col("timepasswordchanged")];
+  if (iu < 0 || in_ < 0 || ip < 0) return null;
+  const byKey = new Map();
+  let n = 0;
+  for (const r of rows.slice(1)) {
+    n++;
+    const url = (r[iu] || "").trim(), username = r[in_] || "", password = r[ip] || "";
+    const u = webHost(url);
+    const x = { url, username, password, host: u ? u.host : url, key: u ? loginKey(u.hostname, username) : `\n${url}\n${username}`, web: !!u, changed: Number(r[it]) || 0, picked: false, weeks: 4 };
+    // Of two entries for the same login, the one whose password changed last counts.
+    const old = byKey.get(x.key);
+    if (!old || x.changed >= old.changed) byKey.set(x.key, x);
+  }
+  const items = [...byKey.values()].sort((a, b) => a.host.localeCompare(b.host) || a.username.localeCompare(b.username));
+  return { items, n, dupes: n - items.length };
+}
+function existingLoginKeys() {
+  const keys = new Set();
+  for (const j of state.jobs) { const u = webHost(j.entry_url); if (u) keys.add(loginKey(u.hostname, j.username || "")); }
+  return keys;
+}
+
+function viewLogins() {
+  const d = T("tpl-logins");
+  const L = state.logins;
+  const file = ref(d, "file");
+  file.addEventListener("change", async () => {
+    const f = file.files[0];
+    if (!f) return;
+    const read = readLogins(await f.text());
+    file.value = "";
+    if (!read) { state.logins = null; toast(msg("logins.bad_file"), true); render(); return; }
+    state.logins = read;
+    render();
+  });
+  show(ref(d, "list"), !!L);
+  if (!L) return d;
+  const existing = existingLoginKeys();
+  const free = (x) => x.web && !existing.has(x.key);
+  ref(d, "summary").textContent = msg("logins.summary", { n: L.n, dupes: L.dupes, existing: L.items.filter((x) => existing.has(x.key)).length });
+  const shown = [];
+  for (const x of L.items) {
+    const tr = put(T("tpl-logins-row"), { host: x.host, username: x.username || "–" });
+    const pick = ref(tr, "pick"), weeks = ref(tr, "weeks");
+    if (!free(x)) x.picked = false;
+    pick.checked = x.picked; pick.disabled = !free(x);
+    weeks.value = x.weeks; weeks.disabled = !free(x);
+    show(ref(tr, "existing"), x.web && existing.has(x.key));
+    show(ref(tr, "not-web"), !x.web);
+    pick.addEventListener("change", () => { x.picked = pick.checked; });
+    weeks.addEventListener("input", () => { x.weeks = Number(weeks.value); });
+    shown.push({ x, tr, pick });
+    ref(d, "rows").append(tr);
+  }
+  const search = ref(d, "search");
+  search.addEventListener("input", () => {
+    const q = search.value.trim().toLowerCase();
+    for (const s of shown) show(s.tr, !q || s.x.host.toLowerCase().includes(q) || s.x.username.toLowerCase().includes(q));
+  });
+  const tickShown = (on) => () => { for (const s of shown) if (!s.tr.hidden && free(s.x)) { s.x.picked = on; s.pick.checked = on; } };
+  const create = ref(d, "create");
+  return bind(d, {
+    all: tickShown(true),
+    none: tickShown(false),
+    create: async () => {
+      const chosen = L.items.filter((x) => x.picked && free(x));
+      if (!chosen.length) { toast(msg("toast.logins.none"), true); return; }
+      if (!(await ask(plural("confirm.logins", chosen.length).textContent))) return;
+      create.disabled = true;
+      let made = 0;
+      for (const x of chosen) {
+        try {
+          await rpc("job.create", { title: x.host, entry_url: x.url, username: x.username, password: x.password, instructions_md: "", interval_weeks: x.weeks });
+          made++; x.picked = false;
+        } catch (e) {
+          if (e.code === 401) throw e;
+          toast(msg("toast.logins.failed", { host: x.host, username: x.username || "–", reason: e.message }), true);
+        }
+      }
+      if (made) toast(plural("toast.logins.created", made).textContent);
+      render();
+    },
+  });
+}
+
 // ------------------------------------------------------------------ entry states without access
 function viewInvite(token) {
   const d = T("tpl-invite");
@@ -1197,6 +1361,8 @@ async function render() {
   }
   if (mySeq !== renderSeq) return;
   if (r.id && ["job", "run", "edit", "history"].includes(r.view)) selectJob(r.id);
+  // The logins read from an export stay in this page only while its view is shown.
+  if (r.view !== "logins") state.logins = null;
   renderBar();
   let content = null;
   try {
@@ -1211,6 +1377,7 @@ async function render() {
       else if (r.view === "history") content = await viewHistory(r.id);
       else if (r.view === "people") content = await viewPeople();
       else if (r.view === "import") content = viewImport();
+      else if (r.view === "logins") content = viewLogins();
       else if (r.view === "devices") content = await viewDevices();
       else content = viewOverview();
     }

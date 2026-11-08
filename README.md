@@ -4,6 +4,8 @@ An intranet workbench for a small, invited circle of people who regularly have t
 
 The browser window is split in two. The **right quarter** is a work bar showing the most urgent download job: when it is due, the login with copy buttons, and a short Markdown instruction saying what to file where. **◀ ▶** pages through the jobs in order of urgency. **Run** opens the portal on the **left**, either embedded or in a window of its own beside the bar, because many portals forbid being embedded. When everything is downloaded, close the run with **Succeeded** or **Failed**. The next due date follows from that.
 
+**Import logins (Firefox CSV)** above the job list turns logins saved in Firefox into jobs. The browser reads the file that Firefox exports under `about:logins` (*Export Passwords…*) itself and sends nothing until you confirm. It lists host and username of every login, with nothing ticked, because the export holds every saved password. Each ticked login becomes a job named after its host, with the login, no instructions, due today and every four weeks unless you change that per row. A login whose host name (case-insensitive; scheme, port and path aside) and username, exactly as written, match a job's entry address and username is marked as already there and cannot be ticked; within the file such duplicates count once, with the password changed last.
+
 ## Languages
 
 The application is in English and follows the browser's language where a translation exists; German is included. The choice can be changed at the top of the work bar and is kept in that browser. A translation is one file, `static/i18n/<code>.json`, listed in `static/config.json`. API, self-description and this documentation are in English. Messages from the API appear in English in every language.
@@ -37,8 +39,11 @@ The service has **no start secret** of its own, so there is nothing to set befor
 docker run -d --name portal-download --restart unless-stopped \
   -p 443:443 -v portal-download:/data \
   -e SITE=downloads.intra.example -e TZ=Europe/Berlin \
-  ghcr.io/schlingensiepen/portal-download
+  ghcr.io/schlingensiepen/portal-download \
+  && sed '/ is ready: /q' <(docker logs -f portal-download 2>&1)
 ```
+
+The last line shows the container's log until its ready block, which ends with the line `portal-download container: portal-download <version> is ready: https://<SITE>/` (see **First start** below). It needs bash or zsh; `docker logs portal-download` shows the block at any time later. `sed` reads from `<(…)` rather than from a pipe, so that the command ends at once: in a pipe, the shell would wait for `docker logs -f` to end, and it notices that `sed` is gone only when the next log line arrives.
 
 The same start with other runtimes:
 
@@ -49,6 +54,7 @@ wslc run -d --name portal-download `
   -p 0.0.0.0:443:443 -v portal-download:/data `
   -e SITE=downloads.intra.example -e TZ=Europe/Berlin `
   ghcr.io/schlingensiepen/portal-download
+wslc logs -f portal-download 2>&1 | Where-Object { Write-Host "$_"; "$_" -match ' is ready: ' } | Select-Object -First 1 | Out-Null
 ```
 
 ```sh
@@ -56,7 +62,8 @@ wslc run -d --name portal-download `
 podman run -d --name portal-download --restart unless-stopped \
   -p 443:443 -v portal-download:/data \
   -e SITE=downloads.intra.example -e TZ=Europe/Berlin \
-  ghcr.io/schlingensiepen/portal-download
+  ghcr.io/schlingensiepen/portal-download \
+  && sed '/ is ready: /q' <(podman logs -f portal-download 2>&1)
 
 # macOS with Docker Desktop: the docker command above, unchanged
 
@@ -65,8 +72,11 @@ container volume create portal-download
 container run -d --name portal-download \
   -p 443:443 -v portal-download:/data \
   -e SITE=downloads.intra.example -e TZ=Europe/Berlin \
-  ghcr.io/schlingensiepen/portal-download
+  ghcr.io/schlingensiepen/portal-download \
+  && sed '/ is ready: /q' <(container logs --follow portal-download 2>&1)
 ```
+
+In PowerShell (Windows PowerShell 5.1 and PowerShell 7 alike), `Where-Object` writes every log line and lets only the ready line pass; `Select-Object -First 1` then stops the pipeline together with `wslc logs -f`, and nothing else ends with it. `"$_"` turns the lines that arrive through `2>&1` as error records into plain text. `wslc logs portal-download`, `podman logs portal-download` and `container logs portal-download` show the block at any time later.
 
 On a Mac with Apple silicon every runtime takes the `arm64` image, with no emulation. WSLC publishes a port only on `127.0.0.1` unless an address is given, hence `0.0.0.0:443:443`; the Windows firewall must also let port 443 in. WSLC and `container` start the container again only when told to (`wslc start portal-download`, `container start portal-download`); the volume keeps everything in between, also across a reboot of the machine. The smoke test runs with Docker; the other runtimes are not tested by it. Below, `docker logs`, `docker exec` and `docker cp` stand for the same command of the runtime in use (`wslc logs`, `podman logs`, `container logs` and so on).
 
@@ -74,8 +84,16 @@ On a Mac with Apple silicon every runtime takes the `arm64` image, with no emula
 
 **First start:**
 
-1. `docker logs portal-download` shows, among the start lines, the certificate's SHA-256 fingerprint and the setup secret (`Setup secret: pds_…`). The secret appears in the log only while nobody is set up, and it is valid for 30 minutes. If it has run out, `docker exec portal-download portal-download bootstrap` prints a fresh one.
-2. Open `https://<SITE>/`. The browser warns about the certificate: the image created it for `SITE` at first start, valid for 120 days. The running container renews it every 90 days, and the browser then asks once more; until then a page that is open reports that the connection failed, and reloading it brings up the warning. Open the certificate details on the warning page, compare the SHA-256 fingerprint with the one from the log, then accept it. After each renewal the log shows the new fingerprint; `docker exec portal-download openssl x509 -in /data/tls/cert.pem -noout -fingerprint -sha256 -enddate` shows the current one and when it runs out. Tell the browser users in advance that every 90 days they are asked once more.
+1. The one-liner above, or `docker logs portal-download` later, shows the ready block, three lines at the end of the start:
+
+   ```text
+   portal-download container: certificate SHA-256 fingerprint 3F:A1:…:7C; compare it with what the browser shows before accepting.
+   portal-download container: not set up yet. Setup secret: pds_… (valid until 2026-11-08T10:30:00Z); enter it in the browser.
+   portal-download container: portal-download 0.7.0 is ready: https://downloads.intra.example/
+   ```
+
+   Once somebody is set up, the middle line reads `set up: 3 people, 12 jobs.` instead; while nobody administers people, it names the setup secret as well. The secret is valid for 30 minutes. If it has run out, `docker exec portal-download portal-download bootstrap` prints a fresh one. With `PROXY=external` the block has no fingerprint, and the ready line names `http://<container>:8080/`, the address the reverse proxy in front uses. Caddy writes only warnings and errors to the log, so the block stands at the end.
+2. Open exactly `https://<SITE>/`, the address on the ready line. Under any other name (`localhost`, the IP address, another host name) the browser warns that the certificate is for another name, and after accepting, the page leads on to `https://<SITE>/`. The browser warns about the certificate: the image created it for `SITE` at first start, valid for 120 days. The running container renews it every 90 days, and the browser then asks once more; until then a page that is open reports that the connection failed, and reloading it brings up the warning. Open the certificate details on the warning page, compare the SHA-256 fingerprint with the one from the log, then accept it. After each renewal the log shows the new fingerprint; `docker exec portal-download openssl x509 -in /data/tls/cert.pem -noout -fingerprint -sha256 -enddate` shows the current one and when it runs out. Tell the browser users in advance that every 90 days they are asked once more.
 3. Enter the setup secret and your name, and continue with the first job. To restore a backup on this instance instead, see [docs/operating.md](docs/operating.md#backup).
 
 **Operating it:**
@@ -101,7 +119,7 @@ On a Mac with Apple silicon every runtime takes the `arm64` image, with no emula
 ```yaml
 services:
   portal-download:
-    image: ghcr.io/schlingensiepen/portal-download:0.6
+    image: ghcr.io/schlingensiepen/portal-download:0.7
     restart: unless-stopped
     ports:
       - "443:443"
@@ -129,7 +147,7 @@ services:
       - ./certs:/certs:ro
       - caddy:/data
   portal-download:
-    image: ghcr.io/schlingensiepen/portal-download:0.6
+    image: ghcr.io/schlingensiepen/portal-download:0.7
     restart: unless-stopped
     volumes:
       - portal-download:/data
@@ -151,7 +169,7 @@ downloads.intra.example {
 }
 ```
 
-Caddy sends the `X-Forwarded-*` headers on its own. The image's configuration for `PROXY=external` already sets `listen = "0.0.0.0:8080"` and `trust_forwarded_headers = true`; nothing needs to be mounted. When Caddy runs in another compose project, both must share a Docker network (an `external: true` network in both files), and Caddy reaches the service by its container name. The certificate in `./certs` is yours, from an intranet CA for example; a backup with `curl` goes through Caddy and needs `--cacert` only when the backup machine does not trust that certificate. The setup secret is in `docker compose logs portal-download`.
+Caddy sends the `X-Forwarded-*` headers on its own. The image's configuration for `PROXY=external` already sets `listen = "0.0.0.0:8080"` and `trust_forwarded_headers = true`; nothing needs to be mounted. When Caddy runs in another compose project, both must share a Docker network (an `external: true` network in both files), and Caddy reaches the service by its container name. The certificate in `./certs` is yours, from an intranet CA for example; a backup with `curl` goes through Caddy and needs `--cacert` only when the backup machine does not trust that certificate. The ready block with the setup secret is in `docker compose logs portal-download`.
 
 ## Running it
 

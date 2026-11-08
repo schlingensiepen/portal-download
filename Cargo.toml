@@ -1,6 +1,6 @@
 [package]
 name = "portal-download"
-version = "0.6.0"
+version = "0.7.0"
 edition = "2021"
 description = "Intranet workbench that walks a small circle through due portal downloads"
 license = "Apache-2.0"

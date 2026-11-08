@@ -48,9 +48,25 @@ rpc() {
     curl -ksS --max-time 10 -X POST "$base/api/" -H 'Content-Type: application/json' "$@" \
         -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"$method\",\"params\":$params}"
 }
+# The certificate presented for a name (SNI), or for none with -noservername.
 fingerprint() {
-    openssl s_client -connect "127.0.0.1:$port" -servername localhost </dev/null 2>/dev/null \
+    local sni=("-servername" "${1:-localhost}")
+    [ "${1:-}" = none ] && sni=("-noservername")
+    openssl s_client -connect "127.0.0.1:$port" "${sni[@]}" </dev/null 2>/dev/null \
         | openssl x509 -noout -fingerprint -sha256 2>/dev/null || true
+}
+# The container's log once it holds the ready line; the ready line ends the block.
+ready_log() {
+    local log=""
+    for _ in $(seq 1 15); do
+        log=$(docker logs "$name" 2>&1)
+        if grep -q ' is ready: ' <<<"$log"; then
+            printf '%s\n' "$log"
+            return 0
+        fi
+        sleep 1
+    done
+    fail "no line with ' is ready: ' in the log within 15 seconds"
 }
 
 docker volume create "$volume" >/dev/null
@@ -58,7 +74,25 @@ docker volume create "$volume" >/dev/null
 step="1 (start)"
 start
 wait_up
-echo "step 1: the image starts and answers through Caddy"
+log=$(ready_log)
+block=$(sed -n 's/^portal-download container: //p' <<<"$log" | grep -B 2 ' is ready: ')
+ready=$(sed -n 3p <<<"$block")
+[[ "$ready" =~ ^portal-download\ [0-9][^\ ]*\ is\ ready:\ https://localhost/$ ]] \
+    || fail "the last line of the block is not 'portal-download <version> is ready: https://localhost/': $block"
+served=$(fingerprint)
+[ "$(sed -n 1p <<<"$block")" = "certificate SHA-256 fingerprint ${served#*=}; compare it with what the browser shows before accepting." ] \
+    || fail "the block does not begin with the fingerprint of the served certificate ${served#*=}: $block"
+[[ "$(sed -n 2p <<<"$block")" =~ ^not\ set\ up\ yet\.\ Setup\ secret:\ pds_[^\ ]+\ \(valid\ until\  ]] \
+    || fail "the block does not name the setup secret before the setup: $block"
+# Caddy writes warnings and errors only.
+! grep -q '"level":"info"' <<<"$log" || fail "Caddy writes lines at level info: $(grep '"level":"info"' <<<"$log" | head -n 3)"
+# Another name, or none, still gets the certificate of SITE and a way to it.
+for sni in other.example none; do
+    [ "$(fingerprint "$sni")" = "$served" ] || fail "a handshake with SNI $sni does not present the certificate of SITE"
+done
+moved=$(curl -ksS -o /dev/null --max-time 5 -w '%{http_code} %{redirect_url}' --resolve "other.example:$port:127.0.0.1" "https://other.example:$port/x?y=1")
+[ "$moved" = "302 https://localhost/x?y=1" ] || fail "a request for another name does not lead to https://localhost/: $moved"
+echo "step 1: the image starts, answers through Caddy, shows the ready block, and leads other names to SITE"
 
 step="2 (revision)"
 reported=$(docker exec "$name" portal-download version | jq -r .revision)
@@ -96,6 +130,9 @@ users=$(docker exec "$name" portal-download status | jq -r .store.users)
 [ "$users" = 1 ] || fail "the new container sees $users people, expected 1 from the volume"
 after=$(fingerprint)
 [ "$after" = "$before" ] || fail "the certificate changed: $before became $after"
+log=$(ready_log)
+block=$(sed -n 's/^portal-download container: //p' <<<"$log" | grep -B 2 ' is ready: ')
+[ "$(sed -n 2p <<<"$block")" = "set up: 1 person, 0 jobs." ] || fail "the block does not say 'set up: 1 person, 0 jobs.': $block"
 echo "step 5: a new container on the same volume keeps the person and the certificate"
 
 step="6 (backup)"
@@ -171,6 +208,10 @@ curl -sf -o /dev/null --max-time 5 "$direct/healthz" || fail "no answer at $dire
 ! docker exec "$name" pidof caddy >/dev/null || fail "Caddy runs although PROXY=external"
 users=$(docker exec "$name" portal-download status | jq -r .store.users)
 [ "$users" = 1 ] || fail "the container sees $users people on the volume, expected 1"
+host=$(docker inspect -f '{{.Config.Hostname}}' "$name")
+log=$(ready_log)
+ready=$(grep ' is ready: ' <<<"$log")
+[[ "$ready" == *" is ready: http://$host:8080/ "* ]] || fail "the ready line does not name http://$host:8080/: $ready"
 page=$(curl -sS --max-time 5 -H 'X-Forwarded-Proto: https' -H 'X-Forwarded-Host: downloads.intra.example' "$direct/")
 grep -q 'https://downloads.intra.example/' <<<"$page" || fail "the forwarded scheme and host do not reach the entry page: $(head -c 200 <<<"$page")"
 t0=$(date +%s)

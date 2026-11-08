@@ -11,9 +11,23 @@
 	servers {
 		protocols h1 h2
 	}
+	# Warnings and errors only, so that the ready block of start.sh stands out in the log.
+	log default {
+		level WARN
+	}
+	# A browser that opens another name or the bare address still gets the certificate of
+	# $SITE and warns about the name, instead of a handshake that ends in an internal error.
+	default_sni {$SITE}
+	fallback_sni {$SITE}
 }
 
 {$SITE} {
 	tls /data/tls/cert.pem /data/tls/key.pem
 	reverse_proxy 127.0.0.1:8080
+}
+
+# Every other name leads to the address of $SITE.
+https:// {
+	tls /data/tls/cert.pem /data/tls/key.pem
+	redir https://{$SITE}{uri}
 }

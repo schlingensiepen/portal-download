@@ -17,9 +17,15 @@ trap 'rm -rf "$work"' EXIT
 # step | what is removed | command run in the derived image (as root)
 mutations=(
     "1|Caddy is never started|sed -i 's|^    caddy run .*|    sleep 100000 \&|' /usr/local/bin/start.sh"
+    "1|the ready block is never printed|sed -i 's|^    ready_block \"https://.*|    :|' /usr/local/bin/start.sh"
+    "1|Caddy logs at level INFO|sed -i '/level WARN/d' /etc/caddy/Caddyfile"
+    "1|the first lines of Caddy at level info reach the log|sed -i 's|^        \[\[ \$line == .*|        :|' /usr/local/bin/start.sh"
+    "1|another name ends the handshake|sed -i '/_sni /d' /etc/caddy/Caddyfile"
+    "1|another name gets an empty answer|sed -i 's|redir https://.*|respond 200|' /etc/caddy/Caddyfile"
     "3|the service's log does not reach the container log|sed -i 's|^portal-download serve &|portal-download serve 2>/dev/null \&|' /usr/local/bin/start.sh"
     "4|the stop signal is not passed on|sed -i 's|^trap stop TERM INT|:|' /usr/local/bin/start.sh"
     "5|the state lies outside the volume|sed -i 's|^state_dir = .*|state_dir = \"/tmp/portal-download\"|' /etc/portal-download/config.toml"
+    "5|the block says not set up although somebody is|sed -i 's|^    if \[ \"\$users\" = 0 \]; then|    if true; then|' /usr/local/bin/start.sh"
     "5|the certificate is created anew at every start|sed -i 's|^    certificate start\$|    rm -f \"\$TLS/cert.pem\"; certificate start|' /usr/local/bin/start.sh"
     "6|the backup does not reach the service|awk '/reverse_proxy/ { print \"\\trespond /backup 404\" } 1' /etc/caddy/Caddyfile > /tmp/Caddyfile && cp /tmp/Caddyfile /etc/caddy/Caddyfile"
     "7|the running container never checks the certificate|sed -i 's|^    sleep \"\$CHECK_SECONDS\" &|    sleep 100000 \&|' /usr/local/bin/start.sh"
@@ -27,6 +33,7 @@ mutations=(
     "7|a certificate of the operator's is replaced like the image's own|sed -i 's|^    elif \[ \"\$(cat \"\$TLS/generated\" 2>/dev/null)\" = \"\$(fingerprint)\" \]; then|    elif true; then|' /usr/local/bin/start.sh"
     "7|the certificate is valid for ten years|sed -i 's|^CERT_DAYS=120|CERT_DAYS=3650|' /usr/local/bin/start.sh"
     "8|PROXY=external still starts Caddy|sed -i 's|^if \[ \"\$PROXY\" = external \]; then|if false; then|' /usr/local/bin/start.sh"
+    "8|PROXY=external prints no ready block|sed -i 's|^    ready_block \"http://.*|    :|' /usr/local/bin/start.sh"
     "8|PROXY=external listens only on loopback|sed -i 's|^listen = .*|listen = \"127.0.0.1:8080\"|' /etc/portal-download/config-external.toml"
     # Assumes the smoke test reaches the container from the bridge gateway, not from
     # loopback, as with Docker's userland proxy on the CI runners.
