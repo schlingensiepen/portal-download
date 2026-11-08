@@ -15,5 +15,5 @@ state_dir = "/var/lib/portal-download"
 # every sender. false (the default): only from the loopback interface, where the
 # reverse proxy runs. true: only when nothing but the reverse proxy reaches `listen`,
 # for example when it runs in another container of the same network. The proxy must
-# send X-Forwarded-Proto and X-Forwarded-Host; of X-Forwarded-For the last entry counts.
+# send X-Forwarded-Proto and X-Forwarded-Host; of each header the last entry counts.
 trust_forwarded_headers = false

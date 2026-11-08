@@ -79,9 +79,9 @@ fn proxied(peer: SocketAddr, trust: bool) -> bool {
 /// The base URL as the caller sees it: scheme and host of the request, as the reverse
 /// proxy forwards them when its headers count.
 pub fn base_url(h: &HeaderMap, peer: SocketAddr, trust: bool) -> String {
-    let get = |n: &str| h.get(n).and_then(|v| v.to_str().ok()).map(|s| s.split(',').next().unwrap_or("").trim().to_string()).filter(|s| !s.is_empty());
+    let get = |n: &str| h.get(n).and_then(|v| v.to_str().ok()).map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
     let proxied = proxied(peer, trust);
-    let fwd = |n: &str| if proxied { get(n) } else { None };
+    let fwd = |n: &str| if proxied { forwarded(h, n) } else { None };
     let proto = fwd("x-forwarded-proto").filter(|p| p == "https" || p == "http").unwrap_or_else(|| "http".into());
     let host = fwd("x-forwarded-host").or_else(|| get("host")).unwrap_or_else(|| "localhost".into());
     let host: String = host.chars().filter(|c| c.is_ascii_alphanumeric() || ".-:[]".contains(*c)).collect();
@@ -218,12 +218,18 @@ fn cookie_value(h: &HeaderMap, name: &str) -> Option<String> {
     })
 }
 
-/// The client's address. Behind the proxy it is the last entry of `X-Forwarded-For`: the
-/// one the proxy itself added, whether it replaces the header or appends to it.
+/// The last entry of a forwarding header, over all its lines: the one the proxy itself
+/// added, whether it replaces the header, appends to it or adds a line.
+fn forwarded(h: &HeaderMap, name: &str) -> Option<String> {
+    let last = h.get_all(name).iter().filter_map(|v| v.to_str().ok()).next_back()?;
+    Some(last.rsplit(',').next()?.trim().to_string()).filter(|s| !s.is_empty())
+}
+
+/// The client's address: behind the proxy the last entry of `X-Forwarded-For`.
 fn client_address(h: &HeaderMap, peer: SocketAddr, trust: bool) -> String {
     if proxied(peer, trust) {
-        if let Some(x) = h.get("x-forwarded-for").and_then(|v| v.to_str().ok()).and_then(|s| s.rsplit(',').next()).filter(|s| !s.trim().is_empty()) {
-            return x.trim().to_string();
+        if let Some(x) = forwarded(h, "x-forwarded-for") {
+            return x;
         }
     }
     peer.ip().to_string()
@@ -514,6 +520,13 @@ mod tests {
         let remote = SocketAddr::from(([10, 0, 0, 9], 1));
         assert_eq!(client_address(&h, remote, false), "10.0.0.9");
         assert_eq!(client_address(&h, remote, true), "192.0.2.7", "the entry the proxy added, not what the browser sent");
+        h.append("x-forwarded-for", "203.0.113.5".parse().unwrap());
+        assert_eq!(client_address(&h, remote, true), "203.0.113.5", "a line the proxy added counts over the browser's");
+        let mut h = HeaderMap::new();
+        h.insert("host", "portal-download:8080".parse().unwrap());
+        h.insert("x-forwarded-host", "evil.example, downloads.intra.test".parse().unwrap());
+        h.insert("x-forwarded-proto", "http, https".parse().unwrap());
+        assert_eq!(base_url(&h, remote, true), "https://downloads.intra.test", "scheme and host as the proxy added them");
     }
 
     #[tokio::test]

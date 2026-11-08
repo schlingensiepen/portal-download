@@ -163,6 +163,7 @@ for _ in $(seq 1 30); do
     [ -n "$stopping" ] && { shutdown; exit $?; }
     if wget -q -O /dev/null "$SERVICE_URL" 2>/dev/null; then up=1; break; fi
     if ! kill -0 "$service" 2>/dev/null; then
+        [ -n "$stopping" ] && { shutdown; exit $?; }
         wait "$service"
         code=$?
         say "the service ended during start (exit code $code)."

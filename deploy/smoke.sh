@@ -144,7 +144,7 @@ docker exec "$name" sh -c 'cd /data/tls && umask 077 \
     && mv -f key.pem.new key.pem && mv -f cert.pem.new cert.pem \
     && openssl x509 -in cert.pem -noout -fingerprint -sha256' >"$work/own" \
     || fail "could not put a certificate of the operator's into the volume"
-sleep 8
+sleep 8 # four checks at CERT_CHECK_SECONDS=2, see start()
 [ "$(docker exec "$name" openssl x509 -in /data/tls/cert.pem -noout -fingerprint -sha256)" = "$(cat "$work/own")" ] \
     || fail "a certificate of the operator's was replaced"
 docker logs "$name" 2>&1 | grep -q 'warning: the certificate in /data/tls/cert.pem runs out within 30 days' \
