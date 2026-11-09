@@ -3,6 +3,7 @@
 
 use crate::describe;
 use crate::error::OpError;
+use crate::probe;
 use crate::rpc::{self, Access, Call, Effect};
 use crate::store::{self, Principal, Store};
 use axum::body::Bytes;
@@ -341,35 +342,40 @@ async fn api(State(st): State<Arc<AppState>>, ConnectInfo(peer): ConnectInfo<Soc
     let address = client_address(&h, peer, st.trust_forwarded);
     let setup_secret = h.get("x-setup-secret").and_then(|v| v.to_str().ok()).map(str::to_string);
     let device_cred = cookie_value(&h, COOKIE);
-    let store = lock(&st);
+    // The store's lock ends with this block, before anything waits on the network.
+    let (outcome, renew) = {
+        let store = lock(&st);
 
-    // Establish the caller in one place, before any method runs.
-    let auth = authenticate(&store, &h, &user_agent, &address);
-    let principal = match auth {
-        Some(Ok(p)) => Some(p),
-        Some(Err(e)) if !matches!(m.access, Access::Open | Access::Setup) => return app_error(&e, id),
-        _ => None,
-    };
-    let renew = match (&principal, &device_cred) {
-        (Some(Principal::Device { .. }), Some(c)) => Some(device_cookie(c)),
-        _ => None,
-    };
+        // Establish the caller in one place, before any method runs.
+        let auth = authenticate(&store, &h, &user_agent, &address);
+        let principal = match auth {
+            Some(Ok(p)) => Some(p),
+            Some(Err(e)) if !matches!(m.access, Access::Open | Access::Setup) => return app_error(&e, id),
+            _ => None,
+        };
+        let renew = match (&principal, &device_cred) {
+            (Some(Principal::Device { .. }), Some(c)) => Some(device_cookie(c)),
+            _ => None,
+        };
 
-    let call = Call {
-        store: &store,
-        state_dir: &st.state_dir,
-        principal,
-        setup_secret: setup_secret.as_deref(),
-        user_agent: &user_agent,
-        address: &address,
-        today: store::today(),
+        let call = Call {
+            store: &store,
+            state_dir: &st.state_dir,
+            principal,
+            setup_secret: setup_secret.as_deref(),
+            user_agent: &user_agent,
+            address: &address,
+            today: store::today(),
+        };
+        (rpc::dispatch(name, &params, &call), renew)
     };
-    match rpc::dispatch(name, &params, &call) {
+    match outcome {
         Ok((result, effect)) => {
-            let cookie = match effect {
-                Effect::SetDeviceCredential(c) => Some(device_cookie(&c)),
-                Effect::ClearDeviceCredential => Some(format!("{COOKIE}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax")),
-                Effect::None => renew,
+            let (result, cookie) = match effect {
+                Effect::SetDeviceCredential(c) => (result, Some(device_cookie(&c))),
+                Effect::ClearDeviceCredential => (result, Some(format!("{COOKIE}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax"))),
+                Effect::CheckEmbedding(url) => (probe::check(&url).await.to_json(&url), renew),
+                Effect::None => (result, renew),
             };
             rpc_body(StatusCode::OK, json!({ "jsonrpc": "2.0", "result": result, "id": id }), cookie)
         }
@@ -486,6 +492,16 @@ mod tests {
         assert!(h.contains_key("set-cookie"), "credential is renewed on every visit");
         let (_, v) = rpc(&t, "job.list", json!({}), &[("cookie", &cookie)]).await;
         assert_eq!(v["result"]["jobs"].as_array().unwrap().len(), 1);
+
+        // The embedding check answers for a person, with the store free meanwhile; an http
+        // address is decided without a request.
+        let (_, v) = rpc(&t, "job.checkEmbedding", json!({"entry_url": "http://portal.example.org/"}), &[]).await;
+        assert_eq!(v["error"]["code"], 401);
+        let (_, v) = rpc(&t, "job.checkEmbedding", json!({"entry_url": "ftp://x"}), &[("cookie", &cookie)]).await;
+        assert_eq!(v["error"]["data"]["type"], "entry_url_invalid");
+        let (h, v) = rpc(&t, "job.checkEmbedding", json!({"entry_url": " http://portal.example.org/ "}), &[("cookie", &cookie)]).await;
+        assert_eq!(v["result"], json!({"entry_url": "http://portal.example.org/", "embeddable": false, "finding": "insecure", "detail": "http"}));
+        assert!(h.contains_key("set-cookie"), "the credential is renewed here too");
 
         // Signing out the calling device clears its cookie.
         let (_, v) = rpc(&t, "device.list", json!({}), &[("cookie", &cookie)]).await;

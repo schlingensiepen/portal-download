@@ -17,6 +17,7 @@
 | `src/store.rs` | The store and **every operation**. Operations know nothing of HTTP; they take arguments and return a result or an `OpError`. |
 | `src/rpc.rs` | The method table (the single source for dispatch, access and the machine contract) and the JSON-RPC pass-through. |
 | `src/http.rs` | Routes, content negotiation, JSON-RPC envelope, cookie, security headers. |
+| `src/probe.rs` | The embedding check behind `job.checkEmbedding`: fetches an entry address and judges its framing headers. It runs after the store's lock is released (`Effect::CheckEmbedding` in `src/rpc.rs`, awaited in `src/http.rs`), so a slow portal holds up nobody else. |
 | `src/describe.rs` | Entry page, usage description, anchor skill and OpenRPC contract, rendered with the requesting host. |
 | `src/bootstrap.rs` | The setup window file. |
 | `src/schedule.rs` | Next due date and urgency. |
@@ -29,7 +30,7 @@
 
 ## Rules that hold
 
-- **Every action exists once, in `src/store.rs`.** `src/rpc.rs` only parses params, calls one operation and returns its result. A surface that needs something no operation offers gets a new operation.
+- **Every action exists once, in `src/store.rs`.** `src/rpc.rs` only parses params, calls one operation and returns its result. A surface that needs something no operation offers gets a new operation. The one action that waits on the network, the embedding check, lives in `src/probe.rs` and touches no stored data.
 - **Access is checked in one place** (`admit` in `src/rpc.rs`), before any identifier in the params is resolved, so an error message never reveals whether an object exists. Where an operation checks ownership itself (`device.revoke`), an object the caller may not touch is answered exactly like a missing one.
 - **Store errors reach the caller without detail;** the detail goes to the service log only.
 - **One API address:** `POST /api/` with an unmodified JSON-RPC 2.0 envelope. Methods are named `area.action`, and the table is kept in alphabetical order. Application errors answer HTTP 200, with `error.code` (HTTP semantics), `error.data.type` and an `error.message` that names the next step. Reserved codes are used only for protocol faults.

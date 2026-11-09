@@ -157,8 +157,8 @@ input.invalid { border-color: var(--bad); outline: 1px solid var(--bad); }
   <span data-msg="toast.created" data-i18n="toast.created">Created.</span>
   <span data-msg="toast.deleted" data-i18n="toast.deleted">Deleted.</span>
   <span data-msg="toast.welcome" data-i18n="toast.welcome">Welcome, <span data-field="name"></span>.</span>
-  <span data-msg="toast.popup_blocked" data-i18n="toast.popup_blocked">The window was blocked. Allow pop-ups for this page and click “Run” again.</span>
-  <span data-msg="toast.popup_redirect" data-i18n="toast.popup_redirect">The portal window could not be redirected; close it and click “Run” again.</span>
+  <span data-msg="toast.popup_blocked" data-i18n="toast.popup_blocked">The new tab was blocked. Allow pop-ups for this page and click “Run” again.</span>
+  <span data-msg="toast.popup_redirect" data-i18n="toast.popup_redirect">The portal could not be loaded in the new tab; close it and click “Run” again.</span>
   <span data-msg="toast.choose_file" data-i18n="toast.choose_file">Choose a backup file first.</span>
   <span data-msg="confirm.finish.succeeded" data-i18n="confirm.finish.succeeded">Close “<span data-field="title"></span>” as “succeeded”?</span>
   <span data-msg="confirm.finish.failed" data-i18n="confirm.finish.failed">Close “<span data-field="title"></span>” as “failed”?</span>
@@ -185,6 +185,14 @@ input.invalid { border-color: var(--bad); outline: 1px solid var(--bad); }
   <span data-msg="toast.logins.created.other" data-i18n="toast.logins.created.other"><span data-field="n"></span> jobs created.</span>
   <span data-msg="logins.damaged" data-i18n="logins.damaged">The file is damaged: a quote is not closed.</span>
   <span data-msg="logins.ticked" data-i18n="logins.ticked">ticked: <span data-field="n"></span></span>
+  <span data-msg="embed.checking" data-i18n="embed.checking">Checking whether the portal may be embedded …</span>
+  <span data-msg="embed.allowed" data-i18n="embed.allowed">The portal allows embedding; “Run” shows it on the left. If its login page stays empty there, remove the tick.</span>
+  <span data-msg="embed.x_frame_options" data-i18n="embed.x_frame_options">The portal forbids embedding (X-Frame-Options: <span data-field="detail"></span>); “Run” opens it in a new tab.</span>
+  <span data-msg="embed.frame_ancestors" data-i18n="embed.frame_ancestors">The portal forbids embedding (<span data-field="detail"></span>); “Run” opens it in a new tab.</span>
+  <span data-msg="embed.insecure" data-i18n="embed.insecure">An http address cannot be shown inside this https page; “Run” opens it in a new tab.</span>
+  <span data-msg="embed.status" data-i18n="embed.status">Not checked: the portal answered with status <span data-field="detail"></span>. The tick stays as it is.</span>
+  <span data-msg="embed.unreachable" data-i18n="embed.unreachable">Not checked: the server does not reach the portal. The tick stays as it is.</span>
+  <span data-msg="embed.failed" data-i18n="embed.failed">Not checked: <span data-field="reason"></span></span>
   <span data-msg="logins.progress" data-i18n="logins.progress">Creating … <span data-field="done"></span> of <span data-field="n"></span></span>
   <span data-msg="logins.failure" data-i18n="logins.failure"><span data-field="host"></span> (<span data-field="username"></span>): <span data-field="reason"></span></span>
   <span data-msg="toast.logins.weeks" data-i18n="toast.logins.weeks">Give every ticked login an interval of 1 to 520 whole weeks; the marked rows have none.</span>
@@ -261,7 +269,7 @@ input.invalid { border-color: var(--bad); outline: 1px solid var(--bad); }
   <div class="row"><span data-ref="urgency"></span><span class="muted small" data-ref="schedule"></span></div>
   <div class="muted small" style="margin-top:4px" data-ref="last"><span data-i18n="current.last">Last:</span> <span data-ref="last-outcome"></span> <span data-ref="last-text"></span></div>
   <div style="margin:14px 0 8px">
-    <button class="btn primary wide" type="button" data-action="run"><span data-ref="run-frame" data-i18n="current.run">Run</span><span data-ref="run-window" data-i18n="current.run_window">Run (opens a window)</span></button>
+    <button class="btn primary wide" type="button" data-action="run"><span data-ref="run-frame" data-i18n="current.run">Run</span><span data-ref="run-window" data-i18n="current.run_window">Run (opens a tab)</span></button>
   </div>
   <div data-ref="creds"></div>
   <div data-ref="instructions"></div>
@@ -302,7 +310,7 @@ input.invalid { border-color: var(--bad); outline: 1px solid var(--bad); }
     <tbody data-ref="rows"></tbody>
   </table>
   <p class="muted" data-ref="empty" data-i18n="overview.empty">Create the first job: entry page, login, schedule, and what to file where.</p>
-  <p class="muted small" style="margin-top:20px" data-i18n="overview.hint">The most urgent job is always first on the right; ◀ ▶ pages through. “Run” loads the portal here on the left or, when the portal forbids embedding, in a window of its own.</p>
+  <p class="muted small" style="margin-top:20px" data-i18n="overview.hint">The most urgent job is always first on the right; ◀ ▶ pages through. “Run” loads the portal here on the left or, when the portal forbids embedding, in a new tab.</p>
 </div></template>
 <template id="tpl-overview-row"><tr class="clickable">
   <td data-ref="urgency"></td>
@@ -315,15 +323,15 @@ input.invalid { border-color: var(--bad); outline: 1px solid var(--bad); }
 <template id="tpl-portal-strip"><div class="row grow" style="flex-wrap:nowrap">
   <strong data-field="title"></strong>
   <span class="muted grow ellipsis" data-field="url"></span>
-  <button class="btn link" type="button" data-action="window" data-i18n="portal.open_window">open in a window of its own</button>
+  <button class="btn link" type="button" data-action="window" data-i18n="portal.open_window">open in a new tab</button>
   <button class="btn link" type="button" data-action="close" data-i18n="portal.close">close</button>
 </div></template>
 
 <template id="tpl-running"><div class="pad">
   <h1 data-field="title"></h1>
-  <p data-i18n="running.text">The portal is open in a window of its own, because it does not allow embedding. The work bar on the right stays visible here.</p>
+  <p data-i18n="running.text">The portal is open in a new tab, because it does not allow embedding. Switch back to this tab for the login and to close the run.</p>
   <div class="row">
-    <button class="btn primary" type="button" data-action="reopen" data-i18n="running.reopen">Open the window again</button>
+    <button class="btn primary" type="button" data-action="reopen" data-i18n="running.reopen">Open the portal again</button>
     <button class="btn" type="button" data-action="back" data-i18n="running.back">Back to the overview</button>
   </div>
   <p class="muted small" style="margin-top:16px" data-i18n="running.tip">Tip: if a portal can be embedded after all, tick “The portal may be embedded on the left” under “Edit”.</p>
@@ -341,7 +349,8 @@ input.invalid { border-color: var(--bad); outline: 1px solid var(--bad); }
   <label data-i18n="edit.url">Entry page (URL)</label>
   <input type="url" required placeholder="https://…" data-ref="entry_url">
   <label class="check"><input type="checkbox" data-ref="embeddable"><span data-i18n="edit.embeddable">The portal may be embedded on the left</span></label>
-  <div class="muted small" data-i18n="edit.embeddable_hint">Many portals forbid embedding (security headers). Without the tick, “Run” opens the portal in a window of its own.</div>
+  <div class="muted small"><span data-i18n="edit.embeddable_hint">Many portals forbid embedding (security headers). Without the tick, “Run” opens the portal in a new tab.</span> <button class="btn link" type="button" data-action="check" data-i18n="edit.embeddable_check">check now</button></div>
+  <div class="small" data-ref="embed-result" role="status" hidden></div>
   <div class="row">
     <div class="grow"><label data-i18n="edit.interval">Every how many weeks?</label><input type="number" min="1" max="520" required data-ref="interval_weeks"></div>
     <div class="grow"><label data-i18n="edit.retry">After a failure, due again in … days</label><input type="number" min="1" max="365" required data-ref="retry_days"></div>
@@ -825,16 +834,27 @@ function selectJob(id) {
   if (i >= 0) state.current = i;
 }
 
+/** Runs at most n of the given tasks at once; each promise settles with the task's result, or null when it fails. */
+function limit(n) {
+  let active = 0;
+  const queue = [];
+  const next = () => {
+    if (active >= n || !queue.length) return;
+    const [task, settle] = queue.shift();
+    active++;
+    task().then(settle, () => settle(null)).finally(() => { active--; next(); });
+  };
+  return (task) => new Promise((settle) => { queue.push([task, settle]); next(); });
+}
+
 // ------------------------------------------------------------------ portal (left side)
 function openPortalWindow(url) {
-  const w = Math.round((screen.availWidth || 1280) * 0.75), hgt = screen.availHeight || 800;
-  const win = window.open("", "pd-portal", `popup=yes,width=${w},height=${hgt},left=${screen.availLeft || 0},top=${screen.availTop || 0}`);
+  // A normal tab with the browser's own navigation, not a pop-up without it.
+  const win = window.open("", "_blank");
   if (!win) { toast(msg("toast.popup_blocked"), true); return; }
-  // A new window is still about:blank and ours: cut the way back before loading the portal.
-  // A window reused from an earlier run is on the portal's origin; there opener is not ours to set.
+  // The new tab is still about:blank and ours: cut the way back before loading the portal.
   try { win.opener = null; } catch {}
   try { win.location.href = url; } catch { toast(msg("toast.popup_redirect"), true); return; }
-  try { win.focus(); } catch {}
 }
 function run(job) {
   state.running = job.job_id;
@@ -988,7 +1008,25 @@ async function viewEdit(id) {
   f("password").value = job ? job.password || "" : "";
   f("cancel").href = job ? `#/job/${job.job_id}` : "#/";
   const save = f("save");
+  // The server's verdict on embedding sets the tick; without one the tick stays as it is.
+  let checked = job ? job.entry_url : "";
+  const check = async () => {
+    const url = f("entry_url").value.trim(), out = f("embed-result");
+    if (!/^https?:\/\/\S+$/i.test(url)) return;
+    checked = url;
+    out.textContent = msg("embed.checking"); out.hidden = false;
+    try {
+      const r = await rpc("job.checkEmbedding", { entry_url: url });
+      if (f("entry_url").value.trim() !== url) return;
+      if (r.embeddable !== null) f("embeddable").checked = r.embeddable;
+      out.textContent = msg(`embed.${r.finding}`, { detail: r.detail });
+    } catch (e) {
+      out.textContent = msg("embed.failed", { reason: e.message });
+    }
+  };
+  f("entry_url").addEventListener("change", () => { if (f("entry_url").value.trim() !== checked) check(); });
   return bind(d, {
+    check,
     "toggle-password": () => { const hide = f("password").type === "text"; f("password").type = hide ? "password" : "text"; show(f("pw-show"), hide); show(f("pw-hide"), !hide); },
     delete: async () => {
       if (!(await ask(msg("confirm.job.delete", { title: job.title })))) return;
@@ -1317,11 +1355,15 @@ function viewLogins() {
       list.inert = true;
       let made = 0, inRow = 0, stop = null;
       const failed = [];
+      // The embedding checks run ahead, six at a time; a check that fails leaves the tick off.
+      const slot = limit(6);
+      const verdicts = chosen.map((x) => slot(() => rpc("job.checkEmbedding", { entry_url: x.url })));
       try {
-        for (const x of chosen) {
+        for (const [i, x] of chosen.entries()) {
           create.textContent = msg("logins.progress", { done: made + failed.length, n: chosen.length });
           try {
-            await rpc("job.create", { title: x.host, entry_url: x.url, username: x.username, password: x.password, instructions_md: "", interval_weeks: x.weeks });
+            const v = await verdicts[i];
+            await rpc("job.create", { title: x.host, entry_url: x.url, embeddable: !!(v && v.embeddable), username: x.username, password: x.password, instructions_md: "", interval_weeks: x.weeks });
             made++; inRow = 0; x.picked = false;
           } catch (e) {
             failed.push(msg("logins.failure", { host: x.host, username: x.username || "–", reason: e.message }));

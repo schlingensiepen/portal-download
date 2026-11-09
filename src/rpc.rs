@@ -89,7 +89,7 @@ pub const METHODS: &[Method] = &[
         summary: "Return the whole backup as JSONL text.",
         description: "The first line is the head with format and version; every further line is one record: person, invitation, device, agent, job or run. It holds the portal logins in plain text and the hashes of all accesses, which grant no access; keep the file as carefully as the logins themselves. The same text comes as a file from GET on /backup of this service, with the same credential.",
         params: r#"{}"#,
-        result: r#"{"jsonl":"{\"type\":\"backup\",\"format\":\"portal-download-backup\",\"version\":2,\"created_at\":\"2026-11-06T10:00:00Z\",\"app_version\":\"0.7.1\"}\n…"}"#,
+        result: r#"{"jsonl":"{\"type\":\"backup\",\"format\":\"portal-download-backup\",\"version\":2,\"created_at\":\"2026-11-06T10:00:00Z\",\"app_version\":\"0.7.2\"}\n…"}"#,
     },
     Method {
         name: "backup.import",
@@ -135,6 +135,15 @@ pub const METHODS: &[Method] = &[
         description: "Devices already registered with the invitation keep working; revoke them one by one with device.revoke if needed. The invitation_id comes from user.list. This takes effect: confirm with the user first.",
         params: r#"{"invitation_id":4}"#,
         result: r#"{"invitation_id":4,"withdrawn":true}"#,
+    },
+    Method {
+        name: "job.checkEmbedding",
+        access: Access::Person,
+        abilities: &["jobs.write"],
+        summary: "Check whether a portal may be shown inside the application.",
+        description: "entry_url as for job.create. The server fetches the address, follows up to 10 redirects and reads the framing headers of the page it ends on: a frame-ancestors directive in Content-Security-Policy, otherwise X-Frame-Options. embeddable is true when nothing forbids it, false when the browser would refuse it, null when it could not be checked; finding names the reason (allowed, frame_ancestors, x_frame_options, insecure for an http address, which an https page may not embed, status for an error answer, unreachable), detail the header or status it rests on. A suggestion for the job's embeddable switch: a login page reached later may still forbid embedding. Changes nothing.",
+        params: r#"{"entry_url":"https://portal.example.org/invoices"}"#,
+        result: r#"{"entry_url":"https://portal.example.org/invoices","embeddable":false,"finding":"x_frame_options","detail":"SAMEORIGIN"}"#,
     },
     Method {
         name: "job.complete",
@@ -206,7 +215,7 @@ pub const METHODS: &[Method] = &[
         summary: "Say whether the service is set up and who is calling.",
         description: "setup_required is true while nobody has been invited yet; the entry page then explains the setup. signed_in says whether the call carried a valid device credential or agent token; me describes the caller then, for an agent with its display string and its ability (null until granted).",
         params: r#"{}"#,
-        result: r#"{"name":"portal-download","version":"0.7.1","revision":"a1b2c3d4e5f6","setup_required":false,"signed_in":true,"me":{"kind":"person","user_id":1,"name":"Ada","is_admin":true,"device_id":3,"device_label":"Laptop"}}"#,
+        result: r#"{"name":"portal-download","version":"0.7.2","revision":"a1b2c3d4e5f6","setup_required":false,"signed_in":true,"me":{"kind":"person","user_id":1,"name":"Ada","is_admin":true,"device_id":3,"device_label":"Laptop"}}"#,
     },
     Method {
         name: "setup.createAdmin",
@@ -293,6 +302,8 @@ pub enum Effect {
     None,
     SetDeviceCredential(String),
     ClearDeviceCredential,
+    /// Check the embedding of this address, outside the store's lock; the result replaces the call's.
+    CheckEmbedding(String),
 }
 
 fn p<T: DeserializeOwned>(params: &Value) -> OpResult<T> {
@@ -308,6 +319,11 @@ struct Empty {}
 #[serde(deny_unknown_fields)]
 struct DeviceId {
     device_id: i64,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct EntryUrl {
+    entry_url: String,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -460,6 +476,14 @@ pub fn dispatch(name: &str, params: &Value, c: &Call) -> OpResult<(Value, Effect
                 "signed_in": me.is_some(),
                 "me": me,
             }))
+        }
+        "job.checkEmbedding" => {
+            let a: EntryUrl = p(params)?;
+            let u = a.entry_url.trim();
+            if !(u.starts_with("https://") || u.starts_with("http://")) || u.len() > 2000 || u.contains(char::is_whitespace) {
+                return Err(OpError::bad("entry_url_invalid", "`entry_url` must be a web address starting with https:// (or http://), without spaces. Copy it from the browser's address bar."));
+            }
+            Ok((Value::Null, Effect::CheckEmbedding(u.to_string())))
         }
         "invitation.redeem" => {
             let a: Redeem = p(params)?;

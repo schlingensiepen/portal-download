@@ -1,6 +1,6 @@
 [package]
 name = "portal-download"
-version = "0.7.1"
+version = "0.7.2"
 edition = "2021"
 description = "Intranet workbench that walks a small circle through due portal downloads"
 license = "Apache-2.0"
@@ -22,6 +22,7 @@ pulldown-cmark = { version = "0.12", default-features = false, features = ["html
 ammonia = "4"
 toml = "0.8"
 clap = { version = "4", features = ["derive"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }

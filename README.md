@@ -2,9 +2,9 @@
 
 An intranet workbench for a small, invited circle of people who regularly have to download invoices, statements and other documents from web portals.
 
-The browser window is split in two. The **right quarter** is a work bar showing the most urgent download job: when it is due, the login with copy buttons, and a short Markdown instruction saying what to file where. **◀ ▶** pages through the jobs in order of urgency. **Run** opens the portal on the **left**, either embedded or in a window of its own beside the bar, because many portals forbid being embedded. When everything is downloaded, close the run with **Succeeded** or **Failed**. The next due date follows from that.
+The browser window is split in two. The **right quarter** is a work bar showing the most urgent download job: when it is due, the login with copy buttons, and a short Markdown instruction saying what to file where. **◀ ▶** pages through the jobs in order of urgency. **Run** opens the portal on the **left**, either embedded or, because many portals forbid being embedded, in a new tab of the browser with its full navigation. When everything is downloaded, close the run with **Succeeded** or **Failed**. The next due date follows from that.
 
-**Import logins (Firefox CSV)** above the job list turns logins saved in Firefox into jobs. The browser reads the file that Firefox exports under `about:logins` (*Export Passwords…*) itself and sends nothing until you confirm. It lists host and username of every login, with nothing ticked, because the export holds every saved password. Each ticked login becomes a job named after its host, with the login, no instructions, due today and every four weeks unless you change the weeks in its row. Several logins for one host become several jobs of that name. A login whose host name (case-insensitive; scheme, port and path aside) and username, exactly as written, match a job's entry address and username is marked as already there and cannot be ticked; within the file such duplicates count once, and the entry whose password was changed last wins. A login the service refuses (a password with a line break, for example) stays ticked, and one message after the run lists every refusal with its reason; the others are created.
+**Import logins (Firefox CSV)** above the job list turns logins saved in Firefox into jobs. The browser reads the file that Firefox exports under `about:logins` (*Export Passwords…*) itself and sends nothing until you confirm. It lists host and username of every login, with nothing ticked, because the export holds every saved password. Each ticked login becomes a job named after its host, with the login, the embedding switch the server suggests (see below), no instructions, due today and every four weeks unless you change the weeks in its row. Several logins for one host become several jobs of that name. A login whose host name (case-insensitive; scheme, port and path aside) and username, exactly as written, match a job's entry address and username is marked as already there and cannot be ticked; within the file such duplicates count once, and the entry whose password was changed last wins. A login the service refuses (a password with a line break, for example) stays ticked, and one message after the run lists every refusal with its reason; the others are created.
 
 ## Languages
 
@@ -96,7 +96,7 @@ On a Mac with Apple silicon every runtime takes the `arm64` image, with no emula
    ```text
    portal-download container: certificate SHA-256 fingerprint 3F:A1:…:7C; compare it with what the browser shows before accepting.
    portal-download container: not set up yet. Setup secret: pds_… (valid until 2026-11-08T10:30:00Z); enter it in the browser.
-   portal-download container: portal-download 0.7.1 is ready: https://downloads.intra.example/
+   portal-download container: portal-download 0.7.2 is ready: https://downloads.intra.example/
    ```
 
    Once somebody is set up, the middle line reads `set up: 3 people, 12 jobs.` instead; while nobody administers people, it names the setup secret as well. The secret is valid for 30 minutes. If it has run out, `docker exec portal-download portal-download bootstrap` (with WSLC `wslc exec portal-download portal-download bootstrap`) prints a fresh one. With `PROXY=external` the block has no fingerprint, and the ready line names port 8080 of the container, which the reverse proxy in front reaches by the container's name or its compose service name, for example `http://portal-download:8080/`. Caddy writes only warnings and errors to the log, so the block stands at the end.
@@ -220,9 +220,11 @@ The service describes itself. `GET /` without `Accept: text/html` returns a shor
 Most portals send `X-Frame-Options` or a `frame-ancestors` policy, and the browser then refuses to show them inside another page. Each job therefore has a switch **may be embedded**:
 
 - **On:** the portal loads in a sandboxed frame on the left. The frame may run scripts, submit forms and download, but it may not navigate the workbench away.
-- **Off (the default):** **Run** opens the portal in a window of its own, about three quarters of the screen wide, with no link back to the workbench.
+- **Off:** **Run** opens the portal in a new tab, with the browser's address bar and navigation, and with no link back to the workbench. Switch back to the workbench's tab for the login and to close the run.
 
-Even when embedding is allowed, a portal's login cookies count as third-party cookies inside a frame, and some browsers block them. If a portal logs you out inside the frame, switch the job to a window of its own.
+The service suggests the switch. When the entry address of a job is entered or changed, and for every login of an import, the server fetches the address once, follows its redirects and reads those headers on the page it ends on; **check now** under the switch does it again. An `http` address is never embedded, because the browser refuses it inside the `https` page. The server needs to reach the portals for this; when it cannot, the switch stays as it is. The check sees only the page it lands on: when the portal's login page, reached later, stays empty inside the frame, switch the job off.
+
+Even when embedding is allowed, a portal's login cookies count as third-party cookies inside a frame, and some browsers block them. If a portal logs you out inside the frame, switch the job off as well.
 
 ## Development
 

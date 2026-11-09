@@ -22,6 +22,7 @@ The service writes only the state directory and never its configuration. Run the
 
 - **Inviting:** under **People**, a person with the right to administer people creates the invitation. The link is shown once and is valid for seven days on any number of the invited person's devices. **New invitation** creates a fresh link for an existing person without creating a second one.
 - **A lost device:** revoke that device, either the owner under **My devices** or an administering person under **People**. If the invitation may have leaked and is still open, withdraw it too. Devices that are already registered stay registered.
+- **Connections to the portals:** the service itself connects out only for the embedding check, when a job's entry address is entered or changed and during an import of logins. It fetches that address once, follows up to ten redirects, waits at most ten seconds and reads only the headers. It honours `HTTPS_PROXY` and `NO_PROXY` in its environment. Without a way out the check reports that it could not reach the portal, and the switch stays as it is.
 - **Somebody leaves:** deactivate the person. All their devices stop at the next request.
 - **Locked out (all administering people lost their devices):** run `portal-download bootstrap` on the server, then call `setup.createAdmin` with the printed secret or open the setup form. The form appears in a browser without a device credential only while nobody is set up. With people already set up, use the API:
 
