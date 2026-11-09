@@ -26,41 +26,45 @@ impl Finding {
     }
 }
 
-/// The verdict on the headers of the page the frame would show. A frame-ancestors directive
-/// takes precedence over X-Frame-Options, as in the browsers.
+/// The verdict on the headers of the page the frame would show, as the browsers decide it:
+/// a frame-ancestors directive takes precedence over X-Frame-Options; of X-Frame-Options
+/// only DENY and SAMEORIGIN count, other values are ignored.
 pub fn judge(headers: &HeaderMap) -> Finding {
+    let mut has_ancestors = false;
     for value in headers.get_all(CONTENT_SECURITY_POLICY) {
         let Ok(value) = value.to_str() else { continue };
         // One header may carry several policies, separated by commas; every one must allow it.
         for policy in value.split(',') {
-            for directive in policy.split(';') {
-                let mut words = directive.split_ascii_whitespace();
-                if !words.next().is_some_and(|w| w.eq_ignore_ascii_case("frame-ancestors")) {
-                    continue;
-                }
-                let sources: Vec<&str> = words.collect();
-                let open = sources.iter().any(|s| *s == "*" || s.eq_ignore_ascii_case("https:"));
-                if !open {
-                    return Finding::new(Some(false), "frame_ancestors", directive.trim());
-                }
+            // Within a policy the first frame-ancestors directive counts.
+            let Some(directive) = policy.split(';').find(|d| {
+                d.split_ascii_whitespace().next().is_some_and(|w| w.eq_ignore_ascii_case("frame-ancestors"))
+            }) else {
+                continue;
+            };
+            has_ancestors = true;
+            let open = directive
+                .split_ascii_whitespace()
+                .skip(1)
+                .any(|s| s == "*" || s.eq_ignore_ascii_case("https:") || s.eq_ignore_ascii_case("http:"));
+            if !open {
+                return Finding::new(Some(false), "frame_ancestors", directive.trim());
             }
         }
     }
-    let has_ancestors = headers
-        .get_all(CONTENT_SECURITY_POLICY)
-        .iter()
-        .filter_map(|v| v.to_str().ok())
-        .any(|v| v.to_ascii_lowercase().contains("frame-ancestors"));
     if !has_ancestors {
-        if let Some(v) = headers.get(X_FRAME_OPTIONS) {
-            let v = v.to_str().unwrap_or("").trim();
-            if !v.is_empty() {
-                return Finding::new(Some(false), "x_frame_options", v);
+        for v in headers.get_all(X_FRAME_OPTIONS).iter().filter_map(|v| v.to_str().ok()) {
+            for word in v.split(',').map(str::trim) {
+                if word.eq_ignore_ascii_case("DENY") || word.eq_ignore_ascii_case("SAMEORIGIN") {
+                    return Finding::new(Some(false), "x_frame_options", word.to_ascii_uppercase());
+                }
             }
         }
     }
     Finding::new(Some(true), "allowed", "")
 }
+
+/// At most this many checks wait on the network at once, whoever asks.
+static SLOTS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(8);
 
 fn client() -> &'static reqwest::Client {
     static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
@@ -74,8 +78,9 @@ fn client() -> &'static reqwest::Client {
     })
 }
 
-/// Fetches the address and judges the page it ends on.
+/// Fetches the address and judges the page it ends on; the body is never read.
 pub async fn inspect(url: &str) -> Finding {
+    let _slot = SLOTS.acquire().await.expect("the semaphore stays open");
     match client().get(url).send().await {
         Err(e) => {
             let why = if e.is_timeout() {
@@ -89,11 +94,20 @@ pub async fn inspect(url: &str) -> Finding {
             };
             Finding::new(None, "unreachable", why)
         }
-        Ok(r) if r.status().is_client_error() || r.status().is_server_error() => {
+        // A refusal (401, 403, 404) carries the headers a browser would get too; a server error
+        // or a gateway may not.
+        Ok(r) if r.status().is_server_error() => {
             Finding::new(None, "status", r.status().as_u16().to_string())
         }
+        Ok(r) if downgraded(url, r.url().as_str()) => Finding::new(Some(false), "insecure", r.url().as_str()),
         Ok(r) => judge(r.headers()),
     }
+}
+
+/// Whether an https address ends on an http page, which the https page may not embed.
+fn downgraded(start: &str, end: &str) -> bool {
+    let http = |u: &str| u.get(..7).is_some_and(|s| s.eq_ignore_ascii_case("http://"));
+    !http(start) && http(end)
 }
 
 /// The check for an entry address: an http address is refused inside the https page as
@@ -125,7 +139,16 @@ mod tests {
     fn judges_the_framing_headers() {
         assert_eq!(judge(&h(&[])).embeddable, Some(true));
         assert_eq!(judge(&h(&[("x-frame-options", "SAMEORIGIN")])), Finding::new(Some(false), "x_frame_options", "SAMEORIGIN"));
-        assert_eq!(judge(&h(&[("x-frame-options", "DENY")])).embeddable, Some(false));
+        assert_eq!(judge(&h(&[("x-frame-options", "deny")])), Finding::new(Some(false), "x_frame_options", "DENY"));
+        assert_eq!(judge(&h(&[("x-frame-options", "ALLOW-FROM https://a.example/")])).embeddable, Some(true), "browsers ignore ALLOW-FROM");
+        assert_eq!(judge(&h(&[("x-frame-options", "ALLOWALL")])).embeddable, Some(true));
+        assert_eq!(judge(&h(&[("x-frame-options", "ALLOWALL"), ("x-frame-options", "SAMEORIGIN")])).embeddable, Some(false), "every header counts");
+        assert_eq!(judge(&h(&[("x-frame-options", "ALLOWALL, DENY")])).embeddable, Some(false), "every value counts");
+        assert_eq!(
+            judge(&h(&[("content-security-policy", "frame-ancestors *; frame-ancestors 'none'")])).embeddable,
+            Some(true),
+            "the first directive of a policy counts"
+        );
         let fa = judge(&h(&[("content-security-policy", "default-src 'self'; frame-ancestors 'self' https://a.example")]));
         assert_eq!(fa, Finding::new(Some(false), "frame_ancestors", "frame-ancestors 'self' https://a.example"));
         assert_eq!(judge(&h(&[("content-security-policy", "frame-ancestors 'none'")])).embeddable, Some(false));
@@ -150,13 +173,21 @@ mod tests {
         assert_eq!(judge(&h(&[("content-security-policy", "default-src 'self'")])).embeddable, Some(true));
     }
 
+    #[test]
+    fn an_https_address_that_ends_on_http_is_insecure() {
+        assert!(downgraded("https://a.example/", "http://a.example/login"));
+        assert!(!downgraded("https://a.example/", "https://b.example/login"));
+        assert!(!downgraded("http://a.example/", "http://a.example/login"), "an http start is refused before the request");
+    }
+
     #[tokio::test]
     async fn fetches_follows_redirects_and_judges_the_last_page() {
         let app = Router::new()
             .route("/open", get(|| async { "portal" }))
             .route("/closed", get(|| async { ([("x-frame-options", "DENY")], "portal").into_response() }))
             .route("/moved", get(|| async { Redirect::temporary("/closed") }))
-            .route("/gone", get(|| async { (axum::http::StatusCode::NOT_FOUND, "no").into_response() }));
+            .route("/locked", get(|| async { (axum::http::StatusCode::FORBIDDEN, [("x-frame-options", "SAMEORIGIN")], "no").into_response() }))
+            .route("/broken", get(|| async { (axum::http::StatusCode::BAD_GATEWAY, "no").into_response() }));
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
@@ -164,7 +195,8 @@ mod tests {
         assert_eq!(inspect(&format!("{base}/open")).await.embeddable, Some(true));
         assert_eq!(inspect(&format!("{base}/closed")).await.finding, "x_frame_options");
         assert_eq!(inspect(&format!("{base}/moved")).await.finding, "x_frame_options", "the page after the redirect counts");
-        assert_eq!(inspect(&format!("{base}/gone")).await, Finding::new(None, "status", "404"));
+        assert_eq!(inspect(&format!("{base}/locked")).await.finding, "x_frame_options", "a refusal is judged by its headers");
+        assert_eq!(inspect(&format!("{base}/broken")).await, Finding::new(None, "status", "502"));
         // A port nobody listens on.
         let free = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let dead = format!("http://{}/", free.local_addr().unwrap());

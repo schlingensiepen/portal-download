@@ -844,7 +844,10 @@ function limit(n) {
     active++;
     task().then(settle, () => settle(null)).finally(() => { active--; next(); });
   };
-  return (task) => new Promise((settle) => { queue.push([task, settle]); next(); });
+  const run = (task) => new Promise((settle) => { queue.push([task, settle]); next(); });
+  // Settles what is still waiting with null, without running it.
+  run.clear = () => { for (const [, settle] of queue.splice(0)) settle(null); };
+  return run;
 }
 
 // ------------------------------------------------------------------ portal (left side)
@@ -1009,19 +1012,23 @@ async function viewEdit(id) {
   f("cancel").href = job ? `#/job/${job.job_id}` : "#/";
   const save = f("save");
   // The server's verdict on embedding sets the tick; without one the tick stays as it is.
-  let checked = job ? job.entry_url : "";
-  const check = async () => {
-    const url = f("entry_url").value.trim(), out = f("embed-result");
-    if (!/^https?:\/\/\S+$/i.test(url)) return;
+  let checked = job ? job.entry_url : "", pending = null;
+  const check = () => (pending = verdict());
+  const verdict = async () => {
+    const url = f("entry_url").value.trim(), out = f("embed-result"), tick = f("embeddable");
     checked = url;
+    // A verdict belongs to one address: without a checkable one, none is shown.
+    if (!/^https?:\/\/\S+$/i.test(url)) { out.hidden = true; out.textContent = ""; return; }
     out.textContent = msg("embed.checking"); out.hidden = false;
+    const before = tick.checked;
     try {
       const r = await rpc("job.checkEmbedding", { entry_url: url });
       if (f("entry_url").value.trim() !== url) return;
-      if (r.embeddable !== null) f("embeddable").checked = r.embeddable;
+      // A tick set by hand during the check stays.
+      if (r.embeddable !== null && tick.checked === before) tick.checked = r.embeddable;
       out.textContent = msg(`embed.${r.finding}`, { detail: r.detail });
     } catch (e) {
-      out.textContent = msg("embed.failed", { reason: e.message });
+      if (f("entry_url").value.trim() === url) out.textContent = msg("embed.failed", { reason: e.message });
     }
   };
   f("entry_url").addEventListener("change", () => { if (f("entry_url").value.trim() !== checked) check(); });
@@ -1035,6 +1042,9 @@ async function viewEdit(id) {
     save: async () => {
       save.disabled = true;
       try {
+        // A check still under way decides the tick first; it ends within seconds.
+        if (f("entry_url").value.trim() !== checked) check();
+        await pending;
         const all = {
           title: f("title").value, entry_url: f("entry_url").value.trim(), embeddable: f("embeddable").checked,
           interval_weeks: Number(f("interval_weeks").value), retry_days: Number(f("retry_days").value), next_due: f("next_due").value,
@@ -1376,6 +1386,7 @@ function viewLogins() {
           }
         }
       } finally {
+        slot.clear();
         create.replaceChildren(...label);
         create.disabled = false;
         list.inert = false;
