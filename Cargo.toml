@@ -18,7 +18,7 @@ hex = "0.4"
 base64 = "0.22"
 subtle = "2"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std", "serde"] }
-pulldown-cmark = { version = "0.12", default-features = false, features = ["html"] }
+pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
 ammonia = "4"
 toml = "0.8"
 clap = { version = "4", features = ["derive"] }
