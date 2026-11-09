@@ -249,6 +249,7 @@
   "embed.insecure": "Eine http-Adresse lässt sich in dieser https-Seite nicht anzeigen; „Ausführen“ öffnet sie in einem neuen Tab.",
   "embed.status": "Nicht geprüft: Das Portal antwortete mit Status {detail}. Der Haken bleibt, wie er ist.",
   "embed.unreachable": "Nicht geprüft: Der Server erreicht das Portal nicht. Der Haken bleibt, wie er ist.",
+  "embed.busy": "Nicht geprüft: Es laufen zu viele Prüfungen. Der Haken bleibt, wie er ist; versuche „jetzt prüfen“ später.",
   "embed.failed": "Nicht geprüft: {reason}",
   "logins.progress": "Lege an … {done} von {n}",
   "logins.failure": "{host} ({username}): {reason}",

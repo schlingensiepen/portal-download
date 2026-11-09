@@ -12,7 +12,7 @@ use std::time::Duration;
 pub struct Finding {
     /// true: may be embedded; false: the browser would refuse; None: could not be checked.
     pub embeddable: Option<bool>,
-    /// allowed, x_frame_options, frame_ancestors, insecure, status, unreachable.
+    /// allowed, x_frame_options, frame_ancestors, insecure, status, unreachable, busy.
     pub finding: &'static str,
     pub detail: String,
 }
@@ -80,7 +80,10 @@ fn client() -> &'static reqwest::Client {
 
 /// Fetches the address and judges the page it ends on; the body is never read.
 pub async fn inspect(url: &str) -> Finding {
-    let _slot = SLOTS.acquire().await.expect("the semaphore stays open");
+    // Whoever finds all slots taken for five seconds gets no verdict instead of a longer wait.
+    let Ok(Ok(_slot)) = tokio::time::timeout(Duration::from_secs(5), SLOTS.acquire()).await else {
+        return Finding::new(None, "busy", "");
+    };
     match client().get(url).send().await {
         Err(e) => {
             let why = if e.is_timeout() {
@@ -94,12 +97,12 @@ pub async fn inspect(url: &str) -> Finding {
             };
             Finding::new(None, "unreachable", why)
         }
-        // A refusal (401, 403, 404) carries the headers a browser would get too; a server error
-        // or a gateway may not.
-        Ok(r) if r.status().is_server_error() => {
+        // A refusal (401, 403) carries the headers a browser would get too; a server error, or
+        // an address that does not exist (404, 410), says nothing about the portal.
+        Ok(r) if r.status().is_server_error() || [404, 410].contains(&r.status().as_u16()) => {
             Finding::new(None, "status", r.status().as_u16().to_string())
         }
-        Ok(r) if downgraded(url, r.url().as_str()) => Finding::new(Some(false), "insecure", r.url().as_str()),
+        Ok(r) if downgraded(url, r.url().as_str()) => Finding::new(Some(false), "insecure", "http"),
         Ok(r) => judge(r.headers()),
     }
 }
@@ -187,6 +190,7 @@ mod tests {
             .route("/closed", get(|| async { ([("x-frame-options", "DENY")], "portal").into_response() }))
             .route("/moved", get(|| async { Redirect::temporary("/closed") }))
             .route("/locked", get(|| async { (axum::http::StatusCode::FORBIDDEN, [("x-frame-options", "SAMEORIGIN")], "no").into_response() }))
+            .route("/missing", get(|| async { (axum::http::StatusCode::NOT_FOUND, "no").into_response() }))
             .route("/broken", get(|| async { (axum::http::StatusCode::BAD_GATEWAY, "no").into_response() }));
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
@@ -196,6 +200,7 @@ mod tests {
         assert_eq!(inspect(&format!("{base}/closed")).await.finding, "x_frame_options");
         assert_eq!(inspect(&format!("{base}/moved")).await.finding, "x_frame_options", "the page after the redirect counts");
         assert_eq!(inspect(&format!("{base}/locked")).await.finding, "x_frame_options", "a refusal is judged by its headers");
+        assert_eq!(inspect(&format!("{base}/missing")).await, Finding::new(None, "status", "404"), "a missing page says nothing");
         assert_eq!(inspect(&format!("{base}/broken")).await, Finding::new(None, "status", "502"));
         // A port nobody listens on.
         let free = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

@@ -192,6 +192,7 @@ input.invalid { border-color: var(--bad); outline: 1px solid var(--bad); }
   <span data-msg="embed.insecure" data-i18n="embed.insecure">An http address cannot be shown inside this https page; “Run” opens it in a new tab.</span>
   <span data-msg="embed.status" data-i18n="embed.status">Not checked: the portal answered with status <span data-field="detail"></span>. The tick stays as it is.</span>
   <span data-msg="embed.unreachable" data-i18n="embed.unreachable">Not checked: the server does not reach the portal. The tick stays as it is.</span>
+  <span data-msg="embed.busy" data-i18n="embed.busy">Not checked: too many checks are running. The tick stays as it is; try “check now” later.</span>
   <span data-msg="embed.failed" data-i18n="embed.failed">Not checked: <span data-field="reason"></span></span>
   <span data-msg="logins.progress" data-i18n="logins.progress">Creating … <span data-field="done"></span> of <span data-field="n"></span></span>
   <span data-msg="logins.failure" data-i18n="logins.failure"><span data-field="host"></span> (<span data-field="username"></span>): <span data-field="reason"></span></span>
@@ -1042,7 +1043,7 @@ async function viewEdit(id) {
     save: async () => {
       save.disabled = true;
       try {
-        // A check still under way decides the tick first; it ends within seconds.
+        // A check still under way decides the tick first; it ends within about fifteen seconds.
         if (f("entry_url").value.trim() !== checked) check();
         await pending;
         const all = {
