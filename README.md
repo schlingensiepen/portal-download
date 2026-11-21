@@ -2,9 +2,12 @@
 
 An intranet workbench for a small, invited circle of people who regularly have to download invoices, statements and other documents from web portals.
 
-The workbench fills the browser tab. The **right quarter** is a work bar showing the most urgent download job: when it is due, the login with copy buttons, and a short Markdown instruction saying what to file where. **◀ ▶** pages through the jobs in order of urgency. **Run** opens the portal on the **left**, either embedded, so that the work bar stays beside it, or, because many portals forbid being embedded, in a new tab of the browser with its full navigation; the work bar then stays in the workbench's tab. When everything is downloaded, close the run with **Succeeded** or **Failed**. The next due date follows from that.
+The service keeps the list of download jobs. Two surfaces work with it:
 
-**Import logins (Firefox CSV)** above the job list turns logins saved in Firefox into jobs. The browser reads the file that Firefox exports under `about:logins` (*Export Passwords…*) itself and sends nothing until you confirm. It lists host and username of every login, with nothing ticked, because the export holds every saved password. Each ticked login becomes a job named after its host, with the login, the embedding switch the server suggests (see below), no instructions, due today and every four weeks unless you change the weeks in its row. Several logins for one host become several jobs of that name. A login whose host name (case-insensitive; scheme, port and path aside) and username, exactly as written, match a job's entry address and username is marked as already there and cannot be ticked; within the file such duplicates count once, and the entry whose password was changed last wins. A login the service refuses (a password with a line break, for example) stays ticked, and one message after the run lists every refusal with its reason; the others are created.
+- **The browser extension** for Chrome, Edge and Firefox shows the jobs in the browser's side panel, next to the portal, and works with several instances at once and with a store of its own in the browser. It is the recommended way of working; see [Browser extension](#browser-extension).
+- **The web application** of the service, at its address. It holds the administration and a simple way of working. The **right quarter** is a work bar showing the most urgent download job: when it is due, the login with copy buttons, the last note, and a short Markdown instruction saying what to file where. **◀ ▶** pages through the jobs in order of urgency. **Open the portal** opens it in a new tab of the browser, with its full navigation and no link back. When everything is downloaded, come back to the workbench's tab and close the run with **Succeeded** or **Failed**. The job then stays in sight with its new due date until **Next job**.
+
+**Import logins (Firefox CSV)** above the job list turns logins saved in Firefox into jobs. The browser reads the file that Firefox exports under `about:logins` (*Export Passwords…*) itself and sends nothing until you confirm. It lists host and username of every login, with nothing ticked, because the export holds every saved password. Each ticked login becomes a job named after its host, with the login, no instructions, due today and every four weeks unless you change the weeks in its row. Several logins for one host become several jobs of that name. A login whose host name (case-insensitive; scheme, port and path aside) and username, exactly as written, match a job's entry address and username is marked as already there and cannot be ticked; within the file such duplicates count once, and the entry whose password was changed last wins. A login the service refuses (a password with a line break, for example) stays ticked, and one message after the run lists every refusal with its reason; the others are created.
 
 ## Languages
 
@@ -20,18 +23,64 @@ Every job has an interval in weeks and a retry period in days.
 - **Succeeded:** next due date = the day it was closed + interval in weeks.
 - **Failed:** next due date = the day it was closed + retry days (default 2). The run and its note are kept in the job's history.
 
-## How the secrets are kept
+## Who may do what
 
-- **Portal logins are stored in plain text on the service.** Every person of the circle sees the username and password of every job, copies them with one click and may change them in the job's edit form; a change applies for everybody at once. The protection is the intranet, HTTPS and access by invitation: whoever can read the service's store or its backup can read the logins. Agents see them only with the ability `logins.read`, or as part of the backup with `backup.read`.
-- **Access to the service comes by invitation, with no passwords.** A person with the right to administer people creates an invitation link. It can be opened on each of the invited person's devices within seven days. Every device gets its own credential as an `HttpOnly; Secure; SameSite=Lax` cookie, renewed on every visit. The server stores only its hash. A lost device is revoked on its own, without touching the person's other devices.
-- **Agents work with a token for one ability**, never with a person's access. An agent registers itself with a short introduction and receives a token without any ability plus an eight-letter display string. It tells its user only the display string. A person with the right to administer people then grants exactly one ability under **People**: reading jobs without their logins (`jobs.read`), reading jobs with their logins (`logins.read`, which lists the jobs as well, so such an agent needs no second token), changing jobs including their logins (`jobs.write`), closing runs (`jobs.complete`), or taking the backup (`backup.read`). They can also create a token directly for a script that cannot register itself. No agent administers people, devices or tokens. An agent receives logins only with `logins.read` or as part of the backup with `backup.read`; `jobs.write` sets them but gets jobs back without them. A token nobody grants expires after 24 hours, a granted one after 180 days without use, and any token can be revoked at once. At most ten registrations wait at the same time.
-- **The setup window** is the file `bootstrap.toml` in the state directory. It holds a setup secret and an expiry 30 minutes ahead. Every start writes a fresh one, and `portal-download bootstrap` opens it without a restart. It is the only way to create the first person who administers people, or a new one when all of them have lost their devices. Nobody has to delete it; it closes by itself.
+- **Access to the service comes by invitation, with no passwords.** An invitation link can be opened in each of the invited person's browsers, and in the browser extension, within seven days. Every browser gets its own credential as an `HttpOnly; Secure; SameSite=Lax` cookie, renewed on every visit; the extension gets its own token, which it sends as `Authorization: Bearer`. The server stores only their hashes. A lost device is revoked on its own, without touching the person's other devices. Under **My devices**, *Add to the browser extension* creates a link for a further device of one's own, which serves once within the hour.
+- **Every person works on all jobs.** Three rights add to that, each held or not:
+  - **manage people:** invite, give new invitations, deactivate and delete people, see and revoke every device (**All devices**);
+  - **manage agents:** grant, create and revoke agent tokens (**Agents**);
+  - **manage the backup:** take the full backup; reading one in with its people also needs the right to manage people.
+
+  A right is given or taken away only by someone who holds it, and one active person always holds all three. The first person, created at setup, holds all three.
+- **Portal logins are stored in plain text on the service.** Every person of the circle sees the username and password of every job, copies them with one click and may change them in the job's edit form; a change applies for everybody at once. The protection is the intranet, HTTPS and access by invitation: whoever can read the service's store or a file without a password can read the logins.
+- **Agents work with a token for one role**, never with a person's access. An agent registers itself with a short introduction and receives a token without any role plus an eight-letter display string. It tells its user only the display string. A person, or a token, who manages agents then grants exactly one role under **Agents**:
+
+  | Role | permits |
+  |---|---|
+  | `jobs.read` | reading jobs without their logins |
+  | `jobs.work` | working through jobs: reading them with their logins, closing runs, exporting them |
+  | `jobs.manage` | managing jobs: reading them without their logins, creating, changing and deleting them (setting logins), closing runs, reading files in |
+  | `jobs.all` | everything on jobs |
+  | `backup.read` | taking the full backup |
+  | `people.manage` | managing people, as the right of a person does |
+  | `agents.manage` | managing agent tokens, with exactly the roles the granting person could grant |
+
+  A role is granted only by someone who could hold it: the backup role only by someone with the right to manage the backup, and so on. They can also create a token directly for a script that cannot register itself. An agent receives logins only with `jobs.work`, `jobs.all` or as part of the backup. A token nobody grants expires after 24 hours, a granted one after 180 days without use, and any token can be revoked at once, without touching the tokens it granted. At most ten registrations wait at the same time.
+- **The setup window** is the file `bootstrap.toml` in the state directory. It holds a setup secret and an expiry 30 minutes ahead. Every start writes a fresh one, and `portal-download bootstrap` opens it without a restart. It is the only way to create the first person, or a new one with all rights when all of them have lost their devices. Nobody has to delete it; it closes by itself.
 
 The service has **no start secret** of its own, so there is nothing to set before the first start.
 
-## Backup
+## Exchange and backup
 
-`curl -fsS -H "Authorization: Bearer <token>" https://<host>/backup -o backup.jsonl` fetches everything as one JSONL file. The token is one with the ability `backup.read` (*Take the backup* in the application). When a person creates such a token in the application, it shows this line with the token filled in; over the API, `agent.create` returns the token for the same line. Uploading a backup in the application adds it to what is there and overwrites nothing. **The backup holds the portal logins in plain text**, together with the hashes of all accesses. Protect the way to it: grant `backup.read` only to a script you trust, and keep the file where only those who may see the logins can reach it. Details are in [docs/operating.md](docs/operating.md#backup).
+Every job carries a GUID that identifies it on every instance and in the browser extension's own store. A new entry address makes it a new job for the exchange; the job keeps its history and remembers the address it replaces.
+
+**One file format** serves the exchange and the backup: a ZIP file. Under **Exchange**:
+
+- **Export the jobs** (every person): every job with its login in plain text, its history and the deleted jobs. With a password (at least 8 characters) the file is encrypted with AES-256; without one, the application asks first, because the logins are in plain text.
+- **Full backup** (right to manage the backup): the jobs, and the people, invitations, devices and agent tokens with the hashes of their credentials.
+- **Read a file in**: from this instance, another one or the browser extension. First a preview shows every job of the file in one of three groups:
+  - **taken over, because new:** not known here; it comes with its runs;
+  - **taken over, because the same:** known with equal fields; runs not known here are added, and the due date follows the newest run;
+  - **please decide:** known with differing fields, each shown with both values and when it changed, the newer one preselected (for the due date, the nearer one, when no newer run decides it); or deleted here (bring it back, or leave it out); or a job with a new address that replaces one here (replace it and keep its history, keep both, or leave it out).
+
+  Nothing is read in until you confirm, no run is ever lost, and the same file read in twice asks again only where it still differs. With the right to manage people and the backup, a full backup can bring its people, devices and tokens in beside the existing ones; a person with the name or e-mail of one here comes in with "(Import YYYY-MM-DD)" after the name.
+
+A script fetches the full backup with a token for `backup.read`:
+
+```sh
+curl -fsS -H "Authorization: Bearer $PORTAL_DOWNLOAD_AGENT_TOKEN" -H @/root/backup-header \
+  https://<host>/backup -o portal-download-$(date +%F).zip
+```
+
+The password travels in the header `X-Backup-Password` only, never in the address. `-H @/root/backup-header` reads the header from a file that holds the one line `X-Backup-Password: …`, readable by its owner only, which keeps the password out of the command line and the process list. Without the header the file is not encrypted. When a person creates such a token under **Agents**, the application shows the line with the token filled in. **A file without a password holds the portal logins in plain text**: keep it where only those who may see the logins can reach it. Details are in [docs/operating.md](docs/operating.md#backup).
+
+## Browser extension
+
+The extension shows the due jobs of every service it knows, and of its own store, in one list in the browser's side panel; the portal opens in a normal tab beside it. Download it from the link on the service's overview page, or from the releases of the `portal-download-extension` repository. In Firefox the signed file installs with a click; in Chrome and Edge, unpack the ZIP and load it under *Extensions → Developer mode → Load unpacked*.
+
+**Adding a service:** open an invitation link in the browser, or *Add to the browser extension* under **My devices**, and click **+** in the extension while that tab is open. The extension takes the invitation from the tab's address and asks for permission to reach that one service.
+
+**The certificate:** the extension reaches a service only when the computer trusts its certificate. Chrome and Edge do not count a certificate that was merely accepted on a warning page. A service in the container image offers its own certificate authority for that: download it from the overview page, compare its fingerprint with the one there or in the container's log, and import it once as a trusted root certificate authority (on Windows: double-click the file, *Install certificate*, *Local machine* or *Current user*, store *Trusted Root Certification Authorities*). The authority is limited to the service's name, so it vouches for nothing else. Firefox on Windows and macOS usually trusts the roots of the system; otherwise import it in Firefox's settings under *Privacy & Security → Certificates*, or accept the warning there once, which Firefox also applies to the extension.
 
 ## In a container
 
@@ -87,27 +136,33 @@ In PowerShell (Windows PowerShell 5.1 and PowerShell 7 alike), `Where-Object` wr
 
 On a Mac with Apple silicon every runtime takes the `arm64` image, with no emulation. WSLC publishes a port only on `127.0.0.1` unless an address is given, hence `0.0.0.0:443:443`; the Windows firewall must also let port 443 in. WSLC and `container` start the container again only when told to (`wslc start portal-download`, `container start portal-download`); the volume keeps everything in between, also across a reboot of the machine. The smoke test runs with Docker; the other runtimes are not tested by it. Below, `docker logs`, `docker exec` and `docker cp` stand for the same command of the runtime in use (`wslc logs`, `podman logs`, `container logs` and so on).
 
-`SITE` is the host name or IPv4 address the browsers use: a name that their DNS resolves to this Docker host, or the host's IP address, which then has to stay fixed. Port 443 there must be reachable. The certificate is made for `SITE`; when `SITE` changes, the next start makes a new one (not for a certificate of your own in `/data/tls`). For a trial on the same machine, `SITE=localhost` does. `TZ` is the circle's time zone (see the schedule below). The image holds the service and [Caddy](https://caddyserver.com) in front of it. Everything that has to survive lies in the volume `/data`: the store, the setup file, the certificate and Caddy's working files. Images exist for `amd64` and `arm64`. `docker exec` runs as the image's own user, so `docker exec portal-download portal-download status` (and likewise `check`, `version`, `bootstrap`) needs nothing else.
+`SITE` is the host name or IPv4 address the browsers use: a name that their DNS resolves to this Docker host, or the host's IP address, which then has to stay fixed. Port 443 there must be reachable. The certificate authority and the certificate are made for `SITE`; when `SITE` changes, the next start makes new ones, and the authority has to be imported again (not for a certificate of your own in `/data/tls`). For a trial on the same machine, `SITE=localhost` does. `TZ` is the circle's time zone (see the schedule above). The image holds the service and [Caddy](https://caddyserver.com) in front of it. Everything that has to survive lies in the volume `/data`: the store, the setup file, the certificates and Caddy's working files. Images exist for `amd64` and `arm64`. `docker exec` runs as the image's own user, so `docker exec portal-download portal-download status` (and likewise `check`, `version`, `bootstrap`) needs nothing else.
 
 **First start:**
 
-1. The one-liner above, or `docker logs portal-download` later, shows the ready block, three lines at the end of the start:
+1. The one-liner above, or `docker logs portal-download` later, shows the ready block at the end of the start. While a setup is needed, stars frame it:
 
    ```text
-   portal-download container: certificate SHA-256 fingerprint 3F:A1:…:7C; compare it with what the browser shows before accepting.
-   portal-download container: not set up yet. Setup secret: pds_… (valid until 2026-11-08T10:30:00Z); enter it in the browser.
-   portal-download container: portal-download 0.7.2 is ready: https://downloads.intra.example/
+   portal-download container: ****************************************************************
+   portal-download container: *  SETUP NEEDED: nobody is set up yet
+   portal-download container: ----------------------------------------------------------------
+   portal-download container:    Open:                   https://downloads.intra.example/
+   portal-download container:    Certificate authority:  SHA-256 3B:0E:…:7C
+   portal-download container:                            trust it once: https://downloads.intra.example/ca.crt (compare first)
+   portal-download container:    Setup secret:           pds_…  (valid until 2026-11-08T10:30:00Z; enter it in the browser)
+   portal-download container: ================================================================
+   portal-download container: portal-download 0.8.0 is ready: https://downloads.intra.example/
    ```
 
-   Once somebody is set up, the middle line reads `set up: 3 people, 12 jobs.` instead; while nobody administers people, it names the setup secret as well. The secret is valid for 30 minutes. If it has run out, `docker exec portal-download portal-download bootstrap` (with WSLC `wslc exec portal-download portal-download bootstrap`) prints a fresh one. With `PROXY=external` the block has no fingerprint, and the ready line names port 8080 of the container, which the reverse proxy in front reaches by the container's name or its compose service name, for example `http://portal-download:8080/`. Caddy writes only warnings and errors to the log, so the block stands at the end.
-2. Open `https://<SITE>/`, the address on the ready line. The page also answers under any other name of the machine, such as its IP address or another host name; the browser then warns in addition that the certificate is for another name, and accepting it works the same. So if the clients cannot resolve `SITE`, the page still opens under the IP address, with that second warning, and the ready line shows an address they cannot open; better start the container again with the IP address as `SITE`. Invitation links name the address in the address bar of whoever creates them, so create them under the address the others can open. The browser warns about the certificate: the image created it for `SITE` at first start, valid for 120 days. The running container renews it every 90 days, and the browser then asks once more; until then a page that is open reports that the connection failed, and reloading it brings up the warning. Open the certificate details on the warning page, compare the SHA-256 fingerprint with the one from the log, then accept it. After each renewal the log shows the new fingerprint; `docker exec portal-download openssl x509 -in /data/tls/cert.pem -noout -fingerprint -sha256 -enddate` shows the current one and when it runs out. Tell the browser users in advance that every 90 days they are asked once more.
-3. Enter the setup secret and your name, and continue with the first job. To restore a backup on this instance instead, see [docs/operating.md](docs/operating.md#backup).
+   Once somebody manages people, the block begins with the dashes and the line `READY: set up, 3 people, 12 jobs`, without a setup secret; while nobody manages people, the heading is `SETUP NEEDED: nobody manages people`, with the setup secret. The secret is valid for 30 minutes. If it has run out, `docker exec portal-download portal-download bootstrap` (with WSLC `wslc exec portal-download portal-download bootstrap`) prints a fresh one. With `PROXY=external` the block names no certificate but how the reverse proxy reaches the service: by the container's name or its compose service name, for example `http://portal-download:8080/`. Caddy writes only warnings and errors to the log, so the block stands at the end.
+2. Open `https://<SITE>/`, the address on the ready line. The browser warns about the certificate until the computer trusts the image's certificate authority: download it from `https://<SITE>/ca.crt`, compare its SHA-256 fingerprint with the one in the block, and import it as a trusted root (see [Browser extension](#browser-extension)); the browser extension in Chrome and Edge needs that. Alternatively accept the warning in the browser. The image renews its certificate every 90 days with the same authority, so a browser that trusts the authority never asks again. The page also answers under any other name of the machine, such as its IP address; the browser then warns that the certificate is for another name. So if the clients cannot resolve `SITE`, better start the container again with the IP address as `SITE`. Invitation links name the address in the address bar of whoever creates them, so create them under the address the others can open.
+3. Enter the setup secret and your name, and continue with the first job, or with **Import logins (Firefox CSV)**. To restore a backup on this instance instead, see [docs/operating.md](docs/operating.md#backup).
 
 **Operating it:**
 
-- **Backup with `curl`:** as described under [Backup](#backup). The line the application shows needs `--cacert cert.pem` added, with the certificate from `docker cp portal-download:/data/tls/cert.pem .`. The certificate changes every 90 days, so a job that runs unattended takes it anew right before each run: `docker cp portal-download:/data/tls/cert.pem . && curl --cacert cert.pem …`, on the Docker host. Or write the backup inside the container, copy it out and delete it there, because the file holds the logins in plain text: `docker exec portal-download portal-download backup /data/backup.jsonl`, `docker cp portal-download:/data/backup.jsonl .`, `docker exec portal-download rm /data/backup.jsonl`.
-- **Tags:** without a tag the image is `latest`, the last release. A tag `X.Y` such as `0.4` follows the fixes of one minor version, `X.Y.Z` such as `0.4.0` stays put, `edge` follows the main branch.
-- **Upgrading:** take a backup first, because a store written by a newer version is refused by an older one. Then `docker pull ghcr.io/schlingensiepen/portal-download`, `docker stop portal-download`, `docker rm portal-download`, and the same `docker run` as at first start, with all its options. The volume keeps everything.
+- **Backup with `curl`:** as described under [Exchange and backup](#exchange-and-backup). A machine that does not trust the image's authority adds `--cacert ca.crt`, with the authority from `https://<SITE>/ca.crt`; it stays the same across renewals. Or write the backup inside the container, copy it out and delete it there: `docker exec portal-download portal-download backup /data/backup.zip`, `docker cp portal-download:/data/backup.zip .`, `docker exec portal-download rm /data/backup.zip`.
+- **Tags:** without a tag the image is `latest`, the last release. A tag `X.Y` such as `0.8` follows the fixes of one minor version, `X.Y.Z` such as `0.8.0` stays put, `edge` follows the main branch.
+- **Upgrading:** take a backup first, because a store written by a newer version is refused by an older one. Then `docker pull ghcr.io/schlingensiepen/portal-download`, `docker stop portal-download`, `docker rm portal-download`, and the same `docker run` as at first start, with all its options. The volume keeps everything. Version 0.8 reads no store and no backup of 0.7: it starts empty. Move the old store away (`docker exec portal-download mv /data/portal-download /data/portal-download-0.7` in the old container, or start on a new volume) and import the logins anew.
 - **A certificate of your own** (from an intranet CA, for example): copy it in as the image's user, then restart:
 
   ```sh
@@ -116,7 +171,7 @@ On a Mac with Apple silicon every runtime takes the `arm64` image, with no emula
   docker restart portal-download
   ```
 
-  A certificate you put there is never replaced; the log warns when it does not match `SITE` or runs out within 30 days. Deleting both files makes the image create its own again.
+  A certificate you put there is never replaced, and the image's authority is then not offered; the log warns when it does not match `SITE` or runs out within 30 days. Deleting both files makes the image issue its own again.
 - **A host directory instead of the named volume** must belong to the image's user: `chown -R 10001:10001 <directory>`. Otherwise the container ends with exit code 4 and `docker logs` says why; with `--restart unless-stopped` Docker keeps starting it again until the directory is fixed. With rootless Docker or Podman the UID is mapped, and with SELinux the mount needs `:Z`.
 - **Do not use `--network host`.** The service trusts proxy headers from the loopback interface, which is the container's own only while the container has its own network.
 - **With WSLC or `container`,** check after the first start that the container runs (`wslc ps`, `container ls`). If it ended with exit code 4, the runtime created the volume with another owner; its log names the `chown` that is missing.
@@ -126,7 +181,7 @@ On a Mac with Apple silicon every runtime takes the `arm64` image, with no emula
 ```yaml
 services:
   portal-download:
-    image: ghcr.io/schlingensiepen/portal-download:0.7
+    image: ghcr.io/schlingensiepen/portal-download:0.8
     restart: unless-stopped
     ports:
       - "443:443"
@@ -140,7 +195,7 @@ volumes:
   portal-download:
 ```
 
-**Behind a reverse proxy of your own**, for example Caddy as a second service in the stack: `PROXY=external` starts the service without the Caddy inside the image, with no certificate and no `SITE`. The service then listens on port 8080 of its container and takes scheme, host and client address from the `X-Forwarded-*` headers of whoever reaches it. Publish port 8080 nowhere, so that only the proxy in the same network reaches it. The proxy must send `X-Forwarded-Proto` and `X-Forwarded-Host` and set `X-Forwarded-For` itself; Caddy does all three by default, nginx sends no `X-Forwarded-Host` unless told to.
+**Behind a reverse proxy of your own**, for example Caddy as a second service in the stack: `PROXY=external` starts the service without the Caddy inside the image, with no certificate and no `SITE`. The service then listens on port 8080 of its container and takes scheme, host and client address from the `X-Forwarded-*` headers of whoever reaches it. Publish port 8080 nowhere, so that only the proxy in the same network reaches it. The proxy must send `X-Forwarded-Proto` and `X-Forwarded-Host` and set `X-Forwarded-For` itself; Caddy does all three by default, nginx sends no `X-Forwarded-Host` unless told to. It must pass `OPTIONS` requests to `/api/` on, which the browser extension sends first.
 
 ```yaml
 services:
@@ -154,7 +209,7 @@ services:
       - ./certs:/certs:ro
       - caddy:/data
   portal-download:
-    image: ghcr.io/schlingensiepen/portal-download:0.7
+    image: ghcr.io/schlingensiepen/portal-download:0.8
     restart: unless-stopped
     volumes:
       - portal-download:/data
@@ -176,7 +231,7 @@ downloads.intra.example {
 }
 ```
 
-Caddy sends the `X-Forwarded-*` headers on its own. The image's configuration for `PROXY=external` already sets `listen = "0.0.0.0:8080"` and `trust_forwarded_headers = true`; nothing needs to be mounted. When Caddy runs in another compose project, both must share a Docker network (an `external: true` network in both files), and Caddy reaches the service by its container name. The certificate in `./certs` is yours, from an intranet CA for example; a backup with `curl` goes through Caddy and needs `--cacert` only when the backup machine does not trust that certificate. The ready block with the setup secret is in `docker compose logs portal-download`.
+Caddy sends the `X-Forwarded-*` headers on its own. The image's configuration for `PROXY=external` already sets `listen = "0.0.0.0:8080"` and `trust_forwarded_headers = true`; nothing needs to be mounted. When Caddy runs in another compose project, both must share a Docker network (an `external: true` network in both files), and Caddy reaches the service by its container name. The certificate in `./certs` is yours, from an intranet CA for example; the browser extension needs the computers to trust it. The ready block with the setup secret is in `docker compose logs portal-download`.
 
 ## Running it
 
@@ -190,7 +245,7 @@ cp examples/config.toml my-config.toml
 ./target/release/portal-download --config my-config.toml serve   # run
 ```
 
-The first start logs the setup secret. Open the service in a browser, enter the secret and your name, and accept the invitation on that device. Then create the first download job. Invite the others under **People**.
+The first start logs the setup secret. Open the service in a browser, enter the secret and your name, and accept the invitation in that browser. Then create the first download job. Invite the others under **People**.
 
 Put a reverse proxy with TLS on the same host in front, see [`examples/Caddyfile`](examples/Caddyfile), and run the service as its own user, see [`examples/portal-download.service`](examples/portal-download.service). The service takes `X-Forwarded-For`, `X-Forwarded-Host` and `X-Forwarded-Proto` only from a proxy on the same host (loopback), unless `trust_forwarded_headers = true`, and that proxy must set them itself rather than pass on what the browser sent (Caddy does by default). Details are in [docs/operating.md](docs/operating.md).
 
@@ -202,29 +257,18 @@ Put a reverse proxy with TLS on the same host in front, see [`examples/Caddyfile
 | `check` | Prints every configuration value with its source, and whether the store is usable (JSON). |
 | `status` | Prints counts of people, devices and jobs, the jobs due and the store's structure version (JSON). |
 | `version` | Prints version and the source revision the binary was built from (JSON). |
-| `backup FILE` | Writes the backup (JSONL, the same file as `GET /backup`) to a new file, also while the service runs. Never overwrites. |
+| `backup FILE [--password-file PATH]` | Writes the full backup (a ZIP file, the same as `GET /backup`) to a new file, also while the service runs; with the first line of `PATH` as password it is encrypted. Never overwrites. |
 | `bootstrap [--minutes N]` | Opens the setup window without a restart and prints the setup secret once. |
 
 Exit codes: `0` success · `1` runtime error · `2` wrong arguments · `3` configuration invalid · `4` state directory or store unusable.
 
 ### Configuration
 
-There is one TOML file with three keys, `listen`, `state_dir` and `trust_forwarded_headers` (see [`examples/config.toml`](examples/config.toml)). The file is selected by `--config PATH`, then by `PORTAL_DOWNLOAD_CONFIG`, then from `$XDG_CONFIG_HOME/portal-download/config.toml` (usually `~/.config/…`), then from `/etc/portal-download/config.toml`. Without a file, `listen` is `127.0.0.1:8080` and `state_dir` is `$XDG_STATE_HOME/portal-download` (usually `~/.local/state/portal-download`). All values come from that one file, so it can be versioned and rolled back as a whole. An empty `listen` means the default `127.0.0.1:8080`. An empty `state_dir` aborts the start instead of silently writing somewhere else. `trust_forwarded_headers` is `false` by default: scheme, host and client address are taken from the `X-Forwarded-*` headers only when the request comes from the loopback interface, where the reverse proxy runs. `true` takes them from every sender; set it only when nothing but the reverse proxy reaches the service.
+There is one TOML file with four keys, `listen`, `state_dir`, `trust_forwarded_headers` and `ca_certificate` (see [`examples/config.toml`](examples/config.toml)). The file is selected by `--config PATH`, then by `PORTAL_DOWNLOAD_CONFIG`, then from `$XDG_CONFIG_HOME/portal-download/config.toml` (usually `~/.config/…`), then from `/etc/portal-download/config.toml`. Without a file, `listen` is `127.0.0.1:8080` and `state_dir` is `$XDG_STATE_HOME/portal-download` (usually `~/.local/state/portal-download`). All values come from that one file, so it can be versioned and rolled back as a whole. An empty `listen` means the default `127.0.0.1:8080`. An empty `state_dir` aborts the start instead of silently writing somewhere else. `trust_forwarded_headers` is `false` by default: scheme, host and client address are taken from the `X-Forwarded-*` headers only when the request comes from the loopback interface, where the reverse proxy runs. `true` takes them from every sender; set it only when nothing but the reverse proxy reaches the service. `ca_certificate` names the PEM file of the authority that issued the reverse proxy's certificate; the service then offers it at `/ca.crt` and shows its fingerprint on the overview page. Leave it out when the computers trust the certificate already.
 
 ## For agents and scripts
 
-The service describes itself. `GET /` without `Accept: text/html` returns a short plain-text entry page that links to the usage description (`/describe/usage`), the machine contract in OpenRPC form (`/describe/api`) and an anchor skill (`/describe/skill`). Every URL there is rendered with the host the request arrived on. The API is JSON-RPC 2.0 at `POST /api/`. An agent finds there how to register, where to keep its token (`PORTAL_DOWNLOAD_AGENT_TOKEN`) and the rules for handling it.
-
-## Embedding portals
-
-Most portals send `X-Frame-Options` or a `frame-ancestors` policy, and the browser then refuses to show them inside another page. Each job therefore has a switch **may be embedded**:
-
-- **On:** the portal loads in a sandboxed frame on the left. The frame may run scripts, submit forms and download, but it may not navigate the workbench away.
-- **Off:** **Run** opens the portal in a new tab, with the browser's address bar and navigation, and with no link back to the workbench. Switch back to the workbench's tab for the login and to close the run. Each **Run** and **Open the portal again** opens a further tab.
-
-The service suggests the switch. When the entry address of a job is entered or changed, and for every login of an import, the server fetches the address once, follows its redirects and reads those headers on the page it ends on; **check now** under the switch does it again, also for a job created before the service checked, whose switch stays as it was until then. For an `http` address, or one that leads on to an `http` page, it suggests off, because the browser refuses such a page inside the `https` page. A page answering with a refusal (401, 403) is judged by its headers like any other; an address that does not exist (404, 410), a server error, or no answer leaves the switch as it is. The server needs to reach the portals for this; when it cannot, the switch stays as it is. The check sees only the page it lands on: when the portal's login page, reached later, stays empty inside the frame, switch the job off.
-
-Even when embedding is allowed, a portal's login cookies count as third-party cookies inside a frame, and some browsers block them. If a portal logs you out inside the frame, switch the job off as well.
+The service describes itself. `GET /` without `Accept: text/html` returns a short plain-text entry page that links to the usage description (`/describe/usage`), the machine contract in OpenRPC form (`/describe/api`) and an anchor skill (`/describe/skill`). Every URL there is rendered with the host the request arrived on. The API is JSON-RPC 2.0 at `POST /api/`. An agent finds there how to register, where to keep its token (`PORTAL_DOWNLOAD_AGENT_TOKEN`) and the rules for handling it. `service.status` names the contract version (major and minor, such as `0.8`); a caller built for another one says so.
 
 ## Development
 
@@ -232,13 +276,12 @@ Even when embedding is allowed, a portal's login cookies count as third-party co
 cargo test
 ```
 
-The tests include the checks that hold the service's self-description:
-- every method has a description and examples;
-- no delivered text carries hindsight, internal identifiers or foreign hosts;
-- the usage description names no operation;
-- every placeholder names the call that yields it.
+The tests include:
+- the scenarios in `contract-tests/`, which every backend of jobs passes, this service as well as the browser extension's own store;
+- the checks that hold the service's self-description: every method has a description and examples; no delivered text carries hindsight, internal identifiers or foreign hosts; the usage description names no operation; every placeholder names the call that yields it;
+- the rules for the building blocks and translations of the web application.
 
-Each of these, and the tests for access, sanitizing, the last-administrator guard and the schedule, was seen to fail once with its safeguard removed. See [AGENTS.md](AGENTS.md) for how to work on this repository.
+Each of these, and the tests for access, rights and roles, the exchange, sanitizing and the schedule, was seen to fail once with its safeguard removed. See [AGENTS.md](AGENTS.md) for how to work on this repository.
 
 ## License
 
