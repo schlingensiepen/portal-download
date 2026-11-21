@@ -178,13 +178,16 @@ echo "step 4: docker stop ends the container in ${seconds}s with exit code 0"
 
 step="5 (new container, same volume)"
 docker rm "$name" >/dev/null
+# A stop just before the note of the image's own certificate was written: the certificate of
+# the image's authority still counts as its own, and the authority stays offered.
+docker run --rm -v "$volume:/data" --entrypoint rm "$image" -f /data/tls/generated
 start
 wait_up
 users=$(docker exec "$name" portal-download status | jq -r .store.users)
 [ "$users" = 1 ] || fail "the new container sees $users people, expected 1 from the volume"
 after=$(fingerprint)
 [ "$after" = "$before" ] || fail "the certificate changed: $before became $after"
-curl -ksSf --max-time 5 "$base/ca.crt" | cmp -s - "$work/ca.der" || fail "the certificate authority changed with the container"
+curl -ksSf --max-time 5 "$base/ca.crt" | cmp -s - "$work/ca.der" || fail "the certificate authority changed with the container, or is no longer offered"
 ready_log
 block=$(block_of)
 if [ "$(sed -n 1p <<<"$block")" != "$(printf '%.0s-' {1..64})" ] || [ "$(sed -n 2p <<<"$block")" != "   READY: set up, 1 person, 0 jobs" ]; then

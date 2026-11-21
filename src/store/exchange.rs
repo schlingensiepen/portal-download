@@ -355,6 +355,9 @@ fn parse(content: &str) -> OpResult<File> {
                         return Err(line_error(n, "another job of the file replaces the same job"));
                     }
                 }
+                if !v.get("title").is_some_and(Value::is_string) || !v.get("retry_days").is_some_and(Value::is_u64) || !v.get("next_due").is_some_and(Value::is_string) {
+                    return Err(line_error(n, "a job lacks its title, its retry days or its due date"));
+                }
                 let input = job_input(&v);
                 validate_job(&input, true).map_err(|e| line_error(n, &e.message))?;
                 v["title"] = json!(s(&v, "title").trim());
@@ -846,6 +849,10 @@ impl Store {
                 Case::DeletedHere { .. } => {
                     if action(&["reactivate", "skip"], "skip")? == "reactivate" {
                         tx.execute("DELETE FROM deleted_jobs WHERE guid = ?1", [it.guid()])?;
+                        // Brought back as the replacement of a job deleted here: the old GUID now leads to it.
+                        if let Some(old) = opt(&it.record, "replaces") {
+                            tx.execute("UPDATE deleted_jobs SET replaced_by = ?1 WHERE guid = ?2 AND replaced_by IS NULL", params![it.guid(), old])?;
+                        }
                         let id = insert_job(&tx, &it.record)?;
                         bump(&mut done, "runs_added", insert_runs(&tx, id, &it.new_runs)?);
                         bump(&mut done, "reactivated", 1);
@@ -1279,6 +1286,16 @@ mod tests {
         let g = "0b6f3c1e-5d2a-4c8e-9f10-2a3b4c5d6e7f";
         let e = s.import_preview(&a, &file_of(&[job_line(g, "A", "2026-11-06T12:00:00Z"), job_line(g, "B", "2026-11-06T12:00:00Z")]), None, ImportMode::Jobs).err().unwrap();
         assert!(e.kind == "file_invalid" && e.message.contains("Line 3"), "{}", e.message);
+    }
+
+    #[test]
+    fn a_job_in_a_file_names_its_retry_days_and_due_date() {
+        let s = Store::open_in_memory().unwrap();
+        let a = admin(&s);
+        let mut j = job_line("0b6f3c1e-5d2a-4c8e-9f10-2a3b4c5d6e7f", "A", "2026-11-06T12:00:00Z");
+        j.as_object_mut().unwrap().remove("retry_days");
+        let e = s.import_preview(&a, &file_of(&[j]), None, ImportMode::Jobs).err().unwrap();
+        assert!(e.kind == "file_invalid" && e.message.contains("retry days"), "{}", e.message);
     }
 
     #[test]

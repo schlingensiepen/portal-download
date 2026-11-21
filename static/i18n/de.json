@@ -164,6 +164,7 @@
   "invite.extension.title": "In der Browser-Erweiterung",
   "invite.here.title": "In diesem Browser",
   "invite.label": "Wie soll dieses Gerät heißen?",
+  "invite.other": "Du bist in diesem Browser angemeldet. Wer hier annimmt, meldet diesen Browser als die Person an, für die der Link ist.",
   "invite.own": "Dieser Link ist für ein weiteres Gerät von dir, hier die Browser-Erweiterung. Er gilt einmal, innerhalb einer Stunde.",
   "invite.submit": "Einladung in diesem Browser annehmen",
   "invite.text": "Dieser Browser bekommt einen eigenen Zugang. Den Link kannst du auf jedem deiner Geräte öffnen.",

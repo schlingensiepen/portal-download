@@ -34,6 +34,7 @@ mutations=(
     "4|the stop signal is not passed on|sed -i 's|^trap stop TERM INT|:|' /usr/local/bin/start.sh"
     "5|the state lies outside the volume|sed -i 's|^state_dir = .*|state_dir = \"/tmp/portal-download\"|' /etc/portal-download/config.toml"
     "5|the block says not set up although somebody is|sed -i 's|^    if \[ \"\$users\" = 0 \]; then|    if true; then|' /usr/local/bin/start.sh"
+    "5|a certificate of the image's authority counts as the operator's without its note|sed -i 's/^        || { \[ -s \"\$TLS\/ca.pem\" \] && \[ -s \"\$TLS\/ca-site\" \] && openssl verify -CAfile \"\$TLS\/ca.pem\" \"\$TLS\/cert.pem\" >\/dev\/null 2>\&1; }; then/        ; then/' /usr/local/bin/start.sh"
     "5|the authority is created anew at every start|sed -i 's|^    certificate start\$|    rm -f \"\$TLS/ca.pem\"; certificate start|' /usr/local/bin/start.sh"
     "5|the certificate is created anew at every start|sed -i 's|^    certificate start\$|    rm -f \"\$TLS/cert.pem\"; certificate start|' /usr/local/bin/start.sh"
     "6|the backup does not reach the service|awk '/reverse_proxy/ { print \"\\trespond /backup 404\" } 1' /etc/caddy/Caddyfile > /tmp/Caddyfile && cp /tmp/Caddyfile /etc/caddy/Caddyfile"

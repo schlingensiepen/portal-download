@@ -661,11 +661,17 @@ input.invalid { border-color: var(--bad); outline: 1px solid var(--bad); }
     <h3 data-i18n="invite.extension.title">In the browser extension</h3>
     <p class="small" data-i18n="invite.extension.text">Keep this page open and click “+” in the extension: it takes the invitation from the address bar of this tab.</p>
     <p class="small" data-ref="own" data-i18n="invite.own">This link is for a further device of yours, here the browser extension. It serves once, within the hour.</p>
+    <div data-ref="ca">
+      <p class="small" style="margin-bottom:4px" data-i18n="ca.text">The extension in Chrome and Edge needs this service's certificate authority as a trusted root on the computer, imported once. Compare the fingerprint before importing:</p>
+      <div class="secret-once" data-field="ca_fingerprint" translate="no"></div>
+      <a class="btn" style="margin-top:8px" data-ref="ca-link" download data-i18n="ca.download">Download the certificate authority</a>
+    </div>
     <a class="btn" target="_blank" rel="noopener noreferrer" data-ref="extension-link" data-i18n="extension.download">Download the extension</a>
   </div>
   <form class="card" data-ref="here" data-action="accept">
     <h3 data-i18n="invite.here.title">In this browser</h3>
     <p class="small" data-i18n="invite.text">This browser gets an access of its own. You can open the link on each of your devices.</p>
+    <p class="small" data-ref="other" data-i18n="invite.other">You are signed in on this browser. Accepting here signs this browser in as the person the link is for.</p>
     <label data-i18n="invite.label">What should this device be called?</label>
     <input type="text" required maxlength="80" data-ref="label">
     <div style="margin-top:16px"><button class="btn primary" type="submit" data-ref="submit" data-i18n="invite.submit">Accept the invitation in this browser</button></div>
@@ -1246,6 +1252,7 @@ async function viewPeople() {
     const within = reaches(u.rights);
     show(ref(card, "delete"), within && u.user_id !== state.me.user_id);
     for (const r of ["reinvite", "active", "rights"]) card.querySelectorAll(`[data-action="${r}"]`).forEach((b) => (b.disabled = !within));
+    if (!within) for (const c of ref(card, "rights").querySelectorAll("input")) c.disabled = true;
     const rights = rightsBox(u.rights);
     ref(card, "rights").append(rights.box);
     bind(card, {
@@ -1261,14 +1268,14 @@ async function viewPeople() {
     for (const dev of u.devices) {
       const tr = put(T("tpl-person-device"), { label: dev.label, seen: fmtDateTime(dev.last_seen_at), address: dev.last_address });
       ref(tr, "kind").append(kindChip(dev.kind));
-      show(ref(tr, "revoked"), !!dev.revoked_at); show(ref(tr, "revoke"), !dev.revoked_at);
+      show(ref(tr, "revoked"), !!dev.revoked_at); show(ref(tr, "revoke"), !dev.revoked_at && within);
       bind(tr, { revoke: act(msg("confirm.person.device", { label: dev.label, name: u.name }), () => rpc("device.revoke", { device_id: dev.device_id })) });
       ref(card, "rows").append(tr);
     }
     for (const i of u.invitations) {
       const tr = put(T("tpl-person-invitation"), { id: i.invitation_id, created: fmtDateTime(i.created_at), by: i.created_by, expires: fmtDateTime(i.expires_at) });
       ref(tr, "state").append(stateChip("invitation.state", i.state));
-      show(ref(tr, "withdraw"), i.state === "open");
+      show(ref(tr, "withdraw"), i.state === "open" && within);
       bind(tr, { withdraw: act(msg("confirm.invitation.withdraw"), () => rpc("invitation.withdraw", { invitation_id: i.invitation_id })) });
       ref(card, "rows").append(tr);
     }
@@ -1609,6 +1616,7 @@ function viewInvite(token) {
   show(ref(d, "signed-in"), !!state.me);
   show(ref(d, "own"), own);
   show(ref(d, "here"), !own);
+  show(ref(d, "other"), !!state.me && !own);
   const submit = ref(d, "submit");
   return bind(d, {
     accept: async () => {
