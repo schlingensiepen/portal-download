@@ -23,6 +23,7 @@ mutations=(
     "1|another name is led to SITE instead of served|sed -i 's|reverse_proxy 127.0.0.1:8080|redir https://{\\\$SITE}{uri} 307|' /etc/caddy/Caddyfile"
     "1|the authority is not limited to SITE|sed -i 's|^        -addext \"nameConstraints=critical,\$nc\" \\\\|        \\\\|' /usr/local/bin/start.sh"
     "1|the name constraint leaves addresses open|sed -i 's|,permitted;IP:0.0.0.0/255.255.255.255\"|\"|' /usr/local/bin/start.sh"
+    "10|the name constraint of an address leaves host names open|sed -i 's|,permitted;DNS:invalid\"|\"|' /usr/local/bin/start.sh"
     "1|the certificate is not issued by the authority|sed -i 's|-CA \"\$TLS/ca.pem\" -CAkey \"\$TLS/ca.key\"|-key \"\$TLS/key.pem.new\"|' /usr/local/bin/start.sh"
     "1|the authority is not offered at /ca.crt|sed -i 's|^ca_certificate = .*|ca_certificate = \"\"|' /etc/portal-download/config.toml"
     "1|the block is not framed|sed -i 's|^        say \"\$STARS\"|        :|' /usr/local/bin/start.sh"
@@ -38,7 +39,7 @@ mutations=(
     "6|the backup does not reach the service|awk '/reverse_proxy/ { print \"\\trespond /backup 404\" } 1' /etc/caddy/Caddyfile > /tmp/Caddyfile && cp /tmp/Caddyfile /etc/caddy/Caddyfile"
     "7|the running container never checks the certificate|sed -i 's|^    sleep \"\$CHECK_SECONDS\" &|    sleep 100000 \&|' /usr/local/bin/start.sh"
     "7|Caddy keeps the old certificate after a renewal|sed -i 's|^            if \[ \$? = 10 \]; then|            if false; then|' /usr/local/bin/start.sh"
-    "7|a certificate of the operator's is replaced like the image's own|sed -i 's|\|\| \[ \"\$(cat \"\$TLS/generated\" 2>/dev/null)\" = \"\$(fingerprint)\" \]; then|\|\| true; then|' /usr/local/bin/start.sh"
+    "7|a certificate of the operator's is replaced like the image's own|sed -i 's|^    if \[ ! -s \"\$TLS/cert.pem\" \] \|\| \[ ! -s \"\$TLS/key.pem\" \]|    if true \|\| [ ! -s \"\$TLS/cert.pem\" ]|' /usr/local/bin/start.sh"
     "7|the authority stays offered beside the operator's certificate|sed -i 's|^        rm -f \"\$TLS/public/ca.crt\"|        :|' /usr/local/bin/start.sh"
     "7|the certificate is valid for ten years|sed -i 's|^CERT_DAYS=120|CERT_DAYS=3650|' /usr/local/bin/start.sh"
     "8|PROXY=external still starts Caddy|sed -i 's|^if \[ \"\$PROXY\" = external \]; then|if false; then|' /usr/local/bin/start.sh"
@@ -51,7 +52,7 @@ mutations=(
     "9|the check for a missing SITE is gone|sed -i '/SITE is not set/{n;s/exit 3/:/}' /usr/local/bin/start.sh"
     "9|the check of the form of SITE is gone|sed -i '/is neither a host name/{n;s/exit 3/:/}' /usr/local/bin/start.sh"
     "9|the check of the interval is gone|sed -i 's|^    if ! \[\[ \"\$CHECK_SECONDS\" =~ .*|    if false; then|' /usr/local/bin/start.sh"
-    "10|the authority's name holds SITE and fails for a long one|sed -i 's|-subj \"/O=portal-download/CN=portal-download authority\"|-subj \"/CN=portal-download authority for \$SITE\"|' /usr/local/bin/start.sh"
+    "10|the authority's name holds SITE and fails for a long one|sed -i 's|-subj \"/O=portal-download/OU=\$(openssl rand -hex 4)/CN=portal-download authority\"|-subj \"/CN=portal-download authority for \$SITE\"|' /usr/local/bin/start.sh"
     "9|the check of PROXY is gone|sed -i '/is not a mode/{n;s/exit 3/:/}' /usr/local/bin/start.sh"
 )
 

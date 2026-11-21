@@ -123,7 +123,7 @@ new_authority() {
     local nc
     if [[ "$san" == IP:* ]]; then nc="permitted;IP:$SITE/255.255.255.255,permitted;DNS:invalid"; else nc="permitted;DNS:$SITE,permitted;IP:0.0.0.0/255.255.255.255"; fi
     if ! (umask 077 && openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes \
-        -days "$CA_DAYS" -subj "/O=portal-download/CN=portal-download authority" \
+        -days "$CA_DAYS" -subj "/O=portal-download/OU=$(openssl rand -hex 4)/CN=portal-download authority" \
         -addext "basicConstraints=critical,CA:TRUE,pathlen:0" -addext "keyUsage=critical,keyCertSign,cRLSign" \
         -addext "nameConstraints=critical,$nc" \
         -keyout "$TLS/ca.key.new" -out "$TLS/ca.pem.new" 2>/dev/null); then
@@ -164,7 +164,10 @@ certificate() {
         say "cannot create $TLS."
         return 1
     fi
-    if [ ! -s "$TLS/cert.pem" ] || [ ! -s "$TLS/key.pem" ] || [ "$(cat "$TLS/generated" 2>/dev/null)" = "$(fingerprint)" ]; then
+    # Ours: noted in "generated", or issued by the image's authority (a stop before "generated"
+    # was written leaves it behind).
+    if [ ! -s "$TLS/cert.pem" ] || [ ! -s "$TLS/key.pem" ] || [ "$(cat "$TLS/generated" 2>/dev/null)" = "$(fingerprint)" ] \
+        || { [ -s "$TLS/ca.pem" ] && [ -s "$TLS/ca-site" ] && openssl verify -CAfile "$TLS/ca.pem" "$TLS/cert.pem" >/dev/null 2>&1; }; then
         # Ours, or none yet: the authority first, then the certificate it issues.
         if [ ! -s "$TLS/ca.pem" ] || [ ! -s "$TLS/ca.key" ] || [ "$(cat "$TLS/ca-site" 2>/dev/null)" != "$SITE" ] \
             || ! openssl x509 -in "$TLS/ca.pem" -noout -checkend "$CA_RENEW_SECONDS" >/dev/null 2>&1; then

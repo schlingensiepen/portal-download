@@ -68,6 +68,20 @@ block_of() {
             for (i = start; i <= last; i++) print line[i]
         }'
 }
+# Even with the authority's key, a certificate for another host name or an address fails the
+# name constraint. The test certificate must be issued first, or the check proves nothing.
+foreign_names_fail() {
+    local other
+    for other in DNS:evil.example IP:192.0.2.1; do
+        docker exec "$name" sh -c "cd /tmp && rm -f e.pem && openssl req -new -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -subj /O=x -keyout e.key -out e.csr 2>/dev/null \
+            && printf 'subjectAltName=$other\n' > e.ext \
+            && openssl x509 -req -in e.csr -CA /data/tls/ca.pem -CAkey /data/tls/ca.key -set_serial 7 -days 1 -extfile e.ext -out e.pem 2>/dev/null" \
+            || fail "could not issue a test certificate for $other with the authority"
+        if docker exec "$name" openssl verify -CAfile /data/tls/ca.pem /tmp/e.pem >/dev/null 2>&1; then
+            fail "a certificate for $other issued by the authority passes; the name constraint does not shut it out"
+        fi
+    done
+}
 # Reads the container's log into $log once it holds the ready line, which ends the block.
 # Called directly, not in $(…), so that fail() reaches the output and ends the test.
 ready_log() {
@@ -102,15 +116,8 @@ grep -qx "   Certificate authority:  SHA-256 ${authority#*=}" <<<"$block" \
     || fail "the block does not name the fingerprint ${authority#*=} of the authority at /ca.crt: $block"
 openssl x509 -in "$work/ca.pem" -noout -ext nameConstraints 2>/dev/null | grep -q 'DNS:localhost' \
     || fail "the authority is not limited to SITE by a name constraint: $(openssl x509 -in "$work/ca.pem" -noout -text | head -n 40)"
-# Even with the authority's key, a certificate for another host name or an address fails.
-for other in DNS:evil.example IP:192.0.2.1; do
-    if docker exec "$name" sh -c "cd /tmp && openssl req -new -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -subj /O=x -keyout e.key -out e.csr 2>/dev/null \
-        && printf 'subjectAltName=$other\n' > e.ext \
-        && openssl x509 -req -in e.csr -CA /data/tls/ca.pem -CAkey /data/tls/ca.key -set_serial 7 -days 1 -extfile e.ext -out e.pem 2>/dev/null \
-        && openssl verify -CAfile /data/tls/ca.pem e.pem" >/dev/null 2>&1; then
-        fail "a certificate for $other issued by the authority passes; the name constraint does not shut it out"
-    fi
-done
+foreign_names_fail
+
 curl -sSf --max-time 5 --cacert "$work/ca.pem" -o /dev/null "$base/" \
     || fail "a client that trusts the authority does not accept the served certificate for localhost"
 [[ "$block" =~ Setup\ secret:\ +(pds_[^\ ]+)\ \ \(valid\ until\ [0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z\; ]] \
@@ -330,6 +337,7 @@ for site in downloads.intra.a-rather-long-name-of-a-department.example 127.0.0.1
     openssl x509 -inform der -in "$work/site-ca.der" -out "$work/site-ca.pem"
     curl -sSf --max-time 5 --cacert "$work/site-ca.pem" --resolve "$site:$port:127.0.0.1" -o /dev/null "https://$site:$port/" \
         || fail "with SITE=$site a client that trusts the authority does not accept the certificate"
+    foreign_names_fail
     docker rm -f "$name" >/dev/null
 done
 echo "step 10: a long host name and an IPv4 address as SITE get an authority and a certificate a client accepts"
