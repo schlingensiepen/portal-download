@@ -153,7 +153,7 @@ input.invalid { border-color: var(--bad); outline: 1px solid var(--bad); }
   <span data-msg="toast.popup_blocked" data-i18n="toast.popup_blocked">The new tab was blocked. Allow pop-ups for this page and click “Open the portal” again.</span>
   <span data-msg="toast.popup_redirect" data-i18n="toast.popup_redirect">The portal could not be loaded in the new tab; close it and click “Open the portal” again.</span>
   <span data-msg="toast.choose_file" data-i18n="toast.choose_file">Choose a file first.</span>
-  <span data-msg="toast.password_short" data-i18n="toast.password_short">A password for the file needs 8 to 200 characters: letters A to Z, digits, punctuation and spaces, no umlauts.</span>
+  <span data-msg="toast.password_short" data-i18n="toast.password_short">A password for the file needs 8 to 200 characters: letters A to Z, digits, punctuation and spaces, no umlauts, no space at either end.</span>
   <span data-msg="toast.not_encrypted" data-i18n="toast.not_encrypted">The service did not encrypt the file; nothing was saved.</span>
   <span data-msg="toast.imported" data-i18n="toast.imported">Read in – added: <span data-field="added"></span>, updated: <span data-field="updated"></span>, reactivated: <span data-field="reactivated"></span>, replaced: <span data-field="replaced"></span>, left out: <span data-field="skipped"></span>, runs added: <span data-field="runs"></span>.</span>
   <span data-msg="toast.imported_people" data-i18n="toast.imported_people">People added: <span data-field="people"></span>, devices: <span data-field="devices"></span>, tokens: <span data-field="agents"></span>. Already there, added with “(Import …)”: <span data-field="renamed"></span>.</span>
@@ -169,7 +169,7 @@ input.invalid { border-color: var(--bad); outline: 1px solid var(--bad); }
   <span data-msg="confirm.agent.grant" data-i18n="confirm.agent.grant">Give agent <span data-field="display"></span> the role “<span data-field="role"></span>”? Grant it only if the agent told you exactly this display string.</span>
   <span data-msg="confirm.agent.grant_people" data-i18n="confirm.agent.grant_people">This role lets the agent invite people. It could open such an invitation itself and then work as a person of the circle, with every login.</span>
   <span data-msg="confirm.agent.grant_agents" data-i18n="confirm.agent.grant_agents">This role lets the agent grant waiting registrations, also ones that are not its user's: it must grant only the display string its user names.</span>
-  <span data-msg="agent.created" data-i18n="agent.created">· granted <span data-field="tokens"></span> tokens, invited <span data-field="people"></span> people; revoking this one leaves them as they are</span>
+  <span data-msg="agent.created" data-i18n="agent.created">· tokens granted: <span data-field="tokens"></span>, people invited: <span data-field="people"></span>; revoking this one leaves them as they are</span>
   <span data-msg="confirm.person.delete" data-i18n="confirm.person.delete">Delete <span data-field="name"></span> with all invitations and devices? Their closed runs keep the name.</span>
   <span data-msg="confirm.agent.reject" data-i18n="confirm.agent.reject">Reject the registration <span data-field="display"></span>?</span>
   <span data-msg="confirm.agent.revoke" data-i18n="confirm.agent.revoke">Revoke agent <span data-field="display"></span> at once?</span>
@@ -691,6 +691,11 @@ input.invalid { border-color: var(--bad); outline: 1px solid var(--bad); }
   <p class="muted small" data-field="error"></p>
   <p class="muted small" data-i18n="noaccess.hint">No link (any more)? Ask a person in the circle who manages people for a new invitation.</p>
   <p><a class="btn" target="_blank" rel="noopener noreferrer" data-ref="extension-link" data-i18n="extension.download">Download the extension</a></p>
+  <div data-ref="ca">
+    <p class="small" style="margin-bottom:4px" data-i18n="ca.text">The extension in Chrome and Edge needs this service's certificate authority as a trusted root on the computer, imported once. Compare the fingerprint before importing:</p>
+    <div class="secret-once" data-field="ca_fingerprint" translate="no"></div>
+    <a class="btn" style="margin-top:8px" data-ref="ca-link" download data-i18n="ca.download">Download the certificate authority</a>
+  </div>
 </div></template>
 
 
@@ -859,7 +864,7 @@ async function base64OfFile(file) {
 function filePassword(input) {
   const pw = input.value;
   // It travels in an HTTP header, which carries visible ASCII only.
-  if (pw && (pw.length < 8 || pw.length > 200 || !/^[\x20-\x7e]+$/.test(pw))) { toast(msg("toast.password_short"), true); return null; }
+  if (pw && (pw.length < 8 || pw.length > 200 || !/^[\x20-\x7e]+$/.test(pw) || pw.trim() !== pw)) { toast(msg("toast.password_short"), true); return null; }
   return pw;
 }
 const pwHeader = (pw) => pw ? { "X-Backup-Password": pw } : {};
@@ -921,6 +926,9 @@ const state = { status: null, me: null, jobs: [], today: null, current: 0, done:
 // weeks of a login export live in state.logins and survive a new rendering, so they are not.
 $("#view").addEventListener("input", () => { if (!state.logins) state.dirty = true; });
 const can = (right) => !!(state.me && state.me.rights && state.me.rights[right]);
+const canAll = () => can("people") && can("agents") && can("backup");
+/** Whether the caller holds every right of that person, which acting on them needs. */
+const reaches = (rights) => ["people", "agents", "backup"].every((k) => !rights[k] || can(k));
 
 function route() {
   const f = location.hash.replace(/^#/, "");
@@ -1175,7 +1183,7 @@ async function viewDevices() {
   }
   return bind(d, {
     // The link stays in this tab's address bar, where the extension's "+" reads it.
-    extension: async () => { try { const x = await rpc("invitation.createOwn"); location.hash = "#invite=" + encodeURIComponent(x.invitation_token); } catch (e) { fail(e); } },
+    extension: async () => { try { const x = await rpc("invitation.createOwn"); state.ownLink = x.invitation_token; location.hash = "#invite=" + encodeURIComponent(x.invitation_token); } catch (e) { fail(e); } },
   });
 }
 
@@ -1234,7 +1242,10 @@ async function viewPeople() {
     const card = put(T("tpl-person"), { name: u.name, email: u.email, meta: [rightsText(u.rights), u.created_by ? msg("person.created_by", { name: u.created_by }) : ""].filter(Boolean).join(" · ") });
     show(ref(card, "inactive"), !u.active);
     show(ref(card, "deactivate"), u.active); show(ref(card, "reactivate"), !u.active);
-    show(ref(card, "delete"), u.user_id !== state.me.user_id);
+    // What acts on a person needs every right that person holds.
+    const within = reaches(u.rights);
+    show(ref(card, "delete"), within && u.user_id !== state.me.user_id);
+    for (const r of ["reinvite", "active", "rights"]) card.querySelectorAll(`[data-action="${r}"]`).forEach((b) => (b.disabled = !within));
     const rights = rightsBox(u.rights);
     ref(card, "rights").append(rights.box);
     bind(card, {
@@ -1271,6 +1282,8 @@ async function viewPeople() {
   });
 }
 
+const roleWarning = (role) => role === "people.manage" ? "\n\n" + msg("confirm.agent.grant_people") : role === "agents.manage" ? "\n\n" + msg("confirm.agent.grant_agents") : "";
+
 async function viewAgents() {
   if (!can("agents")) return T("tpl-forbidden");
   const ag = await rpc("agent.list");
@@ -1295,7 +1308,7 @@ async function viewAgents() {
     if (a.granted_by) meta.push(msg("agent.granted_by", { name: a.granted_by }));
     meta.push(a.last_used_at ? msg("agent.last_used", { date: fmtDateTime(a.last_used_at) }) : msg("agent.never_used"));
     // What this token granted or invited stays when it is revoked; it is named here to revoke one by one.
-    const by = (x) => typeof x === "string" && x.startsWith(`Agent ${a.display} `);
+    const by = (x) => typeof x === "string" && (x === `Agent ${a.display}` || x.startsWith(`Agent ${a.display} `));
     const tokens = ag.agents.filter((x) => by(x.granted_by)).length, invited = people.filter((u) => by(u.created_by)).length;
     if (tokens || invited) meta.push(msg("agent.created", { tokens, people: invited }));
     ref(card, "meta").textContent = meta.join(" ");
@@ -1306,8 +1319,7 @@ async function viewAgents() {
     return bind(card, {
       grant: async () => {
         const chosen = pick.value;
-        const warning = chosen === "people.manage" ? "\n\n" + msg("confirm.agent.grant_people") : chosen === "agents.manage" ? "\n\n" + msg("confirm.agent.grant_agents") : "";
-        if (!(await ask(msg("confirm.agent.grant", { display: a.display, role: roleName(chosen) }) + warning))) return;
+        if (!(await ask(msg("confirm.agent.grant", { display: a.display, role: roleName(chosen) }) + roleWarning(chosen)))) return;
         try { await rpc("agent.grant", { agent_id: a.agent_id, role: chosen }); if (chosen === "backup.read") showBackupLine(a.display); else render(); } catch (e) { fail(e); }
       },
       reject: act(msg("confirm.agent.reject", { display: a.display }), () => rpc("agent.revoke", { agent_id: a.agent_id })),
@@ -1325,7 +1337,7 @@ async function viewAgents() {
   return bind(d, {
     "create-token": async () => {
       const role = ref(d, "new-role").value;
-      if (!(await ask(msg("confirm.token.create", { role: roleName(role) })))) return;
+      if (!(await ask(msg("confirm.token.create", { role: roleName(role) }) + roleWarning(role)))) return;
       try { showToken(await rpc("agent.create", { introduction: ref(d, "purpose").value, role })); } catch (e) { fail(e); }
     },
   });
@@ -1335,7 +1347,7 @@ async function viewAgents() {
 function viewExchange() {
   const d = T("tpl-exchange");
   show(ref(d, "backup"), can("backup"));
-  show(ref(d, "full-option"), can("backup") && can("people"));
+  show(ref(d, "full-option"), canAll());
   const download = async (input, fetchIt) => {
     const pw = filePassword(input);
     if (pw === null) return;
@@ -1358,8 +1370,9 @@ function viewExchange() {
     preview: async () => {
       const file = ref(d, "file").files[0];
       if (!file) { toast(msg("toast.choose_file"), true); return; }
-      const full = ref(d, "full").checked && can("backup") && can("people");
-      const pw = ref(d, "import-password").value;
+      const full = ref(d, "full").checked && canAll();
+      const pw = filePassword(ref(d, "import-password"));
+      if (pw === null) return;
       try {
         const zip = await base64OfFile(file);
         const result = await rpc(full ? "backup.importPreview" : "job.importPreview", { zip_base64: zip }, pwHeader(pw));
@@ -1591,10 +1604,11 @@ function viewInvite(token) {
   const d = T("tpl-invite");
   fillExtensionCard(ref(d, "extension"));
   ref(d, "label").value = guessDeviceLabel();
-  // Signed in, the link is one's own for a further device: it is meant for the extension and serves once.
+  // A link one has just created for a further device of one's own is meant for the extension and serves once.
+  const own = state.ownLink === token;
   show(ref(d, "signed-in"), !!state.me);
-  show(ref(d, "own"), !!state.me);
-  show(ref(d, "here"), !state.me);
+  show(ref(d, "own"), own);
+  show(ref(d, "here"), !own);
   const submit = ref(d, "submit");
   return bind(d, {
     accept: async () => {
