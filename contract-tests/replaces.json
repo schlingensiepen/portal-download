@@ -1,0 +1,18 @@
+{
+  "name": "A job with a new address replaces the old one on the other side, and the old file folds into it",
+  "steps": [
+    { "on": "a", "call": "job.create", "params": { "title": "Energy", "entry_url": "https://old.example.org/", "interval_weeks": 4 }, "save": { "a_id": "/job_id", "old": "/guid" } },
+    { "on": "a", "call": "job.complete", "params": { "job_id": "$a_id", "outcome": "succeeded", "note": "run on a" } },
+    { "on": "a", "call": "job.export", "params": {}, "save": { "before": "/zip_base64" } },
+    { "on": "b", "call": "job.import", "params": { "zip_base64": "$before" }, "expect": { "added": 1, "runs_added": 1 } },
+    { "on": "b", "call": "job.list", "params": {}, "save": { "b_id": "/jobs/0/job_id" } },
+    { "on": "b", "call": "job.update", "params": { "job_id": "$b_id", "entry_url": "https://new.example.org/" }, "expect": { "replaces": "$old" }, "save": { "new": "/guid" } },
+    { "on": "b", "call": "job.export", "params": {}, "save": { "after": "/zip_base64" } },
+    { "on": "a", "call": "job.importPreview", "params": { "zip_base64": "$after" },
+      "expect": { "new": [], "same": [], "decide": [ { "guid": "$new", "case": "replaces", "job_id": "$a_id", "replaces_title": "Energy", "local_entry_url": "https://old.example.org/", "new_runs": 0, "actions": [ "replace", "keep_both", "skip" ], "preselect": "replace" } ] } },
+    { "on": "a", "call": "job.import", "params": { "zip_base64": "$after", "decisions": { "$new": { "accept": "preselected" } } }, "expect": { "replaced": 1 } },
+    { "on": "a", "call": "job.get", "params": { "job_id": "$a_id" }, "expect": { "guid": "$new", "replaces": "$old", "entry_url": "https://new.example.org/" } },
+    { "on": "a", "call": "job.history", "params": { "job_id": "$a_id" }, "expect": { "runs": [ { "note": "run on a" } ] } },
+    { "on": "b", "call": "job.importPreview", "params": { "zip_base64": "$before" }, "expect": { "new": [], "same": [ { "guid": "$old", "case": "old_address", "job_id": "$b_id", "local_entry_url": "https://new.example.org/" } ], "decide": [] } }
+  ]
+}

@@ -1,0 +1,149 @@
+{
+  "name": "A due date changed by hand on both sides preselects the nearer one, also when the other side is newer",
+  "steps": [
+    {
+      "on": "a",
+      "call": "job.create",
+      "params": {
+        "title": "Energy",
+        "entry_url": "https://energy.example.org/",
+        "interval_weeks": 4
+      },
+      "save": {
+        "a_id": "/job_id",
+        "guid": "/guid"
+      }
+    },
+    {
+      "on": "a",
+      "call": "job.export",
+      "params": {},
+      "save": {
+        "f": "/zip_base64"
+      }
+    },
+    {
+      "on": "b",
+      "call": "job.import",
+      "params": {
+        "zip_base64": "$f"
+      },
+      "expect": {
+        "added": 1
+      }
+    },
+    {
+      "on": "b",
+      "call": "job.list",
+      "params": {},
+      "save": {
+        "b_id": "/jobs/0/job_id"
+      }
+    },
+    {
+      "on": "b",
+      "call": "job.update",
+      "params": {
+        "job_id": "$b_id",
+        "next_due": "$today+10"
+      }
+    },
+    {
+      "on": "a",
+      "call": "job.update",
+      "params": {
+        "job_id": "$a_id",
+        "next_due": "$today+20"
+      }
+    },
+    {
+      "on": "b",
+      "call": "job.export",
+      "params": {},
+      "save": {
+        "g": "/zip_base64"
+      }
+    },
+    {
+      "on": "a",
+      "call": "job.importPreview",
+      "params": {
+        "zip_base64": "$g"
+      },
+      "expect": {
+        "new": [],
+        "same": [],
+        "decide": [
+          {
+            "guid": "$guid",
+            "new_runs": 0,
+            "fields": [
+              {
+                "field": "next_due",
+                "local": "$today+20",
+                "incoming": "$today+10",
+                "local_changed_at": "$any",
+                "incoming_changed_at": "$any",
+                "preselect": "incoming"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "on": "b",
+      "call": "job.importPreview",
+      "params": {
+        "zip_base64": "$g"
+      },
+      "expect": {
+        "same": [
+          {
+            "guid": "$guid"
+          }
+        ]
+      }
+    },
+    {
+      "on": "a",
+      "call": "job.import",
+      "params": {
+        "zip_base64": "$g",
+        "decisions": {
+          "$guid": {
+            "fields": {}
+          }
+        }
+      },
+      "error": "decision_missing"
+    },
+    {
+      "on": "a",
+      "call": "job.import",
+      "params": {
+        "zip_base64": "$g",
+        "decisions": {
+          "$guid": {
+            "accept": "preselected"
+          }
+        }
+      },
+      "expect": {
+        "updated": 1,
+        "runs_added": 0
+      }
+    },
+    {
+      "on": "a",
+      "call": "job.get",
+      "params": {
+        "job_id": "$a_id"
+      },
+      "expect": {
+        "next_due": "$today+10",
+        "guid": "$uuid"
+      }
+    }
+  ]
+}

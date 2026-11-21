@@ -99,8 +99,7 @@ input.invalid { border-color: var(--bad); outline: 1px solid var(--bad); }
 #toast div.err { background: var(--bad); color: #fff; }
 
 /* stage */
-#portal { position: absolute; inset: 36px 0 0 0; width: 100%; height: calc(100% - 36px); border: 0; background: #fff; }
-#portal-strip { position: absolute; top: 0; left: 0; right: 0; height: 36px; display: flex; align-items: center; gap: 10px; padding: 0 12px; border-bottom: 1px solid var(--line); background: var(--panel); font-size: 13px; }
+.card.done { border-color: var(--ok); }
 #loading { display: flex; align-items: center; justify-content: center; height: 100%; color: var(--muted); padding: 24px; }
 .spinner { width: 18px; height: 18px; border: 3px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: spin 1s linear infinite; margin-right: 10px; flex: none; }
 @keyframes spin { to { transform: rotate(360deg); } }
@@ -111,15 +110,10 @@ input.invalid { border-color: var(--bad); outline: 1px solid var(--bad); }
 #modal .box { background: var(--panel); border-radius: 12px; padding: 22px 24px; width: min(460px, 100%); max-height: 90vh; overflow: auto; }
 [hidden] { display: none !important; }
 </style>
-</head>
 <body>
 <div id="app">
   <main id="stage">
     <div id="loading"><div class="spinner"></div><span data-ref="text" data-i18n="app.loading">Loading …</span></div>
-    <div id="portal-strip" hidden></div>
-    <iframe id="portal" hidden title="Portal" data-i18n-title="portal.frame_title"
-      sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads allow-modals"
-      referrerpolicy="no-referrer"></iframe>
     <section id="view"></section>
   </main>
   <aside id="bar"></aside>
@@ -152,29 +146,36 @@ input.invalid { border-color: var(--bad); outline: 1px solid var(--bad); }
   <span data-msg="retry.other" data-i18n="retry.other">· after a failure, due again in <span data-field="n"></span> days</span>
   <span data-msg="last.by" data-i18n="last.by"><span data-field="when"></span> by <span data-field="by"></span></span>
   <span data-msg="weeks.short" data-i18n="weeks.short"><span data-field="n"></span> wk.</span>
-  <span data-msg="toast.completed" data-i18n="toast.completed">Closed – due again on <span data-field="date"></span>.</span>
   <span data-msg="toast.saved" data-i18n="toast.saved">Saved.</span>
   <span data-msg="toast.created" data-i18n="toast.created">Created.</span>
   <span data-msg="toast.deleted" data-i18n="toast.deleted">Deleted.</span>
   <span data-msg="toast.welcome" data-i18n="toast.welcome">Welcome, <span data-field="name"></span>.</span>
-  <span data-msg="toast.popup_blocked" data-i18n="toast.popup_blocked">The new tab was blocked. Allow pop-ups for this page and click “Run” again.</span>
-  <span data-msg="toast.popup_redirect" data-i18n="toast.popup_redirect">The portal could not be loaded in the new tab; close it and click “Run” again.</span>
-  <span data-msg="toast.choose_file" data-i18n="toast.choose_file">Choose a backup file first.</span>
+  <span data-msg="toast.popup_blocked" data-i18n="toast.popup_blocked">The new tab was blocked. Allow pop-ups for this page and click “Open the portal” again.</span>
+  <span data-msg="toast.popup_redirect" data-i18n="toast.popup_redirect">The portal could not be loaded in the new tab; close it and click “Open the portal” again.</span>
+  <span data-msg="toast.choose_file" data-i18n="toast.choose_file">Choose a file first.</span>
+  <span data-msg="toast.password_short" data-i18n="toast.password_short">A password for the file needs 8 to 200 characters: letters A to Z, digits, punctuation and spaces, no umlauts, no space at either end.</span>
+  <span data-msg="toast.not_encrypted" data-i18n="toast.not_encrypted">The service did not encrypt the file; nothing was saved.</span>
+  <span data-msg="toast.imported" data-i18n="toast.imported">Read in – added: <span data-field="added"></span>, updated: <span data-field="updated"></span>, reactivated: <span data-field="reactivated"></span>, replaced: <span data-field="replaced"></span>, left out: <span data-field="skipped"></span>, runs added: <span data-field="runs"></span>.</span>
+  <span data-msg="toast.imported_people" data-i18n="toast.imported_people">People added: <span data-field="people"></span>, devices: <span data-field="devices"></span>, tokens: <span data-field="agents"></span>. Already there, added with “(Import …)”: <span data-field="renamed"></span>.</span>
   <span data-msg="confirm.finish.succeeded" data-i18n="confirm.finish.succeeded">Close “<span data-field="title"></span>” as “succeeded”?</span>
   <span data-msg="confirm.finish.failed" data-i18n="confirm.finish.failed">Close “<span data-field="title"></span>” as “failed”?</span>
-  <span data-msg="confirm.job.delete" data-i18n="confirm.job.delete">Delete “<span data-field="title"></span>” and its history for good?</span>
+  <span data-msg="confirm.job.delete" data-i18n="confirm.job.delete">Delete “<span data-field="title"></span>” and its history? Reading a file in brings it back only when you choose so.</span>
   <span data-msg="confirm.device.self" data-i18n="confirm.device.self">Sign this device out? Afterwards you need your invitation link again.</span>
   <span data-msg="confirm.device.other" data-i18n="confirm.device.other">Revoke “<span data-field="label"></span>”?</span>
   <span data-msg="confirm.person.device" data-i18n="confirm.person.device">Revoke the device “<span data-field="label"></span>” of <span data-field="name"></span>?</span>
-  <span data-msg="confirm.person.admin_take" data-i18n="confirm.person.admin_take">Withdraw the right to administer people from <span data-field="name"></span>?</span>
-  <span data-msg="confirm.person.admin_give" data-i18n="confirm.person.admin_give">Give <span data-field="name"></span> the right to administer people?</span>
+  <span data-msg="confirm.person.rights" data-i18n="confirm.person.rights">Set the rights of <span data-field="name"></span> to: <span data-field="rights"></span>?</span>
   <span data-msg="confirm.person.deactivate" data-i18n="confirm.person.deactivate">Deactivate <span data-field="name"></span> on all devices?</span>
   <span data-msg="confirm.invitation.withdraw" data-i18n="confirm.invitation.withdraw">Withdraw the invitation? Devices already signed in stay signed in.</span>
-  <span data-msg="confirm.agent.grant" data-i18n="confirm.agent.grant">Give agent <span data-field="display"></span> the right “<span data-field="ability"></span>”? Grant it only if the agent told you exactly this display string.</span>
+  <span data-msg="confirm.agent.grant" data-i18n="confirm.agent.grant">Give agent <span data-field="display"></span> the role “<span data-field="role"></span>”? Grant it only if the agent told you exactly this display string.</span>
+  <span data-msg="confirm.agent.grant_people" data-i18n="confirm.agent.grant_people">This role lets the agent invite people. It could open such an invitation itself and then work as a person of the circle, with every login.</span>
+  <span data-msg="confirm.agent.grant_agents" data-i18n="confirm.agent.grant_agents">This role lets the agent grant waiting registrations, also ones that are not its user's: it must grant only the display string its user names.</span>
+  <span data-msg="agent.created" data-i18n="agent.created">· tokens granted: <span data-field="tokens"></span>, people invited: <span data-field="people"></span>; revoking this one leaves them as they are</span>
+  <span data-msg="confirm.person.delete" data-i18n="confirm.person.delete">Delete <span data-field="name"></span> with all invitations and devices? Their closed runs keep the name.</span>
   <span data-msg="confirm.agent.reject" data-i18n="confirm.agent.reject">Reject the registration <span data-field="display"></span>?</span>
   <span data-msg="confirm.agent.revoke" data-i18n="confirm.agent.revoke">Revoke agent <span data-field="display"></span> at once?</span>
-  <span data-msg="confirm.token.create" data-i18n="confirm.token.create">Create a token with the right “<span data-field="ability"></span>”?</span>
-  <span data-msg="confirm.import" data-i18n="confirm.import">Import the backup? Nothing is overwritten: what exists already comes in as “… (Import date)”.</span>
+  <span data-msg="confirm.token.create" data-i18n="confirm.token.create">Create a token with the role “<span data-field="role"></span>”?</span>
+  <span data-msg="confirm.export.plain" data-i18n="confirm.export.plain">Without a password the file holds every login in plain text. Download it anyway?</span>
+  <span data-msg="confirm.import" data-i18n="confirm.import">Read the file in with the choices shown?</span>
   <span data-msg="confirm.lang.discard" data-i18n="confirm.lang.discard">Switching the language discards what you entered here. Switch anyway?</span>
   <span data-msg="confirm.logins.one" data-i18n="confirm.logins.one">Create 1 job with its login? Every person of the circle sees the login.</span>
   <span data-msg="confirm.logins.other" data-i18n="confirm.logins.other">Create <span data-field="n"></span> jobs with their logins? Every person of the circle sees these logins.</span>
@@ -185,26 +186,22 @@ input.invalid { border-color: var(--bad); outline: 1px solid var(--bad); }
   <span data-msg="toast.logins.created.other" data-i18n="toast.logins.created.other"><span data-field="n"></span> jobs created.</span>
   <span data-msg="logins.damaged" data-i18n="logins.damaged">The file is damaged: a quote is not closed.</span>
   <span data-msg="logins.ticked" data-i18n="logins.ticked">ticked: <span data-field="n"></span></span>
-  <span data-msg="embed.checking" data-i18n="embed.checking">Checking whether the portal may be embedded …</span>
-  <span data-msg="embed.allowed" data-i18n="embed.allowed">The portal allows embedding; “Run” shows it on the left. If its login page stays empty there, remove the tick.</span>
-  <span data-msg="embed.x_frame_options" data-i18n="embed.x_frame_options">The portal forbids embedding (X-Frame-Options: <span data-field="detail"></span>); “Run” opens it in a new tab.</span>
-  <span data-msg="embed.frame_ancestors" data-i18n="embed.frame_ancestors">The portal forbids embedding (<span data-field="detail"></span>); “Run” opens it in a new tab.</span>
-  <span data-msg="embed.insecure" data-i18n="embed.insecure">An http address cannot be shown inside this https page; “Run” opens it in a new tab.</span>
-  <span data-msg="embed.status" data-i18n="embed.status">Not checked: the portal answered with status <span data-field="detail"></span>. The tick stays as it is.</span>
-  <span data-msg="embed.unreachable" data-i18n="embed.unreachable">Not checked: the server does not reach the portal. The tick stays as it is.</span>
-  <span data-msg="embed.busy" data-i18n="embed.busy">Not checked: too many checks are running. The tick stays as it is; try “check now” later.</span>
-  <span data-msg="embed.failed" data-i18n="embed.failed">Not checked: <span data-field="reason"></span></span>
   <span data-msg="logins.progress" data-i18n="logins.progress">Creating … <span data-field="done"></span> of <span data-field="n"></span></span>
   <span data-msg="logins.failure" data-i18n="logins.failure"><span data-field="host"></span> (<span data-field="username"></span>): <span data-field="reason"></span></span>
   <span data-msg="toast.logins.weeks" data-i18n="toast.logins.weeks">Give every ticked login an interval of 1 to 520 whole weeks; the marked rows have none.</span>
   <span data-msg="toast.logins.summary" data-i18n="toast.logins.summary">Created: <span data-field="created"></span>. Not created: <span data-field="failed"></span> – <span data-field="list"></span></span>
   <span data-msg="toast.logins.stopped" data-i18n="toast.logins.stopped">Stopped. Created: <span data-field="created"></span>, not created: <span data-field="failed"></span>, not tried: <span data-field="left"></span> – <span data-field="list"></span></span>
-  <span data-msg="confirm.import.delete" data-i18n="confirm.import.delete">Delete “<span data-field="name"></span>”?</span>
-  <span data-msg="ability.jobs.read" data-i18n="ability.jobs.read">Read jobs</span>
-  <span data-msg="ability.logins.read" data-i18n="ability.logins.read">Read jobs with logins</span>
-  <span data-msg="ability.jobs.write" data-i18n="ability.jobs.write">Change jobs</span>
-  <span data-msg="ability.jobs.complete" data-i18n="ability.jobs.complete">Close runs</span>
-  <span data-msg="ability.backup.read" data-i18n="ability.backup.read">Take the backup</span>
+  <span data-msg="role.jobs.read" data-i18n="role.jobs.read">Read jobs</span>
+  <span data-msg="role.jobs.work" data-i18n="role.jobs.work">Work through jobs (with logins)</span>
+  <span data-msg="role.jobs.manage" data-i18n="role.jobs.manage">Manage jobs (sets logins, does not see them)</span>
+  <span data-msg="role.jobs.all" data-i18n="role.jobs.all">Everything on jobs</span>
+  <span data-msg="role.backup.read" data-i18n="role.backup.read">Take the backup</span>
+  <span data-msg="role.people.manage" data-i18n="role.people.manage">Manage people</span>
+  <span data-msg="role.agents.manage" data-i18n="role.agents.manage">Manage agents</span>
+  <span data-msg="right.people" data-i18n="right.people">manages people</span>
+  <span data-msg="right.agents" data-i18n="right.agents">manages agents</span>
+  <span data-msg="right.backup" data-i18n="right.backup">manages the backup</span>
+  <span data-msg="right.none" data-i18n="right.none">no rights to manage</span>
   <span data-msg="agent.state.pending" class="chip" data-i18n="agent.state.pending">waiting for a grant</span>
   <span data-msg="agent.state.granted" class="chip ok" data-i18n="agent.state.granted">granted</span>
   <span data-msg="agent.state.expired" class="chip bad" data-i18n="agent.state.expired">expired</span>
@@ -216,11 +213,32 @@ input.invalid { border-color: var(--bad); outline: 1px solid var(--bad); }
   <span data-msg="agent.never_used" data-i18n="agent.never_used">· never used</span>
   <span data-msg="agent.done" data-i18n="agent.done"><span data-field="n"></span> expired or revoked</span>
   <span data-msg="invitation.state.open" class="chip ok" data-i18n="invitation.state.open">open</span>
+  <span data-msg="invitation.state.used" class="chip" data-i18n="invitation.state.used">used</span>
   <span data-msg="invitation.state.expired" class="chip" data-i18n="invitation.state.expired">expired</span>
   <span data-msg="invitation.state.withdrawn" class="chip" data-i18n="invitation.state.withdrawn">withdrawn</span>
-  <span data-msg="import.kind.job" data-i18n="import.kind.job">Job</span>
-  <span data-msg="import.kind.person" data-i18n="import.kind.person">Person</span>
-  <span data-msg="line.curl" translate="no">curl -fsS -H "Authorization: Bearer <span data-field="token"></span>" <span data-field="url"></span> -o portal-download-$(date +%F).jsonl</span>
+  <span data-msg="device.kind.browser" class="chip" data-i18n="device.kind.browser">browser</span>
+  <span data-msg="device.kind.extension" class="chip ok" data-i18n="device.kind.extension">browser extension</span>
+  <span data-msg="person.created_by" data-i18n="person.created_by">invited by <span data-field="name"></span></span>
+  <span data-msg="field.title" data-i18n="field.title">Title</span>
+  <span data-msg="field.interval_weeks" data-i18n="field.interval_weeks">Every … weeks</span>
+  <span data-msg="field.retry_days" data-i18n="field.retry_days">After a failure, days</span>
+  <span data-msg="field.next_due" data-i18n="field.next_due">Next due date</span>
+  <span data-msg="field.username" data-i18n="field.username">Username</span>
+  <span data-msg="field.password" data-i18n="field.password">Password</span>
+  <span data-msg="field.instructions_md" data-i18n="field.instructions_md">Instructions</span>
+  <span data-msg="case.known" data-i18n="case.known">Changed on both sides; choose per field.</span>
+  <span data-msg="case.old_address" data-i18n="case.old_address">Here under the new address <span data-field="url"></span>; choose per field.</span>
+  <span data-msg="case.deleted_here" data-i18n="case.deleted_here">Deleted here on <span data-field="date"></span>.</span>
+  <span data-msg="case.replaces" data-i18n="case.replaces">New address for “<span data-field="title"></span>” (here still <span data-field="url"></span>).</span>
+  <span data-msg="action.reactivate" data-i18n="action.reactivate">bring it back</span>
+  <span data-msg="action.skip" data-i18n="action.skip">leave it out</span>
+  <span data-msg="action.replace" data-i18n="action.replace">replace the job here, keep its history</span>
+  <span data-msg="action.keep_both" data-i18n="action.keep_both">keep both</span>
+  <span data-msg="preview.runs" data-i18n="preview.runs">+<span data-field="n"></span> runs</span>
+  <span data-msg="preview.due" data-i18n="preview.due">due date after the newest run: <span data-field="date"></span></span>
+  <span data-msg="preview.changed" data-i18n="preview.changed">changed <span data-field="date"></span></span>
+  <span data-msg="preview.hidden" data-i18n="preview.hidden">(hidden)</span>
+  <span data-msg="line.curl" translate="no">curl -fsS -H "Authorization: Bearer <span data-field="token"></span>" <span data-field="url"></span> -o portal-download-$(date +%F).zip</span>
   <span data-msg="line.env" translate="no">export PORTAL_DOWNLOAD_AGENT_TOKEN=<span data-field="token"></span></span>
 </div></template>
 
@@ -229,6 +247,7 @@ input.invalid { border-color: var(--bad); outline: 1px solid var(--bad); }
 <template id="tpl-muted-line"><div class="muted" data-field="text"></div></template>
 <template id="tpl-copy-area"><textarea></textarea></template>
 <template id="tpl-option"><option></option></template>
+<template id="tpl-download"><a hidden></a></template>
 
 <template id="tpl-confirm"><div>
   <p class="pre" data-field="text"></p>
@@ -247,9 +266,12 @@ input.invalid { border-color: var(--bad); outline: 1px solid var(--bad); }
   </div>
   <div class="bar-nav small" data-ref="nav">
     <a href="#/" data-i18n="nav.overview">Overview</a> ·
-    <a href="#/new" data-i18n="nav.new">New job</a>
-    <span data-ref="nav-people">· <a href="#/people" data-i18n="nav.people">People</a></span> ·
+    <a href="#/new" data-i18n="nav.new">New job</a> ·
+    <a href="#/exchange" data-i18n="nav.exchange">Exchange</a> ·
     <a href="#/devices" data-i18n="nav.devices">My devices</a>
+    <span data-ref="nav-all-devices">· <a href="#/all-devices" data-i18n="nav.all_devices">All devices</a></span>
+    <span data-ref="nav-people">· <a href="#/people" data-i18n="nav.people">People</a></span>
+    <span data-ref="nav-agents">· <a href="#/agents" data-i18n="nav.agents">Agents</a></span>
   </div>
 </div></template>
 
@@ -267,17 +289,23 @@ input.invalid { border-color: var(--bad); outline: 1px solid var(--bad); }
     <button class="btn icon" type="button" data-action="next" title="less urgent" data-i18n-title="pager.next_title" aria-label="next job" data-i18n-aria-label="pager.next">▶</button>
   </div>
   <h1 data-field="title"></h1>
+  <div class="card done" data-ref="done">
+    <strong data-i18n="current.done">Closed – due again on <span data-field="next_due"></span>.</strong>
+    <div style="margin-top:8px"><button class="btn primary" type="button" data-action="next-job" data-i18n="current.next_job">Next job</button></div>
+  </div>
   <div class="row"><span data-ref="urgency"></span><span class="muted small" data-ref="schedule"></span></div>
-  <div class="muted small" style="margin-top:4px" data-ref="last"><span data-i18n="current.last">Last:</span> <span data-ref="last-outcome"></span> <span data-ref="last-text"></span></div>
+  <div class="muted small" style="margin-top:4px" data-ref="last"><span data-i18n="current.last">Last:</span> <span data-ref="last-outcome"></span> <span data-ref="last-text"></span><div class="pre" data-field="last_note"></div></div>
   <div style="margin:14px 0 8px">
-    <button class="btn primary wide" type="button" data-action="run"><span data-ref="run-frame" data-i18n="current.run">Run</span><span data-ref="run-window" data-i18n="current.run_window">Run (opens a tab)</span></button>
+    <button class="btn primary wide" type="button" data-action="open" data-i18n="current.open">Open the portal (new tab)</button>
   </div>
   <div data-ref="creds"></div>
   <div data-ref="instructions"></div>
-  <textarea class="note" data-ref="note" placeholder="Note (optional), e.g. what was missing" data-i18n-placeholder="current.note"></textarea>
-  <div class="finish">
-    <button class="btn ok" type="button" data-action="succeeded" data-i18n="current.succeeded">Succeeded</button>
-    <button class="btn bad" type="button" data-action="failed" data-i18n="current.failed">Failed</button>
+  <div data-ref="work">
+    <textarea class="note" data-ref="note" placeholder="Note (optional), e.g. what was missing" data-i18n-placeholder="current.note"></textarea>
+    <div class="finish">
+      <button class="btn ok" type="button" data-action="succeeded" data-i18n="current.succeeded">Succeeded</button>
+      <button class="btn bad" type="button" data-action="failed" data-i18n="current.failed">Failed</button>
+    </div>
   </div>
   <div class="row small" style="margin-top:14px">
     <a data-ref="edit" data-i18n="current.edit">Edit</a> · <a data-ref="history" data-i18n="current.history">History</a>
@@ -311,7 +339,17 @@ input.invalid { border-color: var(--bad); outline: 1px solid var(--bad); }
     <tbody data-ref="rows"></tbody>
   </table>
   <p class="muted" data-ref="empty" data-i18n="overview.empty">Create the first job: entry page, login, schedule, and what to file where.</p>
-  <p class="muted small" style="margin-top:20px" data-i18n="overview.hint">The most urgent job is always first on the right; ◀ ▶ pages through. “Run” loads the portal here on the left or, when the portal forbids embedding, in a new tab.</p>
+  <p class="muted small" style="margin-top:20px" data-i18n="overview.hint">The most urgent job is always first on the right; ◀ ▶ pages through. “Open the portal” opens it in a new tab; come back to this tab to close the run.</p>
+  <div class="card" style="margin-top:20px" data-ref="extension">
+    <h3 data-i18n="extension.title">Browser extension</h3>
+    <p class="small" data-i18n="extension.text">The extension for Chrome, Edge and Firefox shows the due jobs in the browser's side panel, next to the portal, also of several services at once.</p>
+    <a class="btn" target="_blank" rel="noopener noreferrer" data-ref="extension-link" data-i18n="extension.download">Download the extension</a>
+    <div data-ref="ca">
+      <p class="small" style="margin-bottom:4px" data-i18n="ca.text">The extension in Chrome and Edge needs this service's certificate authority as a trusted root on the computer, imported once. Compare the fingerprint before importing:</p>
+      <div class="secret-once" data-field="ca_fingerprint" translate="no"></div>
+      <a class="btn" style="margin-top:8px" data-ref="ca-link" download data-i18n="ca.download">Download the certificate authority</a>
+    </div>
+  </div>
 </div></template>
 <template id="tpl-overview-row"><tr class="clickable">
   <td data-ref="urgency"></td>
@@ -320,23 +358,6 @@ input.invalid { border-color: var(--bad); outline: 1px solid var(--bad); }
   <td class="small" data-ref="interval"></td>
   <td class="small" data-ref="last"></td>
 </tr></template>
-
-<template id="tpl-portal-strip"><div class="row grow" style="flex-wrap:nowrap">
-  <strong data-field="title"></strong>
-  <span class="muted grow ellipsis" data-field="url"></span>
-  <button class="btn link" type="button" data-action="window" data-i18n="portal.open_window">open in a new tab</button>
-  <button class="btn link" type="button" data-action="close" data-i18n="portal.close">close</button>
-</div></template>
-
-<template id="tpl-running"><div class="pad">
-  <h1 data-field="title"></h1>
-  <p data-i18n="running.text">The portal is open in a new tab, because it does not allow embedding. Switch back to this tab for the login and to close the run.</p>
-  <div class="row">
-    <button class="btn primary" type="button" data-action="reopen" data-i18n="running.reopen">Open the portal again</button>
-    <button class="btn" type="button" data-action="back" data-i18n="running.back">Back to the overview</button>
-  </div>
-  <p class="muted small" style="margin-top:16px" data-i18n="running.tip">Tip: if a portal can be embedded after all, tick “The portal may be embedded on the left” under “Edit”.</p>
-</div></template>
 
 <template id="tpl-gone"><div class="pad">
   <p data-i18n="gone.text">This job no longer exists.</p>
@@ -349,9 +370,7 @@ input.invalid { border-color: var(--bad); outline: 1px solid var(--bad); }
   <input type="text" required maxlength="200" data-ref="title">
   <label data-i18n="edit.url">Entry page (URL)</label>
   <input type="url" required placeholder="https://…" data-ref="entry_url">
-  <label class="check"><input type="checkbox" data-ref="embeddable"><span data-i18n="edit.embeddable">The portal may be embedded on the left</span></label>
-  <div class="muted small"><span data-i18n="edit.embeddable_hint">Many portals forbid embedding (security headers). Without the tick, “Run” opens the portal in a new tab.</span> <button class="btn link" type="button" data-action="check" data-i18n="edit.embeddable_check">check now</button></div>
-  <div class="small" data-ref="embed-result" role="status" hidden></div>
+  <p class="muted small" style="margin:4px 0 0" data-ref="url-hint" data-i18n="edit.url_hint">A new address makes this a new job for the exchange with other instances; its history stays here.</p>
   <div class="row">
     <div class="grow"><label data-i18n="edit.interval">Every how many weeks?</label><input type="number" min="1" max="520" required data-ref="interval_weeks"></div>
     <div class="grow"><label data-i18n="edit.retry">After a failure, due again in … days</label><input type="number" min="1" max="365" required data-ref="retry_days"></div>
@@ -360,10 +379,9 @@ input.invalid { border-color: var(--bad); outline: 1px solid var(--bad); }
   <h2 data-i18n="edit.login">Login</h2>
   <p class="muted small" data-i18n="edit.login_hint">Kept in plain text on the service: everybody in the circle sees it, and a change applies for everybody at once.</p>
   <label data-i18n="edit.username">Username</label>
-  <input type="text" autocomplete="off" data-ref="username">
+  <input type="text" autocomplete="off" spellcheck="false" autocapitalize="off" autocorrect="off" data-ref="username">
   <label data-i18n="edit.password">Password</label>
-  <div class="row"><div class="grow"><input type="password" autocomplete="new-password" data-ref="password"></div>
-    <button class="btn icon small" type="button" data-action="toggle-password"><span data-ref="pw-show" data-i18n="creds.show">Show</span><span data-ref="pw-hide" data-i18n="creds.hide" hidden>Hide</span></button></div>
+  <input type="text" autocomplete="off" spellcheck="false" autocapitalize="off" autocorrect="off" data-ref="password">
   <h2 data-i18n="edit.instructions">Instructions: what to file where? (Markdown)</h2>
   <textarea data-ref="instructions_md" placeholder="## What to file?&#10;- Invoice as PDF&#10;&#10;## Where?&#10;- Finance/Utilities/2026/" data-i18n-placeholder="edit.instructions_example"></textarea>
   <div class="row" style="margin-top:16px">
@@ -388,27 +406,48 @@ input.invalid { border-color: var(--bad); outline: 1px solid var(--bad); }
 </div></template>
 <template id="tpl-history-row"><tr>
   <td class="small" data-field="closed"></td><td data-ref="outcome"></td><td class="small" data-field="by"></td>
-  <td class="small" data-field="before"></td><td class="small" data-field="after"></td><td class="small" data-field="note"></td>
+  <td class="small" data-field="before"></td><td class="small" data-field="after"></td><td class="small pre" data-field="note"></td>
 </tr></template>
 
 <template id="tpl-devices"><div class="pad">
   <h1 data-i18n="devices.title">My devices</h1>
-  <p class="muted small" data-i18n="devices.hint">Every device on which you opened your invitation link has an access of its own. Revoke a lost device here; your other devices stay signed in.</p>
+  <p class="muted small" data-i18n="devices.hint">Every browser and browser extension in which you opened an invitation link has an access of its own. Revoke a lost device here; your other devices stay signed in.</p>
   <table>
     <thead><tr><th data-i18n="devices.col.device">Device</th><th data-i18n="devices.col.seen">Last seen</th><th data-i18n="devices.col.recognition">Identification</th><th></th></tr></thead>
     <tbody data-ref="rows"></tbody>
   </table>
+  <div class="card" style="margin-top:20px">
+    <h3 data-i18n="devices.extension.title">Add to the browser extension</h3>
+    <p class="small" data-i18n="devices.extension.text">Creates a link for your browser extension, valid once within the hour, and opens it in this tab. Then click “+” in the extension.</p>
+    <button class="btn primary" type="button" data-action="extension" data-i18n="devices.extension.button">Add to the browser extension</button>
+  </div>
 </div></template>
 <template id="tpl-device-row"><tr>
-  <td><span data-field="label"></span> <span class="chip ok" data-ref="this" data-i18n="devices.this">this device</span> <span class="chip bad" data-ref="revoked" data-i18n="devices.revoked">revoked</span></td>
+  <td><span data-field="label"></span> <span data-ref="kind"></span> <span class="chip ok" data-ref="this" data-i18n="devices.this">this device</span> <span class="chip bad" data-ref="revoked" data-i18n="devices.revoked">revoked</span></td>
   <td class="small" data-field="seen"></td>
   <td class="small muted"><span data-field="address"></span><div data-field="agent"></div></td>
   <td><button class="btn small" type="button" data-ref="revoke" data-action="revoke"><span data-ref="sign-out" data-i18n="devices.sign_out">Sign out</span><span data-ref="revoke-other" data-i18n="devices.revoke">Revoke</span></button></td>
 </tr></template>
 
+<template id="tpl-all-devices"><div class="pad wide-page">
+  <h1 data-i18n="alldevices.title">All devices</h1>
+  <p class="muted small" data-i18n="alldevices.hint">Every device of every person, most recently seen first. Revoking one signs out only that device.</p>
+  <table>
+    <thead><tr><th data-i18n="alldevices.col.person">Person</th><th data-i18n="devices.col.device">Device</th><th data-i18n="devices.col.seen">Last seen</th><th data-i18n="alldevices.col.address">Address</th><th></th></tr></thead>
+    <tbody data-ref="rows"></tbody>
+  </table>
+</div></template>
+<template id="tpl-all-device-row"><tr>
+  <td data-field="person"></td>
+  <td><span data-field="label"></span> <span data-ref="kind"></span> <span class="chip bad" data-ref="revoked" data-i18n="devices.revoked">revoked</span></td>
+  <td class="small" data-field="seen"></td>
+  <td class="small muted" data-field="address"></td>
+  <td><button class="btn small" type="button" data-ref="revoke" data-action="revoke" data-i18n="devices.revoke">Revoke</button></td>
+</tr></template>
+
 <template id="tpl-invitation-dialog"><div>
   <h1 data-i18n="invitation.dialog.title">Invitation for <span data-field="name"></span></h1>
-  <p class="small" data-i18n="invitation.dialog.text">This link is shown only now. It is valid until <span data-field="expires"></span> and can be opened once on each of the person's devices. Pass it on through a confidential channel.</p>
+  <p class="small" data-i18n="invitation.dialog.text">This link is shown only now. It is valid until <span data-field="expires"></span> and can be opened in each of the person's browsers and browser extensions. Pass it on through a confidential channel.</p>
   <div class="secret-once" data-field="link"></div>
   <div class="row" style="margin-top:14px">
     <button class="btn primary" type="button" data-action="copy" data-i18n="invitation.dialog.copy">Copy link</button>
@@ -418,7 +457,7 @@ input.invalid { border-color: var(--bad); outline: 1px solid var(--bad); }
 
 <template id="tpl-token-dialog"><div>
   <h1 data-i18n="token.dialog.title">Token <span data-field="display"></span></h1>
-  <p class="small" data-ref="backup" data-i18n="token.dialog.backup">This line fetches the backup. It holds the token and is shown only now. Enter it, for example, as a nightly cron job on the machine that keeps the backups.</p>
+  <p class="small" data-ref="backup" data-i18n="token.dialog.backup">This line fetches the backup as a ZIP file. It holds the token and is shown only now. Enter it, for example, as a nightly cron job on the machine that keeps the backups; with the header X-Backup-Password the file is encrypted.</p>
   <p class="small" data-ref="env" data-i18n="token.dialog.env">The token is shown only now. Put it on the machine that uses it into the environment variable PORTAL_DOWNLOAD_AGENT_TOKEN.</p>
   <div class="secret-once" data-field="line"></div>
   <div class="row" style="margin-top:14px">
@@ -437,7 +476,13 @@ input.invalid { border-color: var(--bad); outline: 1px solid var(--bad); }
   </div>
 </div></template>
 
-<template id="tpl-people-forbidden"><div class="pad"><p data-i18n="people.forbidden">Only a person with the right to administer people may do this.</p></div></template>
+<template id="tpl-forbidden"><div class="pad"><p data-i18n="forbidden.text">This needs a right you do not hold. Ask a person who holds it.</p></div></template>
+
+<template id="tpl-rights"><span>
+  <label class="check" style="display:inline-block;margin-right:12px"><input type="checkbox" data-ref="people"><span data-i18n="rights.people">manage people</span></label>
+  <label class="check" style="display:inline-block;margin-right:12px"><input type="checkbox" data-ref="agents"><span data-i18n="rights.agents">manage agents</span></label>
+  <label class="check" style="display:inline-block"><input type="checkbox" data-ref="backup"><span data-i18n="rights.backup">manage the backup</span></label>
+</span></template>
 
 <template id="tpl-people"><div class="pad wide-page">
   <h1 data-i18n="people.title">People</h1>
@@ -447,68 +492,60 @@ input.invalid { border-color: var(--bad); outline: 1px solid var(--bad); }
       <div class="grow"><label data-i18n="people.invite.name">Name</label><input type="text" required data-ref="name"></div>
       <div class="grow"><label data-i18n="people.invite.email">E-mail (optional)</label><input type="email" data-ref="email"></div>
     </div>
-    <label class="check"><input type="checkbox" data-ref="admin"><span data-i18n="people.invite.admin">may administer people (invite, revoke, deactivate)</span></label>
+    <p class="muted small" style="margin:10px 0 0" data-i18n="people.invite.rights">Every person works on all jobs. Besides that, the person may:</p>
+    <div data-ref="new-rights"></div>
     <div style="margin-top:10px"><button class="btn primary" type="submit" data-i18n="people.invite.submit">Create invitation</button></div>
   </form>
-  <div data-ref="people"></div>
+  <div data-ref="list"></div>
+</div></template>
 
-  <h2 data-i18n="agents.title">Agents</h2>
-  <p class="muted small" data-i18n="agents.hint">Agents register themselves and tell you a display string of eight letters. Give each registration exactly one right. Agents receive portal logins only with the right “Read jobs with logins”, or as part of the backup with “Take the backup”. The right “Change jobs” sets logins but does not receive them.</p>
+<template id="tpl-person"><div class="card">
+  <div class="row">
+    <h3 class="grow"><span data-field="name"></span> <span class="chip bad" data-ref="inactive" data-i18n="person.inactive">deactivated</span></h3>
+    <span class="muted small" data-field="email"></span>
+  </div>
+  <p class="muted small" style="margin:4px 0 0" data-field="meta"></p>
+  <div class="row small" style="margin-top:8px"><div data-ref="rights"></div><button class="btn small" type="button" data-action="rights" data-i18n="person.rights_save">Set rights</button></div>
+  <div class="row small" style="margin-top:8px">
+    <button class="btn small" type="button" data-action="reinvite" data-i18n="person.reinvite">New invitation</button>
+    <button class="btn small" type="button" data-action="active"><span data-ref="deactivate" data-i18n="person.deactivate">Deactivate</span><span data-ref="reactivate" data-i18n="person.reactivate">Reactivate</span></button>
+    <button class="btn small bad" type="button" data-action="delete" data-ref="delete" data-i18n="person.delete">Delete</button>
+  </div>
+  <table class="small" style="margin-top:8px"><tbody data-ref="rows"></tbody></table>
+</div></template>
+<template id="tpl-person-device"><tr>
+  <td data-i18n="person.device">Device</td>
+  <td><span data-field="label"></span> <span data-ref="kind"></span> <span class="chip bad" data-ref="revoked" data-i18n="devices.revoked">revoked</span></td>
+  <td class="muted" data-i18n="person.device.meta">last seen <span data-field="seen"></span> · <span data-field="address"></span></td>
+  <td><button class="btn small" type="button" data-ref="revoke" data-action="revoke" data-i18n="devices.revoke">Revoke</button></td>
+</tr></template>
+<template id="tpl-person-invitation"><tr>
+  <td data-i18n="person.invitation">Invitation</td>
+  <td><span data-i18n="person.invitation.number">No. <span data-field="id"></span></span> <span data-ref="state"></span></td>
+  <td class="muted" data-i18n="person.invitation.meta">created <span data-field="created"></span> by <span data-field="by"></span> · valid until <span data-field="expires"></span></td>
+  <td><button class="btn small" type="button" data-ref="withdraw" data-action="withdraw" data-i18n="person.invitation.withdraw">Withdraw</button></td>
+</tr></template>
+
+<template id="tpl-agents"><div class="pad wide-page">
+  <h1 data-i18n="agents.title">Agents</h1>
+  <p class="muted small" data-i18n="agents.hint">Agents register themselves and tell you a display string of eight letters. Give each registration exactly one role, and only the display string you were told. Portal logins reach agents only with “Work through jobs” or “Everything on jobs”, or as part of the backup.</p>
   <form class="card" data-action="create-token">
     <h3 data-i18n="agents.create.title">Create a token</h3>
     <p class="muted small" style="margin-top:0" data-i18n="agents.create.hint">For a script that cannot register itself, for example the nightly backup.</p>
     <div class="row">
       <div class="grow"><label data-i18n="agents.create.purpose">What for</label><input type="text" data-ref="purpose" placeholder="e.g. NAS: nightly backup" data-i18n-placeholder="agents.create.purpose_example"></div>
-      <div><label data-i18n="agents.create.ability">Right</label><select data-ref="new-ability"></select></div>
+      <div><label data-i18n="agents.create.role">Role</label><select data-ref="new-role"></select></div>
     </div>
     <div style="margin-top:10px"><button class="btn primary" type="submit" data-i18n="agents.create.submit">Create token</button></div>
   </form>
   <div data-ref="live"></div>
   <p class="muted small" data-ref="none" data-i18n="agents.none">No active agents.</p>
   <details data-ref="done"><summary class="small muted" data-ref="done-summary"></summary><div data-ref="done-list"></div></details>
-
-  <h2 data-i18n="backup.title">Backup</h2>
-  <div class="card">
-    <p class="small" style="margin-top:0" data-i18n="backup.hint">The backup holds everything: jobs with history and their logins in plain text, people and accesses. Keep the file where only those who may see the logins can reach it.</p>
-    <a class="btn" download data-ref="download" data-i18n="backup.download">Download backup</a>
-    <form style="margin-top:14px" data-action="import">
-      <label data-i18n="backup.import.label">Import a backup (it is added)</label>
-      <input type="file" accept=".jsonl,application/jsonl,text/plain" data-ref="file">
-      <p class="muted small" style="margin:4px 0" data-i18n="backup.import.warning">Import only a backup you took from this service yourself: with people and accesses it also brings rights to administer and working accesses.</p>
-      <label class="check"><input type="checkbox" data-ref="omit"><span data-i18n="backup.import.omit">Leave people and accesses out (only jobs with their logins and history)</span></label>
-      <div style="margin-top:10px"><button class="btn primary" type="submit" data-i18n="backup.import.submit">Import</button></div>
-    </form>
-  </div>
 </div></template>
-
-<template id="tpl-person"><div class="card">
-  <div class="row">
-    <h3 class="grow"><span data-field="name"></span> <span class="chip ok" data-ref="is-admin" data-i18n="person.is_admin">administers people</span> <span class="chip bad" data-ref="inactive" data-i18n="person.inactive">deactivated</span></h3>
-    <span class="muted small" data-field="email"></span>
-  </div>
-  <div class="row small" style="margin-top:8px">
-    <button class="btn small" type="button" data-action="reinvite" data-i18n="person.reinvite">New invitation</button>
-    <button class="btn small" type="button" data-action="admin"><span data-ref="admin-take" data-i18n="person.admin_take">Withdraw the right to administer</span><span data-ref="admin-give" data-i18n="person.admin_give">Give the right to administer</span></button>
-    <button class="btn small" type="button" data-action="active"><span data-ref="deactivate" data-i18n="person.deactivate">Deactivate</span><span data-ref="reactivate" data-i18n="person.reactivate">Reactivate</span></button>
-  </div>
-  <table class="small" style="margin-top:8px"><tbody data-ref="rows"></tbody></table>
-</div></template>
-<template id="tpl-person-device"><tr>
-  <td data-i18n="person.device">Device</td>
-  <td><span data-field="label"></span> <span class="chip bad" data-ref="revoked" data-i18n="devices.revoked">revoked</span></td>
-  <td class="muted" data-i18n="person.device.meta">last seen <span data-field="seen"></span> · <span data-field="address"></span> · from invitation <span data-field="invitation"></span></td>
-  <td><button class="btn small" type="button" data-ref="revoke" data-action="revoke" data-i18n="devices.revoke">Revoke</button></td>
-</tr></template>
-<template id="tpl-person-invitation"><tr>
-  <td data-i18n="person.invitation">Invitation</td>
-  <td><span data-i18n="person.invitation.number">No. <span data-field="id"></span></span> <span data-ref="state"></span></td>
-  <td class="muted" data-i18n="person.invitation.meta">created <span data-field="created"></span> · valid until <span data-field="expires"></span></td>
-  <td><button class="btn small" type="button" data-ref="withdraw" data-action="withdraw" data-i18n="person.invitation.withdraw">Withdraw</button></td>
-</tr></template>
 
 <template id="tpl-agent"><div class="card">
   <div class="row">
-    <h3 class="grow"><code data-field="display" translate="no"></code> <span data-ref="state"></span> <span class="chip" data-ref="ability"></span></h3>
+    <h3 class="grow"><code data-field="display" translate="no"></code> <span data-ref="state"></span> <span class="chip" data-ref="role"></span></h3>
     <span class="muted small" data-ref="expires"></span>
   </div>
   <p class="small" style="margin:6px 0 0" data-field="introduction"></p>
@@ -523,24 +560,64 @@ input.invalid { border-color: var(--bad); outline: 1px solid var(--bad); }
   </div>
 </div></template>
 
-<template id="tpl-import"><div class="pad wide-page">
-  <h1 data-i18n="import.title">Import</h1>
-  <div data-ref="report">
-    <p data-i18n="import.summary">Added – jobs: <span data-field="jobs"></span>, runs: <span data-field="runs"></span>, people: <span data-field="people"></span>, devices: <span data-field="devices"></span>, tokens: <span data-field="agents"></span>.</p>
-    <p class="muted small" data-ref="skipped" data-i18n="import.skipped">Not taken – left out: <span data-field="left_out"></span>, already there: <span data-field="existing"></span>, without a reference: <span data-field="unrelated"></span>.</p>
-    <div class="card alert" data-ref="admins"><strong data-i18n="import.admins">Imported with the right to administer people – please check:</strong> <span data-field="admins"></span></div>
-    <div data-ref="renamed">
-      <h2 data-i18n="import.renamed.title">Already there – added as a copy</h2>
-      <p class="muted small" data-i18n="import.renamed.hint">Delete what you do not need.</p>
-      <table class="small"><tbody data-ref="rows"></tbody></table>
-    </div>
-    <p class="muted" data-ref="none" data-i18n="import.renamed.none">None of it was there already.</p>
+<template id="tpl-exchange"><div class="pad wide-page">
+  <h1 data-i18n="exchange.title">Exchange and backup</h1>
+  <div class="card">
+    <h3 data-i18n="exchange.export.title">Export the jobs</h3>
+    <p class="small" style="margin-top:4px" data-i18n="exchange.export.hint">The file holds every job with its login in plain text, its history and the deleted jobs. The browser extension and every instance of Portal-Download read it in.</p>
+    <label data-i18n="exchange.password">Password for the file (optional, 8 to 200 characters without umlauts; it encrypts the file with AES-256)</label>
+    <input type="text" autocomplete="off" spellcheck="false" autocapitalize="off" autocorrect="off" data-ref="export-password">
+    <div style="margin-top:10px"><button class="btn primary" type="button" data-action="export-jobs" data-i18n="exchange.export.button">Download the jobs</button></div>
   </div>
-  <p class="muted" data-ref="nothing" data-i18n="import.nothing">Nothing was imported in this session. Imported copies carry “(Import date)” in their name.</p>
+  <div class="card" data-ref="backup">
+    <h3 data-i18n="exchange.backup.title">Full backup</h3>
+    <p class="small" style="margin-top:4px" data-i18n="exchange.backup.hint">Everything: the jobs with their logins in plain text, and the people, devices and agent tokens. A script fetches it with a token for “Take the backup”, created under Agents.</p>
+    <label data-i18n="exchange.password">Password for the file (optional, 8 to 200 characters without umlauts; it encrypts the file with AES-256)</label>
+    <input type="text" autocomplete="off" spellcheck="false" autocapitalize="off" autocorrect="off" data-ref="backup-password">
+    <div style="margin-top:10px"><button class="btn" type="button" data-action="export-backup" data-i18n="exchange.backup.button">Download the full backup</button></div>
+  </div>
+  <form class="card" data-action="preview">
+    <h3 data-i18n="exchange.import.title">Read a file in</h3>
+    <p class="small" style="margin-top:4px" data-i18n="exchange.import.hint">A file of this or another instance, or of the browser extension. First you see what would change; nothing is overwritten without your choice, and no run is lost.</p>
+    <input type="file" accept=".zip,application/zip" data-ref="file">
+    <label data-i18n="exchange.import.password">Password of the file, if it has one</label>
+    <input type="text" autocomplete="off" spellcheck="false" autocapitalize="off" autocorrect="off" data-ref="import-password">
+    <label class="check" data-ref="full-option"><input type="checkbox" data-ref="full"><span data-i18n="exchange.import.full">Also read in the people, devices and tokens of a full backup (added beside the existing ones)</span></label>
+    <div style="margin-top:10px"><button class="btn primary" type="submit" data-i18n="exchange.import.preview">Show what would change</button></div>
+  </form>
+  <div data-ref="preview"></div>
 </div></template>
-<template id="tpl-import-row"><tr>
-  <td data-ref="kind"></td><td data-field="name"></td>
-  <td><button class="btn small" type="button" data-ref="delete" data-action="delete" data-i18n="import.delete">Delete</button><span class="chip" data-ref="deleted" data-i18n="import.deleted" hidden>deleted</span></td>
+
+<template id="tpl-preview"><div class="card">
+  <h3 data-i18n="preview.title">What reading the file in does</h3>
+  <p class="small" data-ref="people" data-i18n="preview.people">Besides: people <span data-field="people"></span>, invitations <span data-field="invitations"></span>, devices <span data-field="devices"></span>, tokens <span data-field="agents"></span>, added beside the existing ones.</p>
+  <h2 data-i18n="preview.new">Taken over, because new: <span data-field="n_new"></span></h2>
+  <div data-ref="new"></div>
+  <h2 data-i18n="preview.same">Taken over, because the same: <span data-field="n_same"></span></h2>
+  <div data-ref="same"></div>
+  <h2 data-i18n="preview.decide">Please decide what to take over: <span data-field="n_decide"></span></h2>
+  <div data-ref="decide"></div>
+  <div class="row space">
+    <button class="btn primary" type="button" data-action="apply" data-i18n="preview.apply">Read in</button>
+    <button class="btn" type="button" data-action="cancel" data-i18n="edit.cancel">Cancel</button>
+  </div>
+</div></template>
+<template id="tpl-preview-line"><div class="small" style="margin:2px 0">
+  <strong data-field="title"></strong> <span class="muted" data-field="detail"></span>
+</div></template>
+<template id="tpl-decide"><div class="card">
+  <strong data-field="title"></strong> <span class="muted small" data-field="url"></span>
+  <p class="small" style="margin:4px 0" data-field="case"></p>
+  <table class="small" data-ref="fields">
+    <thead><tr><th></th><th data-i18n="preview.here">Here</th><th data-i18n="preview.file">In the file</th></tr></thead>
+    <tbody data-ref="rows"></tbody>
+  </table>
+  <select data-ref="action"></select>
+</div></template>
+<template id="tpl-decide-field"><tr>
+  <td data-field="field"></td>
+  <td><label class="check"><input type="radio" data-ref="local"><span data-field="local"></span></label><div class="muted" data-field="local_at"></div></td>
+  <td><label class="check"><input type="radio" data-ref="incoming"><span data-field="incoming"></span></label><div class="muted" data-field="incoming_at"></div></td>
 </tr></template>
 
 <template id="tpl-logins"><div class="pad wide-page">
@@ -577,20 +654,36 @@ input.invalid { border-color: var(--bad); outline: 1px solid var(--bad); }
   <td><span class="chip" data-ref="existing" data-i18n="logins.existing">already there</span><span class="chip" data-ref="not-web" data-i18n="logins.not_web">not a web address</span></td>
 </tr></template>
 
-<!-- entry states without access -->
-<template id="tpl-invite"><form class="pad narrow" data-action="accept">
+<!-- entry states -->
+<template id="tpl-invite"><div class="pad narrow">
   <h1 data-i18n="invite.title">Accept the invitation</h1>
-  <p data-i18n="invite.text">This device gets an access of its own. You can open the link on each of your devices.</p>
-  <label data-i18n="invite.label">What should this device be called?</label>
-  <input type="text" required maxlength="80" data-ref="label">
-  <div style="margin-top:16px"><button class="btn primary" type="submit" data-ref="submit" data-i18n="invite.submit">Accept the invitation on this device</button></div>
-</form></template>
+  <div class="card" data-ref="extension">
+    <h3 data-i18n="invite.extension.title">In the browser extension</h3>
+    <p class="small" data-i18n="invite.extension.text">Keep this page open and click “+” in the extension: it takes the invitation from the address bar of this tab.</p>
+    <p class="small" data-ref="own" data-i18n="invite.own">This link is for a further device of yours, here the browser extension. It serves once, within the hour.</p>
+    <div data-ref="ca">
+      <p class="small" style="margin-bottom:4px" data-i18n="ca.text">The extension in Chrome and Edge needs this service's certificate authority as a trusted root on the computer, imported once. Compare the fingerprint before importing:</p>
+      <div class="secret-once" data-field="ca_fingerprint" translate="no"></div>
+      <a class="btn" style="margin-top:8px" data-ref="ca-link" download data-i18n="ca.download">Download the certificate authority</a>
+    </div>
+    <a class="btn" target="_blank" rel="noopener noreferrer" data-ref="extension-link" data-i18n="extension.download">Download the extension</a>
+  </div>
+  <form class="card" data-ref="here" data-action="accept">
+    <h3 data-i18n="invite.here.title">In this browser</h3>
+    <p class="small" data-i18n="invite.text">This browser gets an access of its own. You can open the link on each of your devices.</p>
+    <p class="small" data-ref="other" data-i18n="invite.other">You are signed in on this browser. Accepting here signs this browser in as the person the link is for.</p>
+    <label data-i18n="invite.label">What should this device be called?</label>
+    <input type="text" required maxlength="80" data-ref="label">
+    <div style="margin-top:16px"><button class="btn primary" type="submit" data-ref="submit" data-i18n="invite.submit">Accept the invitation in this browser</button></div>
+  </form>
+  <p data-ref="signed-in"><a href="#/" data-i18n="invite.back">Back to the overview</a></p>
+</div></template>
 
 <template id="tpl-setup"><form class="pad narrow" data-action="setup">
   <h1 data-i18n="setup.title">Setup</h1>
-  <p data-i18n="setup.text">Portal-Download is not set up yet. The setup secret is in the file bootstrap.toml in the service's state directory and, while nobody is set up, also in the log line at start. It is valid for 30 minutes; a restart or “portal-download bootstrap” creates a new one.</p>
+  <p data-i18n="setup.text">Portal-Download is not set up yet. The setup secret is in the file bootstrap.toml in the service's state directory and, while nobody is set up, also in the log at start. It is valid for 30 minutes; a restart or “portal-download bootstrap” creates a new one.</p>
   <label data-i18n="setup.secret">Setup secret</label>
-  <input type="password" required autocomplete="off" data-ref="secret">
+  <input type="text" required autocomplete="off" spellcheck="false" autocapitalize="off" autocorrect="off" data-ref="secret">
   <label data-i18n="setup.name">Your name</label>
   <input type="text" required data-ref="name">
   <label data-i18n="setup.email">E-mail (optional)</label>
@@ -600,9 +693,15 @@ input.invalid { border-color: var(--bad); outline: 1px solid var(--bad); }
 
 <template id="tpl-no-access"><div class="pad narrow">
   <h1 data-field="app_name"></h1>
-  <p data-i18n="noaccess.text">This device has no access. Open the invitation link you received; it works on each of your devices.</p>
+  <p data-i18n="noaccess.text">This device has no access. Open the invitation link you received; it works in each of your browsers and in the browser extension.</p>
   <p class="muted small" data-field="error"></p>
-  <p class="muted small" data-i18n="noaccess.hint">No link (any more)? Ask a person in the circle who may administer people for a new invitation.</p>
+  <p class="muted small" data-i18n="noaccess.hint">No link (any more)? Ask a person in the circle who manages people for a new invitation.</p>
+  <p><a class="btn" target="_blank" rel="noopener noreferrer" data-ref="extension-link" data-i18n="extension.download">Download the extension</a></p>
+  <div data-ref="ca">
+    <p class="small" style="margin-bottom:4px" data-i18n="ca.text">The extension in Chrome and Edge needs this service's certificate authority as a trusted root on the computer, imported once. Compare the fingerprint before importing:</p>
+    <div class="secret-once" data-field="ca_fingerprint" translate="no"></div>
+    <a class="btn" style="margin-top:8px" data-ref="ca-link" download data-i18n="ca.download">Download the certificate authority</a>
+  </div>
 </div></template>
 
 
@@ -656,7 +755,7 @@ function original(el) {
 }
 function translate(root) {
   for (const el of root.querySelectorAll("[data-i18n],[data-i18n-placeholder],[data-i18n-title],[data-i18n-aria-label]")) {
-    if (el.closest("#view, #bar, #modal-box, #toast, #portal-strip")) continue; // rendered parts are rendered anew instead
+    if (el.closest("#view, #bar, #modal-box, #toast")) continue; // rendered parts are rendered anew instead
     const o = original(el);
     if (el.dataset.i18n) {
       const pattern = I18N.dict[el.dataset.i18n] ?? o.pattern;
@@ -726,7 +825,7 @@ function toast(text, isError) {
   d.textContent = text;
   if (isError) d.className = "err";
   $("#toast").append(d);
-  setTimeout(() => d.remove(), isError ? 9000 : 3500);
+  setTimeout(() => d.remove(), isError ? 9000 : 4500);
 }
 function fail(e) { console.error(e); toast(e.message || String(e), true); }
 const fmtDate = (iso) => { if (!iso) return "–"; const d = new Date(iso.length === 10 ? iso + "T00:00:00" : iso); return d.toLocaleDateString(I18N.locale, { day: "2-digit", month: "2-digit", year: "numeric" }); };
@@ -738,9 +837,10 @@ function urgency(days) {
   return msgNode("urgency.in", { n: days });
 }
 const outcomeChip = (o) => msgNode(o === "succeeded" ? "outcome.succeeded" : "outcome.failed");
-const abilityName = (a) => MSG[`ability.${a}`] ? msg(`ability.${a}`) : a;
+const roleName = (r) => MSG[`role.${r}`] ? msg(`role.${r}`) : r;
 /** A chip for a state the API names; an unknown state shows as it came. */
 const stateChip = (prefix, state) => MSG[`${prefix}.${state}`] ? msgNode(`${prefix}.${state}`) : put(T("tpl-chip"), { text: state });
+const rightsText = (r) => ["people", "agents", "backup"].filter((k) => r[k]).map((k) => msg(`right.${k}`)).join(", ") || msg("right.none");
 function guessDeviceLabel() {
   const ua = navigator.userAgent;
   const b = /Edg\//.test(ua) ? "Edge" : /Firefox\//.test(ua) ? "Firefox" : /Chrome\//.test(ua) ? "Chrome" : /Safari\//.test(ua) ? "Safari" : "Browser";
@@ -752,6 +852,29 @@ async function copy(text, btn) {
   catch { const t = T("tpl-copy-area"); t.value = text; document.body.append(t); t.select(); document.execCommand("copy"); t.remove(); }
   if (btn) { const old = [...btn.childNodes]; btn.textContent = msg("copy.done"); setTimeout(() => btn.replaceChildren(...old), 1500); }
 }
+/** Offers bytes as a file to save. */
+function saveFile(blob, name) {
+  const a = T("tpl-download");
+  a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+}
+function bytesOfBase64(b64) { const s = atob(b64); const b = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) b[i] = s.charCodeAt(i); return b; }
+async function base64OfFile(file) {
+  const b = new Uint8Array(await file.arrayBuffer());
+  let s = "";
+  for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode(...b.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+/** The password for a file from a text field: empty means none, a short one is refused. */
+function filePassword(input) {
+  const pw = input.value;
+  // It travels in an HTTP header, which carries visible ASCII only.
+  if (pw && (pw.length < 8 || pw.length > 200 || !/^[\x20-\x7e]+$/.test(pw) || pw.trim() !== pw)) { toast(msg("toast.password_short"), true); return null; }
+  return pw;
+}
+const pwHeader = (pw) => pw ? { "X-Backup-Password": pw } : {};
+const kindChip = (kind) => stateChip("device.kind", kind);
 
 // ------------------------------------------------------------------ dialogs
 let pendingAnswer = null; // the resolver of an open question, answered "no" if another dialog replaces it
@@ -789,7 +912,7 @@ function lineDialog(id, values, line, showRefs = {}) {
 }
 
 // ------------------------------------------------------------------ API
-let CONFIG = { app_name: "Portal-Download", api: "api/", languages: [{ code: "en", label: "English" }] };
+let CONFIG = { app_name: "Portal-Download", api: "api/", languages: [{ code: "en", label: "English" }], extension_url: "" };
 let seq = 0;
 async function rpc(method, params = {}, headers = {}) {
   const res = await fetch(CONFIG.api, {
@@ -804,10 +927,14 @@ async function rpc(method, params = {}, headers = {}) {
 }
 
 // ------------------------------------------------------------------ state & routing
-const state = { status: null, me: null, jobs: [], today: null, current: 0, running: null, importReport: null, logins: null, authError: null, dirty: false };
+const state = { status: null, me: null, jobs: [], today: null, current: 0, done: null, logins: null, authError: null, dirty: false, preview: null };
 // Something typed into the view and not yet sent; rendering a view starts clean. Ticks and
 // weeks of a login export live in state.logins and survive a new rendering, so they are not.
 $("#view").addEventListener("input", () => { if (!state.logins) state.dirty = true; });
+const can = (right) => !!(state.me && state.me.rights && state.me.rights[right]);
+const canAll = () => can("people") && can("agents") && can("backup");
+/** Whether the caller holds every right of that person, which acting on them needs. */
+const reaches = (rights) => ["people", "agents", "backup"].every((k) => !rights[k] || can(k));
 
 function route() {
   const f = location.hash.replace(/^#/, "");
@@ -851,7 +978,7 @@ function limit(n) {
   return run;
 }
 
-// ------------------------------------------------------------------ portal (left side)
+// ------------------------------------------------------------------ portal in a tab
 function openPortalWindow(url) {
   // A normal tab with the browser's own navigation, not a pop-up without it.
   const win = window.open("", "_blank");
@@ -859,23 +986,6 @@ function openPortalWindow(url) {
   // The new tab is still about:blank and ours: cut the way back before loading the portal.
   try { win.opener = null; } catch {}
   try { win.location.href = url; } catch { toast(msg("toast.popup_redirect"), true); return; }
-}
-function run(job) {
-  state.running = job.job_id;
-  if (!job.embeddable) openPortalWindow(job.entry_url);
-  go(`#/run/${job.job_id}`);
-}
-function showPortal(job) {
-  const strip = $("#portal-strip"), frame = $("#portal");
-  const s = put(T("tpl-portal-strip"), { title: job.title, url: job.entry_url });
-  bind(s, { window: () => openPortalWindow(job.entry_url), close: () => { state.running = null; go(`#/job/${job.job_id}`); } });
-  strip.replaceChildren(s);
-  strip.hidden = false; frame.hidden = false;
-  if (frame.dataset.url !== job.entry_url) { frame.src = job.entry_url; frame.dataset.url = job.entry_url; }
-}
-function hidePortal() {
-  $("#portal-strip").hidden = true; const f = $("#portal"); f.hidden = true;
-  if (f.dataset.url) { f.removeAttribute("src"); delete f.dataset.url; }
 }
 
 // ------------------------------------------------------------------ work bar (right side)
@@ -886,7 +996,9 @@ function renderBar(withAccess = true) {
   fillLanguages(ref(head, "lang"));
   bind(head, { lang: (e) => switchLanguage(e.target.value) });
   if (!me) { show(ref(head, "nav"), false); $("#bar").replaceChildren(head); return; }
-  show(ref(head, "nav-people"), state.me.is_admin);
+  show(ref(head, "nav-people"), can("people"));
+  show(ref(head, "nav-all-devices"), can("people"));
+  show(ref(head, "nav-agents"), can("agents"));
   const body = T("tpl-bar-body");
   const job = currentJob();
   body.append(job ? renderCurrent(job) : T("tpl-bar-empty"));
@@ -898,6 +1010,11 @@ function renderCurrent(job) {
   const d = put(T("tpl-current"), { pos: state.current + 1, n, title: job.title });
   d.querySelector('[data-action="prev"]').disabled = state.current === 0;
   d.querySelector('[data-action="next"]').disabled = state.current >= n - 1;
+  // After a run is closed the job stays in sight with its new date, until "next job".
+  const done = state.done && state.done.job_id === job.job_id ? state.done : null;
+  show(ref(d, "done"), !!done);
+  show(ref(d, "work"), !done);
+  if (done) put(ref(d, "done"), { next_due: fmtDate(done.next_due) });
   ref(d, "urgency").replaceWith(urgency(job.urgency_days));
   ref(d, "schedule").textContent = plural("schedule", job.interval_weeks, { date: fmtDate(job.next_due) }).textContent;
   const last = job.last_run;
@@ -905,11 +1022,9 @@ function renderCurrent(job) {
   if (last) {
     ref(d, "last-outcome").replaceWith(outcomeChip(last.outcome));
     ref(d, "last-text").textContent = msg("last.by", { when: fmtDateTime(last.finished_at), by: last.by });
+    put(ref(d, "last"), { last_note: last.note });
   }
-  show(ref(d, "run-frame"), job.embeddable);
-  show(ref(d, "run-window"), !job.embeddable);
-  const creds = ref(d, "creds");
-  fillCreds(job, creds);
+  fillCreds(job, ref(d, "creds"));
   ref(d, "instructions").replaceWith(job.instructions_html ? instructionsBlock(job.instructions_html) : T("tpl-no-instructions"));
   ref(d, "edit").href = `#/edit/${job.job_id}`;
   ref(d, "history").href = `#/history/${job.job_id}`;
@@ -918,20 +1033,20 @@ function renderCurrent(job) {
   const finish = async (outcome) => {
     if (!(await ask(msg(`confirm.finish.${outcome}`, { title: job.title })))) return;
     try {
-      const r = await rpc("job.complete", { job_id: job.job_id, outcome, note: note.value, expected_run_count: job.run_count });
-      toast(msg("toast.completed", { date: fmtDate(r.next_due) }));
-      if (state.running === job.job_id) state.running = null;
-      await loadJobs(); state.current = 0;
-      go(state.jobs.length ? `#/job/${state.jobs[0].job_id}` : "#/");
+      const r = await rpc("job.complete", { job_id: job.job_id, outcome, note: note.value, expected_next_due: job.next_due });
+      state.done = { job_id: job.job_id, next_due: r.next_due };
+      await loadJobs(); selectJob(job.job_id);
+      go(`#/job/${job.job_id}`);
     } catch (e) {
       fail(e);
       if (e.type === "job_changed") { await loadJobs(); render(); }
     }
   };
   return bind(d, {
-    prev: () => { state.current--; go(`#/job/${currentJob().job_id}`); },
-    next: () => { state.current++; go(`#/job/${currentJob().job_id}`); },
-    run: () => run(job),
+    prev: () => { state.done = null; state.current--; go(`#/job/${currentJob().job_id}`); },
+    next: () => { state.done = null; state.current++; go(`#/job/${currentJob().job_id}`); },
+    "next-job": () => { state.done = null; state.current = 0; go(state.jobs.length ? `#/job/${state.jobs[0].job_id}` : "#/"); },
+    open: () => openPortalWindow(job.entry_url),
     succeeded: () => finish("succeeded"),
     failed: () => finish("failed"),
   });
@@ -966,6 +1081,16 @@ function fillCreds(job, box) {
 }
 
 // ------------------------------------------------------------------ stage views (left side)
+function fillExtensionCard(card) {
+  const link = ref(card, "extension-link");
+  if (CONFIG.extension_url) link.href = CONFIG.extension_url; else show(link, false);
+  const ca = ref(card, "ca");
+  if (!ca) return;
+  const info = state.status && state.status.ca_certificate;
+  show(ca, !!info);
+  if (info) { put(ca, { ca_fingerprint: info.sha256 }); ref(ca, "ca-link").href = info.path.replace(/^\//, ""); }
+}
+
 function viewOverview() {
   const d = T("tpl-overview");
   const rows = ref(d, "rows");
@@ -977,20 +1102,13 @@ function viewOverview() {
     const last = ref(tr, "last");
     if (j.last_run) last.append(outcomeChip(j.last_run.outcome), put(T("tpl-muted-line"), { text: fmtDate(j.last_run.finished_at) }));
     else last.textContent = "–";
-    tr.addEventListener("click", () => { state.current = i; go(`#/job/${j.job_id}`); });
+    tr.addEventListener("click", () => { state.done = null; state.current = i; go(`#/job/${j.job_id}`); });
     rows.append(tr);
   });
   show(ref(d, "table"), state.jobs.length > 0);
   show(ref(d, "empty"), state.jobs.length === 0);
+  fillExtensionCard(ref(d, "extension"));
   return d;
-}
-
-function viewRunning(job) {
-  if (job.embeddable) { showPortal(job); return null; }
-  return bind(put(T("tpl-running"), { title: job.title }), {
-    reopen: () => openPortalWindow(job.entry_url),
-    back: () => { state.running = null; go(`#/job/${job.job_id}`); },
-  });
 }
 
 async function viewEdit(id) {
@@ -1000,10 +1118,9 @@ async function viewEdit(id) {
   const f = (name) => ref(d, name);
   show(f("head-new"), !job); show(f("head-edit"), !!job);
   show(f("save-new"), !job); show(f("save-edit"), !!job);
-  show(f("delete"), !!job);
+  show(f("delete"), !!job); show(f("url-hint"), !!job);
   f("title").value = job ? job.title : "";
   f("entry_url").value = job ? job.entry_url : "";
-  f("embeddable").checked = job ? job.embeddable : false;
   f("interval_weeks").value = job ? job.interval_weeks : 4;
   f("retry_days").value = job ? job.retry_days : 2;
   f("next_due").value = job ? job.next_due : state.today;
@@ -1012,30 +1129,7 @@ async function viewEdit(id) {
   f("password").value = job ? job.password || "" : "";
   f("cancel").href = job ? `#/job/${job.job_id}` : "#/";
   const save = f("save");
-  // The server's verdict on embedding sets the tick; without one the tick stays as it is.
-  let checked = job ? job.entry_url : "", pending = null;
-  const check = () => (pending = verdict());
-  const verdict = async () => {
-    const url = f("entry_url").value.trim(), out = f("embed-result"), tick = f("embeddable");
-    checked = url;
-    // A verdict belongs to one address: without a checkable one, none is shown.
-    if (!/^https?:\/\/\S+$/i.test(url)) { out.hidden = true; out.textContent = ""; return; }
-    out.textContent = msg("embed.checking"); out.hidden = false;
-    const before = tick.checked;
-    try {
-      const r = await rpc("job.checkEmbedding", { entry_url: url });
-      if (f("entry_url").value.trim() !== url) return;
-      // A tick set by hand during the check stays.
-      if (r.embeddable !== null && tick.checked === before) tick.checked = r.embeddable;
-      out.textContent = msg(`embed.${r.finding}`, { detail: r.detail });
-    } catch (e) {
-      if (f("entry_url").value.trim() === url) out.textContent = msg("embed.failed", { reason: e.message });
-    }
-  };
-  f("entry_url").addEventListener("change", () => { if (f("entry_url").value.trim() !== checked) check(); });
   return bind(d, {
-    check,
-    "toggle-password": () => { const hide = f("password").type === "text"; f("password").type = hide ? "password" : "text"; show(f("pw-show"), hide); show(f("pw-hide"), !hide); },
     delete: async () => {
       if (!(await ask(msg("confirm.job.delete", { title: job.title })))) return;
       try { await rpc("job.delete", { job_id: job.job_id }); await loadJobs(); toast(msg("toast.deleted")); go("#/"); } catch (e) { fail(e); }
@@ -1043,11 +1137,8 @@ async function viewEdit(id) {
     save: async () => {
       save.disabled = true;
       try {
-        // A check still under way decides the tick first; it ends within about fifteen seconds.
-        if (f("entry_url").value.trim() !== checked) check();
-        await pending;
         const all = {
-          title: f("title").value, entry_url: f("entry_url").value.trim(), embeddable: f("embeddable").checked,
+          title: f("title").value, entry_url: f("entry_url").value.trim(),
           interval_weeks: Number(f("interval_weeks").value), retry_days: Number(f("retry_days").value), next_due: f("next_due").value,
           instructions_md: f("instructions_md").value, username: f("username").value, password: f("password").value,
         };
@@ -1085,12 +1176,35 @@ async function viewDevices() {
   for (const dev of r.devices) {
     const self = dev.device_id === r.current_device_id;
     const tr = put(T("tpl-device-row"), { label: dev.label, seen: fmtDateTime(dev.last_seen_at), address: dev.last_address, agent: dev.user_agent.slice(0, 80) });
+    ref(tr, "kind").append(kindChip(dev.kind));
     show(ref(tr, "this"), self); show(ref(tr, "revoked"), !!dev.revoked_at);
     show(ref(tr, "revoke"), !dev.revoked_at); show(ref(tr, "sign-out"), self); show(ref(tr, "revoke-other"), !self);
     bind(tr, {
       revoke: async () => {
         if (!(await ask(self ? msg("confirm.device.self") : msg("confirm.device.other", { label: dev.label })))) return;
         try { await rpc("device.revoke", { device_id: dev.device_id }); if (self) { location.hash = ""; location.reload(); } else render(); } catch (e) { fail(e); }
+      },
+    });
+    ref(d, "rows").append(tr);
+  }
+  return bind(d, {
+    // The link stays in this tab's address bar, where the extension's "+" reads it.
+    extension: async () => { try { const x = await rpc("invitation.createOwn"); state.ownLink = x.invitation_token; location.hash = "#invite=" + encodeURIComponent(x.invitation_token); } catch (e) { fail(e); } },
+  });
+}
+
+async function viewAllDevices() {
+  if (!can("people")) return T("tpl-forbidden");
+  const r = await rpc("device.listAll");
+  const d = T("tpl-all-devices");
+  for (const dev of r.devices) {
+    const tr = put(T("tpl-all-device-row"), { person: dev.user_name, label: dev.label, seen: fmtDateTime(dev.last_seen_at), address: dev.last_address });
+    ref(tr, "kind").append(kindChip(dev.kind));
+    show(ref(tr, "revoked"), !!dev.revoked_at); show(ref(tr, "revoke"), !dev.revoked_at);
+    bind(tr, {
+      revoke: async () => {
+        if (!(await ask(msg("confirm.person.device", { label: dev.label, name: dev.user_name })))) return;
+        try { await rpc("device.revoke", { device_id: dev.device_id }); render(); } catch (e) { fail(e); }
       },
     });
     ref(d, "rows").append(tr);
@@ -1105,65 +1219,105 @@ function showInvitation(name, r) {
 }
 const backupUrl = () => new URL("backup", location.href.split("#")[0]).href;
 const curlLine = (token) => msg("line.curl", { token, url: backupUrl() });
-/** Shows a token once; for the backup ability with the ready curl line. */
+/** Shows a token once; for the backup role with the ready curl line. */
 function showToken(r) {
-  const backup = r.ability === "backup.read";
+  const backup = r.role === "backup.read";
   lineDialog("tpl-token-dialog", { display: r.display }, backup ? curlLine(r.token) : msg("line.env", { token: r.token }), { backup, env: !backup });
 }
 function showBackupLine(display) {
   lineDialog("tpl-backup-line-dialog", { display }, curlLine("$PORTAL_DOWNLOAD_AGENT_TOKEN"));
 }
 
+/** Three tick boxes for the rights; only rights the caller holds can be changed. */
+function rightsBox(current) {
+  const box = T("tpl-rights");
+  for (const k of ["people", "agents", "backup"]) { const c = ref(box, k); c.checked = !!current[k]; c.disabled = !can(k); }
+  const value = () => ({ people: ref(box, "people").checked, agents: ref(box, "agents").checked, backup: ref(box, "backup").checked });
+  return { box, value };
+}
+
 async function viewPeople() {
-  if (!state.me.is_admin) return T("tpl-people-forbidden");
-  const [r, ag] = await Promise.all([rpc("user.list"), rpc("agent.list")]);
+  if (!can("people")) return T("tpl-forbidden");
+  const r = await rpc("user.list");
   const d = T("tpl-people");
   const act = (question, fn) => async () => { if (question && !(await ask(question))) return; try { await fn(); render(); } catch (e) { fail(e); } };
-  const options = (select, selected) => {
-    for (const x of ag.abilities) {
-      const o = T("tpl-option");
-      o.value = x.ability; o.textContent = abilityName(x.ability); o.title = x.permits; o.selected = x.ability === selected;
-      select.append(o);
-    }
-  };
-
   const invite = ref(d, "invite");
+  const newRights = rightsBox({});
+  ref(d, "new-rights").append(newRights.box);
   for (const u of r.users) {
-    const card = put(T("tpl-person"), { name: u.name, email: u.email });
-    show(ref(card, "is-admin"), u.is_admin); show(ref(card, "inactive"), !u.active);
-    show(ref(card, "admin-take"), u.is_admin); show(ref(card, "admin-give"), !u.is_admin);
+    const card = put(T("tpl-person"), { name: u.name, email: u.email, meta: [rightsText(u.rights), u.created_by ? msg("person.created_by", { name: u.created_by }) : ""].filter(Boolean).join(" · ") });
+    show(ref(card, "inactive"), !u.active);
     show(ref(card, "deactivate"), u.active); show(ref(card, "reactivate"), !u.active);
+    // What acts on a person needs every right that person holds.
+    const within = reaches(u.rights);
+    show(ref(card, "delete"), within && u.user_id !== state.me.user_id);
+    for (const r of ["reinvite", "active", "rights"]) card.querySelectorAll(`[data-action="${r}"]`).forEach((b) => (b.disabled = !within));
+    if (!within) for (const c of ref(card, "rights").querySelectorAll("input")) c.disabled = true;
+    const rights = rightsBox(u.rights);
+    ref(card, "rights").append(rights.box);
     bind(card, {
       reinvite: async () => { try { showInvitation(u.name, await rpc("user.reinvite", { user_id: u.user_id })); } catch (e) { fail(e); } },
-      admin: act(msg(u.is_admin ? "confirm.person.admin_take" : "confirm.person.admin_give", { name: u.name }), () => rpc("user.setAdmin", { user_id: u.user_id, is_admin: !u.is_admin })),
+      rights: async () => {
+        const v = rights.value();
+        if (!(await ask(msg("confirm.person.rights", { name: u.name, rights: rightsText(v) })))) return;
+        try { await rpc("user.setRights", { user_id: u.user_id, rights: v }); render(); } catch (e) { fail(e); render(); }
+      },
       active: act(u.active ? msg("confirm.person.deactivate", { name: u.name }) : null, () => rpc("user.setActive", { user_id: u.user_id, active: !u.active })),
+      delete: act(msg("confirm.person.delete", { name: u.name }), () => rpc("user.delete", { user_id: u.user_id })),
     });
     for (const dev of u.devices) {
-      const tr = put(T("tpl-person-device"), { label: dev.label, seen: fmtDateTime(dev.last_seen_at), address: dev.last_address, invitation: dev.invitation_id });
-      show(ref(tr, "revoked"), !!dev.revoked_at); show(ref(tr, "revoke"), !dev.revoked_at);
+      const tr = put(T("tpl-person-device"), { label: dev.label, seen: fmtDateTime(dev.last_seen_at), address: dev.last_address });
+      ref(tr, "kind").append(kindChip(dev.kind));
+      show(ref(tr, "revoked"), !!dev.revoked_at); show(ref(tr, "revoke"), !dev.revoked_at && within);
       bind(tr, { revoke: act(msg("confirm.person.device", { label: dev.label, name: u.name }), () => rpc("device.revoke", { device_id: dev.device_id })) });
       ref(card, "rows").append(tr);
     }
     for (const i of u.invitations) {
-      const tr = put(T("tpl-person-invitation"), { id: i.invitation_id, created: fmtDateTime(i.created_at), expires: fmtDateTime(i.expires_at) });
+      const tr = put(T("tpl-person-invitation"), { id: i.invitation_id, created: fmtDateTime(i.created_at), by: i.created_by, expires: fmtDateTime(i.expires_at) });
       ref(tr, "state").append(stateChip("invitation.state", i.state));
-      show(ref(tr, "withdraw"), i.state === "open");
+      show(ref(tr, "withdraw"), i.state === "open" && within);
       bind(tr, { withdraw: act(msg("confirm.invitation.withdraw"), () => rpc("invitation.withdraw", { invitation_id: i.invitation_id })) });
       ref(card, "rows").append(tr);
     }
-    ref(d, "people").append(card);
+    ref(d, "list").append(card);
   }
+  return bind(d, {
+    invite: async () => {
+      const name = ref(invite, "name").value;
+      try { showInvitation(name, await rpc("user.create", { name, email: ref(invite, "email").value, rights: newRights.value() })); } catch (e) { fail(e); }
+    },
+  });
+}
 
+const roleWarning = (role) => role === "people.manage" ? "\n\n" + msg("confirm.agent.grant_people") : role === "agents.manage" ? "\n\n" + msg("confirm.agent.grant_agents") : "";
+
+async function viewAgents() {
+  if (!can("agents")) return T("tpl-forbidden");
+  const ag = await rpc("agent.list");
+  const people = can("people") ? (await rpc("user.list")).users : [];
+  const d = T("tpl-agents");
+  const act = (question, fn) => async () => { if (question && !(await ask(question))) return; try { await fn(); render(); } catch (e) { fail(e); } };
+  const options = (select, selected) => {
+    for (const x of ag.roles.filter((x) => x.grantable)) {
+      const o = T("tpl-option");
+      o.value = x.role; o.textContent = roleName(x.role); o.title = x.permits; o.selected = x.role === selected;
+      select.append(o);
+    }
+  };
   const agentCard = (a) => {
     const card = put(T("tpl-agent"), { display: a.display, introduction: a.introduction });
     ref(card, "state").append(stateChip("agent.state", a.state));
-    const ab = ref(card, "ability");
-    if (a.ability) ab.textContent = abilityName(a.ability); else show(ab, false);
+    const role = ref(card, "role");
+    if (a.role) role.textContent = roleName(a.role); else show(role, false);
     const active = a.state === "pending" || a.state === "granted";
     ref(card, "expires").textContent = active ? msg("agent.expires", { date: fmtDateTime(a.expires_at) }) : "";
     const meta = [msg("agent.registered", { date: fmtDateTime(a.created_at) })];
     if (a.granted_by) meta.push(msg("agent.granted_by", { name: a.granted_by }));
     meta.push(a.last_used_at ? msg("agent.last_used", { date: fmtDateTime(a.last_used_at) }) : msg("agent.never_used"));
+    // What this token granted or invited stays when it is revoked; it is named here to revoke one by one.
+    const by = (x) => typeof x === "string" && (x === `Agent ${a.display}` || x.startsWith(`Agent ${a.display} `));
+    const tokens = ag.agents.filter((x) => by(x.granted_by)).length, invited = people.filter((u) => by(u.created_by)).length;
+    if (tokens || invited) meta.push(msg("agent.created", { tokens, people: invited }));
     ref(card, "meta").textContent = meta.join(" ");
     show(ref(card, "pending"), a.state === "pending");
     show(ref(card, "granted"), a.state === "granted");
@@ -1172,8 +1326,8 @@ async function viewPeople() {
     return bind(card, {
       grant: async () => {
         const chosen = pick.value;
-        if (!(await ask(msg("confirm.agent.grant", { display: a.display, ability: abilityName(chosen) })))) return;
-        try { await rpc("agent.grant", { agent_id: a.agent_id, ability: chosen }); if (chosen === "backup.read") showBackupLine(a.display); else render(); } catch (e) { fail(e); }
+        if (!(await ask(msg("confirm.agent.grant", { display: a.display, role: roleName(chosen) }) + roleWarning(chosen)))) return;
+        try { await rpc("agent.grant", { agent_id: a.agent_id, role: chosen }); if (chosen === "backup.read") showBackupLine(a.display); else render(); } catch (e) { fail(e); }
       },
       reject: act(msg("confirm.agent.reject", { display: a.display }), () => rpc("agent.revoke", { agent_id: a.agent_id })),
       revoke: act(msg("confirm.agent.revoke", { display: a.display }), () => rpc("agent.revoke", { agent_id: a.agent_id })),
@@ -1186,59 +1340,113 @@ async function viewPeople() {
   show(ref(d, "done"), done.length > 0);
   ref(d, "done-summary").textContent = msg("agent.done", { n: done.length });
   for (const a of done) ref(d, "done-list").append(agentCard(a));
-  options(ref(d, "new-ability"), "backup.read");
-  ref(d, "download").href = backupUrl();
-
+  options(ref(d, "new-role"), "backup.read");
   return bind(d, {
-    invite: async () => {
-      const name = ref(invite, "name").value;
-      try { showInvitation(name, await rpc("user.create", { name, email: ref(invite, "email").value, is_admin: ref(invite, "admin").checked })); } catch (e) { fail(e); }
-    },
     "create-token": async () => {
-      const ability = ref(d, "new-ability").value;
-      if (!(await ask(msg("confirm.token.create", { ability: abilityName(ability) })))) return;
-      try { showToken(await rpc("agent.create", { introduction: ref(d, "purpose").value, ability })); } catch (e) { fail(e); }
-    },
-    import: async () => {
-      const file = ref(d, "file").files[0];
-      if (!file) { toast(msg("toast.choose_file"), true); return; }
-      if (!(await ask(msg("confirm.import")))) return;
-      try { state.importReport = await rpc("backup.import", { jsonl: await file.text(), include_access: !ref(d, "omit").checked }); go("#/import"); } catch (e) { fail(e); }
+      const role = ref(d, "new-role").value;
+      if (!(await ask(msg("confirm.token.create", { role: roleName(role) }) + roleWarning(role)))) return;
+      try { showToken(await rpc("agent.create", { introduction: ref(d, "purpose").value, role })); } catch (e) { fail(e); }
     },
   });
 }
 
-function viewImport() {
-  const r = state.importReport;
-  const d = T("tpl-import");
-  show(ref(d, "report"), !!r); show(ref(d, "nothing"), !r);
-  if (!r) return d;
-  put(d, {
-    jobs: r.jobs_added, runs: r.runs_added, people: r.people_added, devices: r.devices_added, agents: r.agents_added,
-    left_out: r.skipped_left_out, existing: r.skipped_existing, unrelated: r.skipped_unrelated,
-    admins: r.admins_added.map((x) => x.name).join(", "),
+// ------------------------------------------------------------------ exchange and backup
+function viewExchange() {
+  const d = T("tpl-exchange");
+  show(ref(d, "backup"), can("backup"));
+  show(ref(d, "full-option"), canAll());
+  const download = async (input, fetchIt) => {
+    const pw = filePassword(input);
+    if (pw === null) return;
+    if (!pw && !(await ask(msg("confirm.export.plain")))) return;
+    try { await fetchIt(pw); } catch (e) { fail(e); }
+  };
+  const P = state.preview;
+  if (P) ref(d, "preview").append(previewCard(P));
+  return bind(d, {
+    "export-jobs": () => download(ref(d, "export-password"), async (pw) => {
+      const r = await rpc("job.export", {}, pwHeader(pw));
+      if (r.encrypted !== !!pw) { toast(msg("toast.not_encrypted"), true); return; }
+      saveFile(new Blob([bytesOfBase64(r.zip_base64)], { type: "application/zip" }), r.file_name);
+    }),
+    "export-backup": () => download(ref(d, "backup-password"), async (pw) => {
+      const r = await rpc("backup.export", {}, pwHeader(pw));
+      if (r.encrypted !== !!pw) { toast(msg("toast.not_encrypted"), true); return; }
+      saveFile(new Blob([bytesOfBase64(r.zip_base64)], { type: "application/zip" }), r.file_name);
+    }),
+    preview: async () => {
+      const file = ref(d, "file").files[0];
+      if (!file) { toast(msg("toast.choose_file"), true); return; }
+      const full = ref(d, "full").checked && canAll();
+      const pw = filePassword(ref(d, "import-password"));
+      if (pw === null) return;
+      try {
+        const zip = await base64OfFile(file);
+        const result = await rpc(full ? "backup.importPreview" : "job.importPreview", { zip_base64: zip }, pwHeader(pw));
+        state.preview = { zip, pw, full, result, choices: {} };
+        render();
+      } catch (e) { fail(e); }
+    },
   });
-  show(ref(d, "skipped"), !!(r.skipped_left_out || r.skipped_existing || r.skipped_unrelated));
-  show(ref(d, "admins"), r.admins_added.length > 0);
-  show(ref(d, "renamed"), r.renamed.length > 0);
-  show(ref(d, "none"), r.renamed.length === 0);
-  for (const x of r.renamed) {
-    const tr = put(T("tpl-import-row"), { name: x.name });
-    ref(tr, "kind").append(stateChip("import.kind", x.kind));
-    const mark = () => { show(ref(tr, "delete"), false); show(ref(tr, "deleted"), true); };
-    if (x.deleted) mark();
-    bind(tr, {
-      delete: async () => {
-        if (!(await ask(msg("confirm.import.delete", { name: x.name })))) return;
-        try {
-          if (x.kind === "job") await rpc("job.delete", { job_id: x.job_id }); else await rpc("user.delete", { user_id: x.user_id });
-          x.deleted = true; mark(); await loadJobs(); renderBar();
-        } catch (e) { fail(e); }
-      },
-    });
-    ref(d, "rows").append(tr);
+}
+
+const fieldValue = (field, v) => v === "•••" ? msg("preview.hidden") : field === "next_due" ? fmtDate(v) : String(v);
+
+function previewCard(P) {
+  const R = P.result;
+  const d = put(T("tpl-preview"), { n_new: R.new.length, n_same: R.same.length, n_decide: R.decide.length });
+  show(ref(d, "people"), !!R.people && P.full);
+  if (R.people) put(ref(d, "people"), R.people);
+  for (const x of R.new) ref(d, "new").append(put(T("tpl-preview-line"), { title: x.title, detail: x.new_runs ? msg("preview.runs", { n: x.new_runs }) : "" }));
+  for (const x of R.same) {
+    const detail = [x.new_runs ? msg("preview.runs", { n: x.new_runs }) : "", x.next_due_from_run ? msg("preview.due", { date: fmtDate(x.next_due_from_run) }) : ""].filter(Boolean).join(" · ");
+    ref(d, "same").append(put(T("tpl-preview-line"), { title: x.title, detail }));
   }
-  return d;
+  for (const x of R.decide) {
+    const fields = Object.fromEntries((x.fields || []).map((f) => [f.field, f.preselect]));
+    const choice = P.choices[x.guid] || (P.choices[x.guid] = x.actions ? (x.fields ? { action: x.preselect, fields } : { action: x.preselect }) : { fields });
+    const caseText = x.case === "deleted_here" ? msg("case.deleted_here", { date: fmtDateTime(x.deleted_at) })
+      : x.case === "replaces" ? msg("case.replaces", { title: x.replaces_title, url: x.local_entry_url })
+      : x.case === "old_address" ? msg("case.old_address", { url: x.local_entry_url }) : msg("case.known");
+    const card = put(T("tpl-decide"), { title: x.title, url: x.entry_url, case: caseText });
+    const rows = ref(card, "rows");
+    show(ref(card, "fields"), !!(x.fields && x.fields.length));
+    for (const f of x.fields || []) {
+      const tr = put(T("tpl-decide-field"), {
+        field: msg(`field.${f.field}`), local: fieldValue(f.field, f.local), incoming: fieldValue(f.field, f.incoming),
+        local_at: msg("preview.changed", { date: fmtDateTime(f.local_changed_at) }), incoming_at: msg("preview.changed", { date: fmtDateTime(f.incoming_changed_at) }),
+      });
+      const name = `${x.guid}:${f.field}`;
+      for (const side of ["local", "incoming"]) {
+        const radio = ref(tr, side);
+        radio.name = name; radio.checked = choice.fields && choice.fields[f.field] === side;
+        radio.addEventListener("change", () => { if (radio.checked) choice.fields[f.field] = side; });
+      }
+      rows.append(tr);
+    }
+    const select = ref(card, "action");
+    show(select, !!x.actions);
+    for (const a of x.actions || []) {
+      const o = T("tpl-option");
+      o.value = a; o.textContent = msg(`action.${a}`); o.selected = a === choice.action;
+      select.append(o);
+    }
+    select.addEventListener("change", () => { choice.action = select.value; });
+    ref(d, "decide").append(card);
+  }
+  return bind(d, {
+    cancel: () => { state.preview = null; render(); },
+    apply: async () => {
+      if (!(await ask(msg("confirm.import")))) return;
+      try {
+        const r = await rpc(P.full ? "backup.import" : "job.import", { zip_base64: P.zip, decisions: P.choices }, pwHeader(P.pw));
+        state.preview = null;
+        toast(msg("toast.imported", { added: r.added, updated: r.updated, reactivated: r.reactivated, replaced: r.replaced, skipped: r.skipped, runs: r.runs_added }));
+        if (r.people) toast(msg("toast.imported_people", { people: r.people.people, devices: r.people.devices, agents: r.people.agents, renamed: r.people.renamed.join(", ") || "–" }));
+        await loadJobs(); go("#/");
+      } catch (e) { fail(e); }
+    },
+  });
 }
 
 // ------------------------------------------------------------------ logins from a Firefox export
@@ -1366,15 +1574,11 @@ function viewLogins() {
       list.inert = true;
       let made = 0, inRow = 0, stop = null;
       const failed = [];
-      // The embedding checks run ahead, six at a time; a check that fails leaves the tick off.
-      const slot = limit(6);
-      const verdicts = chosen.map((x) => slot(() => rpc("job.checkEmbedding", { entry_url: x.url })));
       try {
-        for (const [i, x] of chosen.entries()) {
+        for (const x of chosen) {
           create.textContent = msg("logins.progress", { done: made + failed.length, n: chosen.length });
           try {
-            const v = await verdicts[i];
-            await rpc("job.create", { title: x.host, entry_url: x.url, embeddable: !!(v && v.embeddable), username: x.username, password: x.password, instructions_md: "", interval_weeks: x.weeks });
+            await rpc("job.create", { title: x.host, entry_url: x.url, username: x.username, password: x.password, instructions_md: "", interval_weeks: x.weeks });
             made++; inRow = 0; x.picked = false;
           } catch (e) {
             failed.push(msg("logins.failure", { host: x.host, username: x.username || "–", reason: e.message }));
@@ -1387,7 +1591,6 @@ function viewLogins() {
           }
         }
       } finally {
-        slot.clear();
         create.replaceChildren(...label);
         create.disabled = false;
         list.inert = false;
@@ -1403,16 +1606,23 @@ function viewLogins() {
   });
 }
 
-// ------------------------------------------------------------------ entry states without access
+// ------------------------------------------------------------------ entry states
 function viewInvite(token) {
   const d = T("tpl-invite");
+  fillExtensionCard(ref(d, "extension"));
   ref(d, "label").value = guessDeviceLabel();
+  // A link one has just created for a further device of one's own is meant for the extension and serves once.
+  const own = state.ownLink === token;
+  show(ref(d, "signed-in"), !!state.me);
+  show(ref(d, "own"), own);
+  show(ref(d, "here"), !own);
+  show(ref(d, "other"), !!state.me && !own);
   const submit = ref(d, "submit");
   return bind(d, {
     accept: async () => {
       submit.disabled = true;
       try {
-        const r = await rpc("invitation.redeem", { token, label: ref(d, "label").value });
+        const r = await rpc("invitation.redeem", { token, label: ref(d, "label").value, kind: "browser" });
         history.replaceState(null, "", location.pathname + "#/");
         toast(msg("toast.welcome", { name: r.name }));
         await boot();
@@ -1434,7 +1644,9 @@ function viewSetup() {
 }
 
 function viewNoAccess(err) {
-  return put(T("tpl-no-access"), { app_name: CONFIG.app_name, error: err || "" });
+  const d = put(T("tpl-no-access"), { app_name: CONFIG.app_name, error: err || "" });
+  fillExtensionCard(d);
+  return d;
 }
 
 // ------------------------------------------------------------------ render
@@ -1443,9 +1655,9 @@ async function render() {
   const mySeq = ++renderSeq;
   const r = route();
   const view = $("#view");
-  if (r.view === "invite") { hidePortal(); renderBar(false); view.replaceChildren(viewInvite(r.token)); state.dirty = false; return; }
+  if (r.view === "invite") { renderBar(!!state.me); view.replaceChildren(viewInvite(r.token)); state.dirty = false; return; }
   if (!state.me) {
-    hidePortal(); renderBar(false);
+    renderBar(false);
     view.replaceChildren(state.status && state.status.setup_required ? viewSetup() : viewNoAccess(state.authError));
     state.dirty = false;
     return;
@@ -1457,27 +1669,25 @@ async function render() {
     fail(e);
   }
   if (mySeq !== renderSeq) return;
-  if (r.id && ["job", "run", "edit", "history"].includes(r.view)) selectJob(r.id);
-  // The logins read from an export stay in this page only while its view is shown.
+  if (r.id && ["job", "edit", "history"].includes(r.view)) selectJob(r.id);
+  // The note that a run was closed belongs to that job's view only.
+  if (!(r.view === "job" && state.done && state.done.job_id === r.id)) state.done = null;
+  // The logins read from an export, and a file's preview, stay only while their view is shown.
   if (r.view !== "logins") state.logins = null;
+  if (r.view !== "exchange") state.preview = null;
   renderBar();
   let content = null;
   try {
-    if (r.view === "run") {
-      const job = state.jobs.find((j) => j.job_id === r.id);
-      content = job ? viewRunning(job) : viewOverview();
-      if (!job || !job.embeddable) hidePortal();
-    } else {
-      hidePortal();
-      if (r.view === "new") content = await viewEdit(null);
-      else if (r.view === "edit") content = await viewEdit(r.id);
-      else if (r.view === "history") content = await viewHistory(r.id);
-      else if (r.view === "people") content = await viewPeople();
-      else if (r.view === "import") content = viewImport();
-      else if (r.view === "logins") content = viewLogins();
-      else if (r.view === "devices") content = await viewDevices();
-      else content = viewOverview();
-    }
+    if (r.view === "new") content = await viewEdit(null);
+    else if (r.view === "edit") content = await viewEdit(r.id);
+    else if (r.view === "history") content = await viewHistory(r.id);
+    else if (r.view === "people") content = await viewPeople();
+    else if (r.view === "agents") content = await viewAgents();
+    else if (r.view === "exchange") content = viewExchange();
+    else if (r.view === "logins") content = viewLogins();
+    else if (r.view === "devices") content = await viewDevices();
+    else if (r.view === "all-devices") content = await viewAllDevices();
+    else content = viewOverview();
   } catch (e) {
     if (mySeq !== renderSeq) return;
     if (e.code === 401) { state.me = null; state.authError = e.message; return render(); }

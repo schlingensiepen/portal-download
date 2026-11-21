@@ -3,3 +3,4 @@
 # volume at /data.
 listen = "127.0.0.1:8080"
 state_dir = "/data/portal-download"
+ca_certificate = "/data/tls/public/ca.crt"

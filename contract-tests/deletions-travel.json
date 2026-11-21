@@ -1,0 +1,15 @@
+{
+  "name": "A deletion travels with a file, so that an older file does not bring the job back",
+  "steps": [
+    { "on": "a", "call": "job.create", "params": { "title": "Energy", "entry_url": "https://energy.example.org/", "interval_weeks": 4 }, "save": { "id": "/job_id", "guid": "/guid" } },
+    { "on": "a", "call": "job.complete", "params": { "job_id": "$id", "outcome": "succeeded" }, "expect": { "run_guid": "$uuid" } },
+    { "on": "a", "call": "job.export", "params": {}, "save": { "older": "/zip_base64" } },
+    { "on": "a", "call": "job.delete", "params": { "job_id": "$id" } },
+    { "on": "a", "call": "job.export", "params": {}, "save": { "newer": "/zip_base64" } },
+    { "on": "c", "call": "job.import", "params": { "zip_base64": "$newer" }, "expect": { "added": 0 } },
+    { "on": "c", "call": "job.importPreview", "params": { "zip_base64": "$older" }, "expect": { "new": [], "same": [], "decide": [ { "guid": "$guid", "case": "deleted_here", "new_runs": 1 } ] } },
+    { "on": "c", "call": "job.import", "params": { "zip_base64": "$older", "decisions": { "$guid": { "action": "reactivate" } } }, "expect": { "reactivated": 1, "runs_added": 1 } },
+    { "on": "c", "call": "job.import", "params": { "zip_base64": "$older" }, "expect": { "unchanged": 1, "runs_added": 0 } },
+    { "on": "c", "call": "job.list", "params": {}, "expect": { "jobs": [ { "guid": "$guid", "next_due": "$today+28" } ] } }
+  ]
+}

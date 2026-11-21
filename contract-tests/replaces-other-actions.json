@@ -1,0 +1,16 @@
+{
+  "name": "A job with a new address can also be kept beside the old one, or left out",
+  "steps": [
+    { "on": "a", "call": "job.create", "params": { "title": "Energy", "entry_url": "https://old.example.org/", "interval_weeks": 4 }, "save": { "old": "/guid" } },
+    { "on": "a", "call": "job.export", "params": {}, "save": { "before": "/zip_base64" } },
+    { "on": "b", "call": "job.import", "params": { "zip_base64": "$before" } },
+    { "on": "b", "call": "job.list", "params": {}, "save": { "b_id": "/jobs/0/job_id" } },
+    { "on": "b", "call": "job.update", "params": { "job_id": "$b_id", "entry_url": "https://new.example.org/" }, "save": { "new": "/guid" } },
+    { "on": "b", "call": "job.export", "params": {}, "save": { "after": "/zip_base64" } },
+    { "on": "a", "call": "job.import", "params": { "zip_base64": "$after", "decisions": { "$new": { "action": "skip" } } }, "expect": { "skipped": 1, "added": 0 } },
+    { "on": "a", "call": "job.list", "params": {}, "expect": { "jobs": [ { "guid": "$old" } ] } },
+    { "on": "a", "call": "job.import", "params": { "zip_base64": "$after", "decisions": { "$new": { "action": "keep_both" } } }, "expect": { "added": 1 } },
+    { "on": "a", "call": "job.list", "params": {}, "expect": { "jobs": [ { "entry_url": "$any" }, { "entry_url": "$any" } ] } },
+    { "on": "a", "call": "job.importPreview", "params": { "zip_base64": "$after" }, "expect": { "new": [], "same": [ { "guid": "$new" } ], "decide": [] } }
+  ]
+}

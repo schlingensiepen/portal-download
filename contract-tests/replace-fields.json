@@ -1,0 +1,272 @@
+{
+  "name": "Replacing a job takes a side for each differing field; a replaced job deleted here is a deleted job",
+  "steps": [
+    {
+      "on": "a",
+      "call": "job.create",
+      "params": {
+        "title": "Energy",
+        "entry_url": "https://old.example.org/",
+        "interval_weeks": 4,
+        "password": "here"
+      },
+      "save": {
+        "a_id": "/job_id",
+        "old": "/guid"
+      }
+    },
+    {
+      "on": "a",
+      "call": "job.export",
+      "params": {},
+      "save": {
+        "before": "/zip_base64"
+      }
+    },
+    {
+      "on": "b",
+      "call": "job.import",
+      "params": {
+        "zip_base64": "$before"
+      }
+    },
+    {
+      "on": "b",
+      "call": "job.list",
+      "params": {},
+      "save": {
+        "b_id": "/jobs/0/job_id"
+      }
+    },
+    {
+      "on": "b",
+      "call": "job.update",
+      "params": {
+        "job_id": "$b_id",
+        "entry_url": "https://new.example.org/",
+        "password": "there"
+      },
+      "save": {
+        "new": "/guid"
+      }
+    },
+    {
+      "on": "b",
+      "call": "job.export",
+      "params": {},
+      "password": "long password",
+      "expect": {
+        "encrypted": true
+      },
+      "save": {
+        "after": "/zip_base64"
+      }
+    },
+    {
+      "on": "b",
+      "call": "job.export",
+      "params": {},
+      "password": "short",
+      "error": "password_invalid"
+    },
+    {
+      "on": "b",
+      "call": "job.export",
+      "params": {},
+      "password": "long password ",
+      "error": "password_invalid"
+    },
+    {
+      "on": "a",
+      "call": "job.importPreview",
+      "params": {
+        "zip_base64": "$after"
+      },
+      "password": "long password",
+      "expect": {
+        "decide": [
+          {
+            "guid": "$new",
+            "case": "replaces",
+            "fields": [
+              {
+                "field": "password",
+                "local": "here",
+                "incoming": "there",
+                "local_changed_at": "$any",
+                "incoming_changed_at": "$any",
+                "preselect": "$any"
+              }
+            ],
+            "actions": [
+              "replace",
+              "keep_both",
+              "skip"
+            ],
+            "preselect": "replace",
+            "job_id": "$a_id",
+            "replaces_title": "Energy",
+            "local_entry_url": "https://old.example.org/",
+            "new_runs": 0,
+            "title": "Energy",
+            "entry_url": "https://new.example.org/"
+          }
+        ],
+        "new": [],
+        "same": []
+      }
+    },
+    {
+      "on": "a",
+      "call": "job.import",
+      "params": {
+        "zip_base64": "$after",
+        "decisions": {
+          "$new": {
+            "action": "replace"
+          }
+        }
+      },
+      "password": "long password",
+      "error": "decision_missing"
+    },
+    {
+      "on": "a",
+      "call": "job.import",
+      "params": {
+        "zip_base64": "$after",
+        "decisions": {
+          "$new": {
+            "action": "reactivate"
+          }
+        }
+      },
+      "password": "long password",
+      "error": "decision_invalid"
+    },
+    {
+      "on": "a",
+      "call": "job.import",
+      "params": {
+        "zip_base64": "$after",
+        "decisions": {
+          "$new": {
+            "action": "replace",
+            "fields": {
+              "password": "local"
+            }
+          }
+        }
+      },
+      "password": "long password",
+      "expect": {
+        "replaced": 1
+      }
+    },
+    {
+      "on": "a",
+      "call": "job.get",
+      "params": {
+        "job_id": "$a_id"
+      },
+      "expect": {
+        "guid": "$new",
+        "password": "here",
+        "entry_url": "https://new.example.org/"
+      }
+    },
+    {
+      "on": "c",
+      "call": "job.import",
+      "params": {
+        "zip_base64": "$before"
+      }
+    },
+    {
+      "on": "c",
+      "call": "job.list",
+      "params": {},
+      "save": {
+        "c_id": "/jobs/0/job_id"
+      }
+    },
+    {
+      "on": "c",
+      "call": "job.delete",
+      "params": {
+        "job_id": "$c_id"
+      }
+    },
+    {
+      "on": "c",
+      "call": "job.importPreview",
+      "params": {
+        "zip_base64": "$after"
+      },
+      "password": "long password",
+      "expect": {
+        "new": [],
+        "same": [],
+        "decide": [
+          {
+            "guid": "$new",
+            "case": "deleted_here",
+            "actions": [
+              "reactivate",
+              "skip"
+            ],
+            "preselect": "skip"
+          }
+        ]
+      }
+    },
+    {
+      "on": "c",
+      "call": "job.import",
+      "params": {
+        "zip_base64": "$after",
+        "decisions": {
+          "$new": {
+            "action": "reactivate"
+          }
+        }
+      },
+      "password": "long password",
+      "expect": {
+        "reactivated": 1
+      }
+    },
+    {
+      "on": "c",
+      "call": "job.importPreview",
+      "params": {
+        "zip_base64": "$before"
+      },
+      "expect": {
+        "new": [],
+        "same": [],
+        "decide": [
+          {
+            "guid": "$old",
+            "case": "old_address",
+            "local_entry_url": "https://new.example.org/",
+            "fields": [
+              {
+                "field": "password",
+                "local": "there",
+                "incoming": "here",
+                "local_changed_at": "$any",
+                "incoming_changed_at": "$any",
+                "preselect": "$any"
+              }
+            ],
+            "job_id": "$any",
+            "title": "Energy",
+            "entry_url": "https://old.example.org/",
+            "new_runs": 0
+          }
+        ]
+      }
+    }
+  ]
+}

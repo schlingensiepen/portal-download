@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Proves that the smoke test catches what it is there for: each of its nine steps is
+# Proves that the smoke test catches what it is there for: each of its ten steps is
 # run against an image with exactly that safeguard removed, and must fail at that step.
 #
 #   deploy/smoke-red.sh IMAGE REVISION
@@ -21,19 +21,30 @@ mutations=(
     "1|Caddy logs at level INFO|sed -i '/level WARN/d' /etc/caddy/Caddyfile"
     "1|another name ends the handshake|sed -i 's|^https:// {|{\\\$SITE} {|' /etc/caddy/Caddyfile"
     "1|another name is led to SITE instead of served|sed -i 's|reverse_proxy 127.0.0.1:8080|redir https://{\\\$SITE}{uri} 307|' /etc/caddy/Caddyfile"
-    "3|the ready block names another setup secret than the service|sed -i 's|Setup secret: \$(window secret)|Setup secret: pds_other|' /usr/local/bin/start.sh"
+    "1|the authority is not limited to SITE|sed -i 's|^        -addext \"nameConstraints=critical,\$nc\" \\\\|        \\\\|' /usr/local/bin/start.sh"
+    "1|the name constraint leaves addresses open|sed -i 's|,permitted;IP:0.0.0.0/255.255.255.255\"|\"|' /usr/local/bin/start.sh"
+    "10|the name constraint of an address leaves host names open|sed -i 's|,permitted;DNS:invalid\"|\"|' /usr/local/bin/start.sh"
+    "1|the certificate is not issued by the authority|sed -i 's|-CA \"\$TLS/ca.pem\" -CAkey \"\$TLS/ca.key\"|-key \"\$TLS/key.pem.new\"|' /usr/local/bin/start.sh"
+    "1|the authority is not offered at /ca.crt|sed -i 's|^ca_certificate = .*|ca_certificate = \"\"|' /etc/portal-download/config.toml"
+    "1|the block is not framed|sed -i 's|^        say \"\$STARS\"|        :|' /usr/local/bin/start.sh"
+    "1|the block names the certificate instead of the authority|sed -i 's|^        ca=\$(fingerprint \"\$TLS/public/ca.crt\")|        ca=|' /usr/local/bin/start.sh"
+    "1|Caddy does not pass the preflight on|awk '/reverse_proxy/ { print \"\\t@pre method OPTIONS\\n\\trespond @pre 204\" } 1' /etc/caddy/Caddyfile > /tmp/Caddyfile && cp /tmp/Caddyfile /etc/caddy/Caddyfile"
+    "3|the ready block names another setup secret than the service|sed -i 's|secret=\"\$(window secret)|secret=\"pds_other|' /usr/local/bin/start.sh"
     "3|the service's log does not reach the container log|sed -i 's|^portal-download serve &|portal-download serve 2>/dev/null \&|' /usr/local/bin/start.sh"
     "4|the stop signal is not passed on|sed -i 's|^trap stop TERM INT|:|' /usr/local/bin/start.sh"
     "5|the state lies outside the volume|sed -i 's|^state_dir = .*|state_dir = \"/tmp/portal-download\"|' /etc/portal-download/config.toml"
     "5|the block says not set up although somebody is|sed -i 's|^    if \[ \"\$users\" = 0 \]; then|    if true; then|' /usr/local/bin/start.sh"
+    "5|a certificate of the image's authority counts as the operator's without its note|sed -i 's/^        || { \[ -s \"\$TLS\/ca.pem\" \] && \[ -s \"\$TLS\/ca-site\" \] && openssl verify -CAfile \"\$TLS\/ca.pem\" \"\$TLS\/cert.pem\" >\/dev\/null 2>\&1; }; then/        ; then/' /usr/local/bin/start.sh"
+    "5|the authority is created anew at every start|sed -i 's|^    certificate start\$|    rm -f \"\$TLS/ca.pem\"; certificate start|' /usr/local/bin/start.sh"
     "5|the certificate is created anew at every start|sed -i 's|^    certificate start\$|    rm -f \"\$TLS/cert.pem\"; certificate start|' /usr/local/bin/start.sh"
     "6|the backup does not reach the service|awk '/reverse_proxy/ { print \"\\trespond /backup 404\" } 1' /etc/caddy/Caddyfile > /tmp/Caddyfile && cp /tmp/Caddyfile /etc/caddy/Caddyfile"
     "7|the running container never checks the certificate|sed -i 's|^    sleep \"\$CHECK_SECONDS\" &|    sleep 100000 \&|' /usr/local/bin/start.sh"
     "7|Caddy keeps the old certificate after a renewal|sed -i 's|^            if \[ \$? = 10 \]; then|            if false; then|' /usr/local/bin/start.sh"
-    "7|a certificate of the operator's is replaced like the image's own|sed -i 's|^    elif \[ \"\$(cat \"\$TLS/generated\" 2>/dev/null)\" = \"\$(fingerprint)\" \]; then|    elif true; then|' /usr/local/bin/start.sh"
+    "7|a certificate of the operator's is replaced like the image's own|sed -i 's|^    if \[ ! -s \"\$TLS/cert.pem\" \] \|\| \[ ! -s \"\$TLS/key.pem\" \]|    if true \|\| [ ! -s \"\$TLS/cert.pem\" ]|' /usr/local/bin/start.sh"
+    "7|the authority stays offered beside the operator's certificate|sed -i 's|^        rm -f \"\$TLS/public/ca.crt\"|        :|' /usr/local/bin/start.sh"
     "7|the certificate is valid for ten years|sed -i 's|^CERT_DAYS=120|CERT_DAYS=3650|' /usr/local/bin/start.sh"
     "8|PROXY=external still starts Caddy|sed -i 's|^if \[ \"\$PROXY\" = external \]; then|if false; then|' /usr/local/bin/start.sh"
-    "8|PROXY=external prints no ready block|sed -i 's|^    ready_block \"port 8080 .*|    :|' /usr/local/bin/start.sh"
+    "8|PROXY=external prints no ready block|sed -i 's|^    ready_block \"the address of your reverse proxy\".*|    :|' /usr/local/bin/start.sh"
     "8|PROXY=external listens only on loopback|sed -i 's|^listen = .*|listen = \"127.0.0.1:8080\"|' /etc/portal-download/config-external.toml"
     # Assumes the smoke test reaches the container from the bridge gateway, not from
     # loopback, as with Docker's userland proxy on the CI runners.
@@ -42,6 +53,7 @@ mutations=(
     "9|the check for a missing SITE is gone|sed -i '/SITE is not set/{n;s/exit 3/:/}' /usr/local/bin/start.sh"
     "9|the check of the form of SITE is gone|sed -i '/is neither a host name/{n;s/exit 3/:/}' /usr/local/bin/start.sh"
     "9|the check of the interval is gone|sed -i 's|^    if ! \[\[ \"\$CHECK_SECONDS\" =~ .*|    if false; then|' /usr/local/bin/start.sh"
+    "10|the authority's name holds SITE and fails for a long one|sed -i 's|-subj \"/O=portal-download/OU=\$(openssl rand -hex 4)/CN=portal-download authority\"|-subj \"/CN=portal-download authority for \$SITE\"|' /usr/local/bin/start.sh"
     "9|the check of PROXY is gone|sed -i '/is not a mode/{n;s/exit 3/:/}' /usr/local/bin/start.sh"
 )
 

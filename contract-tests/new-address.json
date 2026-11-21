@@ -1,0 +1,11 @@
+{
+  "name": "A new address gives the job a new GUID that names the old one; its history stays",
+  "steps": [
+    { "call": "job.create", "params": { "title": "Energy", "entry_url": "https://old.example.org/", "interval_weeks": 4 }, "save": { "id": "/job_id", "old": "/guid" } },
+    { "call": "job.complete", "params": { "job_id": "$id", "outcome": "succeeded" } },
+    { "call": "job.update", "params": { "job_id": "$id", "title": "Energy invoice" }, "expect": { "guid": "$old", "replaces": null } },
+    { "call": "job.update", "params": { "job_id": "$id", "entry_url": "https://new.example.org/" }, "expect": { "job_id": "$id", "replaces": "$old", "entry_url": "https://new.example.org/" }, "save": { "new": "/guid" } },
+    { "call": "job.history", "params": { "job_id": "$id" }, "expect": { "runs": [ { "outcome": "succeeded" } ] } },
+    { "call": "job.update", "params": { "job_id": "$id", "entry_url": "https://new.example.org/" }, "expect": { "guid": "$new" } }
+  ]
+}

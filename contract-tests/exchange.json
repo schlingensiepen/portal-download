@@ -1,0 +1,24 @@
+{
+  "name": "A file of jobs is read in as new, then same, then with a decision; every run is kept",
+  "steps": [
+    { "on": "a", "call": "job.create", "params": { "title": "Energy", "entry_url": "https://energy.example.org/", "interval_weeks": 4, "password": "one" }, "save": { "a_id": "/job_id", "guid": "/guid" } },
+    { "on": "a", "call": "job.export", "params": {}, "password": "long password", "expect": { "encrypted": true }, "save": { "file1": "/zip_base64" } },
+    { "on": "b", "call": "job.importPreview", "params": { "zip_base64": "$file1" }, "error": "password_required" },
+    { "on": "b", "call": "job.importPreview", "params": { "zip_base64": "$file1" }, "password": "wrong password", "error": "password_wrong" },
+    { "on": "b", "call": "job.importPreview", "params": { "zip_base64": "$file1" }, "password": "long password",
+      "expect": { "kind": "jobs", "new": [ { "guid": "$guid", "title": "Energy", "new_runs": 0 } ], "same": [], "decide": [] } },
+    { "on": "b", "call": "job.import", "params": { "zip_base64": "$file1", "decisions": {} }, "password": "long password", "expect": { "added": 1 } },
+    { "on": "b", "call": "job.importPreview", "params": { "zip_base64": "$file1" }, "password": "long password", "expect": { "new": [], "same": [ { "guid": "$guid", "new_runs": 0 } ], "decide": [] } },
+    { "on": "b", "call": "job.list", "params": {}, "expect": { "jobs": [ { "guid": "$guid", "password": "one" } ] }, "save": { "b_id": "/jobs/0/job_id" } },
+    { "on": "b", "call": "job.complete", "params": { "job_id": "$b_id", "outcome": "succeeded", "note": "filed on b" } },
+    { "on": "a", "call": "job.update", "params": { "job_id": "$a_id", "password": "two" } },
+    { "on": "b", "call": "job.export", "params": {}, "expect": { "encrypted": false }, "save": { "file2": "/zip_base64" } },
+    { "on": "a", "call": "job.importPreview", "params": { "zip_base64": "$file2" },
+      "expect": { "new": [], "same": [], "decide": [ { "guid": "$guid", "new_runs": 1, "next_due_from_run": "$today+28",
+        "fields": [ { "field": "password", "local": "two", "incoming": "one", "local_changed_at": "$any", "incoming_changed_at": "$any", "preselect": "$any" } ] } ] } },
+    { "on": "a", "call": "job.import", "params": { "zip_base64": "$file2", "decisions": {} }, "error": "decision_missing" },
+    { "on": "a", "call": "job.import", "params": { "zip_base64": "$file2", "decisions": { "$guid": { "fields": { "password": "local" } } } }, "expect": { "updated": 1, "runs_added": 1 } },
+    { "on": "a", "call": "job.get", "params": { "job_id": "$a_id" }, "expect": { "password": "two", "next_due": "$today+28", "last_run": { "note": "filed on b", "outcome": "succeeded", "finished_at": "$any", "by": "$any" } } },
+    { "on": "a", "call": "job.importPreview", "params": { "zip_base64": "$file2" }, "expect": { "new": [], "same": [], "decide": [ { "guid": "$guid", "new_runs": 0, "fields": [ { "field": "password", "local": "two", "incoming": "one", "local_changed_at": "$any", "incoming_changed_at": "$any", "preselect": "$any" } ] } ] } }
+  ]
+}

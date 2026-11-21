@@ -19,3 +19,10 @@ state_dir = "/var/lib/portal-download"
 # for example when it runs in another container of the same network. The proxy must
 # send X-Forwarded-Proto and X-Forwarded-Host; of each header the last entry counts.
 trust_forwarded_headers = false
+
+# The certificate (PEM) of the authority that issued the certificate of the reverse proxy,
+# offered to browsers for download at /ca.crt, with its SHA-256 fingerprint on the start
+# page, so that they can trust it once; the browser extension needs that. Leave it out when
+# the browsers trust the certificate already. The container image sets it to the authority
+# it creates.
+# ca_certificate = "/etc/ssl/intranet-ca.pem"

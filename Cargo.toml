@@ -1,6 +1,6 @@
 [package]
 name = "portal-download"
-version = "0.7.2"
+version = "0.8.0"
 edition = "2021"
 description = "Intranet workbench that walks a small circle through due portal downloads"
 license = "Apache-2.0"
@@ -8,7 +8,7 @@ publish = false
 
 [dependencies]
 axum = "0.8"
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal", "sync", "time"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -22,7 +22,7 @@ pulldown-cmark = { version = "0.12", default-features = false, features = ["html
 ammonia = "4"
 toml = "0.8"
 clap = { version = "4", features = ["derive"] }
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+zip = { version = "2", default-features = false, features = ["aes-crypto", "deflate"] }
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }

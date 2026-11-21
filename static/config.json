@@ -2,7 +2,14 @@
   "app_name": "Portal-Download",
   "api": "api/",
   "languages": [
-    { "code": "en", "label": "English" },
-    { "code": "de", "label": "Deutsch" }
-  ]
+    {
+      "code": "en",
+      "label": "English"
+    },
+    {
+      "code": "de",
+      "label": "Deutsch"
+    }
+  ],
+  "extension_url": "https://github.com/schlingensiepen/portal-download-extension/releases/latest"
 }
