@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Proves that the smoke test catches what it is there for: each of its nine steps is
+# Proves that the smoke test catches what it is there for: each of its ten steps is
 # run against an image with exactly that safeguard removed, and must fail at that step.
 #
 #   deploy/smoke-red.sh IMAGE REVISION
@@ -21,7 +21,8 @@ mutations=(
     "1|Caddy logs at level INFO|sed -i '/level WARN/d' /etc/caddy/Caddyfile"
     "1|another name ends the handshake|sed -i 's|^https:// {|{\\\$SITE} {|' /etc/caddy/Caddyfile"
     "1|another name is led to SITE instead of served|sed -i 's|reverse_proxy 127.0.0.1:8080|redir https://{\\\$SITE}{uri} 307|' /etc/caddy/Caddyfile"
-    "1|the authority is not limited to SITE|sed -i 's|^        -addext \"nameConstraints=critical,permitted;\$nc\" \\\\|        \\\\|' /usr/local/bin/start.sh"
+    "1|the authority is not limited to SITE|sed -i 's|^        -addext \"nameConstraints=critical,\$nc\" \\\\|        \\\\|' /usr/local/bin/start.sh"
+    "1|the name constraint leaves addresses open|sed -i 's|,permitted;IP:0.0.0.0/255.255.255.255\"|\"|' /usr/local/bin/start.sh"
     "1|the certificate is not issued by the authority|sed -i 's|-CA \"\$TLS/ca.pem\" -CAkey \"\$TLS/ca.key\"|-key \"\$TLS/key.pem.new\"|' /usr/local/bin/start.sh"
     "1|the authority is not offered at /ca.crt|sed -i 's|^ca_certificate = .*|ca_certificate = \"\"|' /etc/portal-download/config.toml"
     "1|the block is not framed|sed -i 's|^        say \"\$STARS\"|        :|' /usr/local/bin/start.sh"
@@ -50,6 +51,7 @@ mutations=(
     "9|the check for a missing SITE is gone|sed -i '/SITE is not set/{n;s/exit 3/:/}' /usr/local/bin/start.sh"
     "9|the check of the form of SITE is gone|sed -i '/is neither a host name/{n;s/exit 3/:/}' /usr/local/bin/start.sh"
     "9|the check of the interval is gone|sed -i 's|^    if ! \[\[ \"\$CHECK_SECONDS\" =~ .*|    if false; then|' /usr/local/bin/start.sh"
+    "10|the authority's name holds SITE and fails for a long one|sed -i 's|-subj \"/O=portal-download/CN=portal-download authority\"|-subj \"/CN=portal-download authority for \$SITE\"|' /usr/local/bin/start.sh"
     "9|the check of PROXY is gone|sed -i '/is not a mode/{n;s/exit 3/:/}' /usr/local/bin/start.sh"
 )
 

@@ -112,14 +112,20 @@ rm -f "$probe"
 # fingerprint and is never replaced; the log only warns when it no longer fits, and the
 # image's authority is then not offered. Checked at start and then once a day.
 fingerprint() { openssl x509 -in "${1:-$TLS/cert.pem}" -noout -fingerprint -sha256 2>/dev/null; }
+# Whether key.pem belongs to cert.pem; a stop between moving the two can leave them apart.
+pair_fits() {
+    [ "$(openssl x509 -in "$TLS/cert.pem" -noout -pubkey 2>/dev/null)" = "$(openssl pkey -in "$TLS/key.pem" -pubout 2>/dev/null)" ]
+}
 # A new authority for SITE; returns 1 when none could be created.
 new_authority() {
+    # The constraint names SITE and shuts the other kind of name: for a host name only the
+    # address 0.0.0.0 is permitted, for an address only the reserved name "invalid".
     local nc
-    if [[ "$san" == IP:* ]]; then nc="IP:$SITE/255.255.255.255"; else nc="DNS:$SITE"; fi
+    if [[ "$san" == IP:* ]]; then nc="permitted;IP:$SITE/255.255.255.255,permitted;DNS:invalid"; else nc="permitted;DNS:$SITE,permitted;IP:0.0.0.0/255.255.255.255"; fi
     if ! (umask 077 && openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes \
-        -days "$CA_DAYS" -subj "/CN=portal-download authority for $SITE" \
+        -days "$CA_DAYS" -subj "/O=portal-download/CN=portal-download authority" \
         -addext "basicConstraints=critical,CA:TRUE,pathlen:0" -addext "keyUsage=critical,keyCertSign,cRLSign" \
-        -addext "nameConstraints=critical,permitted;$nc" \
+        -addext "nameConstraints=critical,$nc" \
         -keyout "$TLS/ca.key.new" -out "$TLS/ca.pem.new" 2>/dev/null); then
         say "cannot create a certificate authority for $SITE in $TLS."
         return 1
@@ -133,7 +139,7 @@ new_authority() {
 new_certificate() {
     if ! (umask 077 \
         && printf 'basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=serverAuth\nsubjectAltName=%s\nsubjectKeyIdentifier=hash\nauthorityKeyIdentifier=keyid\n' "$san" > "$TLS/leaf.ext" \
-        && openssl req -new -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -subj "/CN=$SITE" \
+        && openssl req -new -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -subj "/O=portal-download" \
             -keyout "$TLS/key.pem.new" -out "$TLS/leaf.csr" 2>/dev/null \
         && openssl x509 -req -in "$TLS/leaf.csr" -CA "$TLS/ca.pem" -CAkey "$TLS/ca.key" \
             -set_serial "0x$(openssl rand -hex 16)" -days "$CERT_DAYS" -extfile "$TLS/leaf.ext" \
@@ -167,7 +173,8 @@ certificate() {
         fi
         if [ -n "$create" ] || [ ! -s "$TLS/cert.pem" ] || [ "$(cat "$TLS/site" 2>/dev/null)" != "$SITE" ] \
             || ! openssl x509 -in "$TLS/cert.pem" -noout -checkend "$RENEW_SECONDS" >/dev/null 2>&1 \
-            || ! openssl verify -CAfile "$TLS/ca.pem" "$TLS/cert.pem" >/dev/null 2>&1; then
+            || ! openssl verify -CAfile "$TLS/ca.pem" "$TLS/cert.pem" >/dev/null 2>&1 \
+            || ! pair_fits; then
             new_certificate || return 1
             create=1
         fi

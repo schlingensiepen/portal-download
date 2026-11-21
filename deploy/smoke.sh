@@ -3,7 +3,7 @@
 #
 #   deploy/smoke.sh IMAGE REVISION
 #
-# Exits 0 when the image passes all nine steps, and 1 with an ::error:: line naming
+# Exits 0 when the image passes all ten steps, and 1 with an ::error:: line naming
 # the step otherwise. Needs docker, curl, jq and openssl on the machine that runs it.
 set -euo pipefail
 
@@ -102,6 +102,15 @@ grep -qx "   Certificate authority:  SHA-256 ${authority#*=}" <<<"$block" \
     || fail "the block does not name the fingerprint ${authority#*=} of the authority at /ca.crt: $block"
 openssl x509 -in "$work/ca.pem" -noout -ext nameConstraints 2>/dev/null | grep -q 'DNS:localhost' \
     || fail "the authority is not limited to SITE by a name constraint: $(openssl x509 -in "$work/ca.pem" -noout -text | head -n 40)"
+# Even with the authority's key, a certificate for another host name or an address fails.
+for other in DNS:evil.example IP:192.0.2.1; do
+    if docker exec "$name" sh -c "cd /tmp && openssl req -new -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -subj /O=x -keyout e.key -out e.csr 2>/dev/null \
+        && printf 'subjectAltName=$other\n' > e.ext \
+        && openssl x509 -req -in e.csr -CA /data/tls/ca.pem -CAkey /data/tls/ca.key -set_serial 7 -days 1 -extfile e.ext -out e.pem 2>/dev/null \
+        && openssl verify -CAfile /data/tls/ca.pem e.pem" >/dev/null 2>&1; then
+        fail "a certificate for $other issued by the authority passes; the name constraint does not shut it out"
+    fi
+done
 curl -sSf --max-time 5 --cacert "$work/ca.pem" -o /dev/null "$base/" \
     || fail "a client that trusts the authority does not accept the served certificate for localhost"
 [[ "$block" =~ Setup\ secret:\ +(pds_[^\ ]+)\ \ \(valid\ until\ [0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z\; ]] \
@@ -124,6 +133,10 @@ cors=$(curl -ksS --max-time 5 -o /dev/null -D - -X OPTIONS "$base/api/" -H 'Orig
     -H 'Access-Control-Request-Method: POST' -H 'Access-Control-Request-Headers: authorization,content-type')
 grep -qi '^access-control-allow-origin: moz-extension://0b6f3c1e-5d2a-4c8e-9f10-2a3b4c5d6e7f' <<<"$cors" \
     || fail "the preflight of the browser extension is not answered for its origin: $cors"
+if ! grep -qi '^access-control-allow-headers:.*authorization' <<<"$cors" || ! grep -qi '^access-control-allow-headers:.*x-backup-password' <<<"$cors"; then
+    fail "the preflight does not allow the headers Authorization and X-Backup-Password: $cors"
+fi
+! grep -qi '^access-control-allow-credentials' <<<"$cors" || fail "the preflight allows credentials: $cors"
 echo "step 1: the image starts, answers through Caddy with a certificate of its own authority, shows the framed ready block, serves other names and the extension's preflight"
 
 step="2 (revision)"
@@ -302,5 +315,23 @@ code=$?
 set -e
 [ "$code" = 3 ] || fail "PROXY=internal ended with exit code $code, expected 3: $out"
 echo "step 9: an unwritable volume ends with exit code 4 and names the chown; a missing SITE, a wrong interval or an unknown PROXY with 3"
+
+step="10 (other forms of SITE)"
+# A long host name and an IPv4 address: the authority and the certificate are made for them.
+for site in downloads.intra.a-rather-long-name-of-a-department.example 127.0.0.1; do
+    docker volume rm -f "$volume" >/dev/null
+    docker run -d --name "$name" -p "127.0.0.1:$port:443" -v "$volume:/data" -e "SITE=$site" "$image" >/dev/null
+    ok=""
+    for _ in $(seq 1 30); do
+        if curl -ksf -o "$work/site-ca.der" --max-time 5 --resolve "$site:$port:127.0.0.1" "https://$site:$port/ca.crt" 2>/dev/null; then ok=1; break; fi
+        sleep 1
+    done
+    [ -n "$ok" ] || fail "with SITE=$site the service does not offer its authority within 30 seconds"
+    openssl x509 -inform der -in "$work/site-ca.der" -out "$work/site-ca.pem"
+    curl -sSf --max-time 5 --cacert "$work/site-ca.pem" --resolve "$site:$port:127.0.0.1" -o /dev/null "https://$site:$port/" \
+        || fail "with SITE=$site a client that trusts the authority does not accept the certificate"
+    docker rm -f "$name" >/dev/null
+done
+echo "step 10: a long host name and an IPv4 address as SITE get an authority and a certificate a client accepts"
 
 echo "smoke test passed: $image"
