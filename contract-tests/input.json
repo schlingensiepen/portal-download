@@ -1,0 +1,13 @@
+{
+  "name": "Input is checked as the contract states",
+  "steps": [
+    { "call": "job.create", "params": { "title": "x", "entry_url": "ftp://portal.example.org/", "interval_weeks": 4 }, "error": "entry_url_invalid" },
+    { "call": "job.create", "params": { "title": "x", "entry_url": "https://portal.example.org/" }, "error": "field_missing" },
+    { "call": "job.create", "params": { "title": "x", "entry_url": "https://portal.example.org/", "interval_weeks": 0 }, "error": "interval_invalid" },
+    { "call": "job.create", "params": { "title": "x", "entry_url": "https://portal.example.org/", "interval_weeks": 4, "next_due": "2026-2-1" }, "error": "date_invalid" },
+    { "call": "job.create", "params": { "title": "x", "entry_url": "https://portal.example.org/", "interval_weeks": 4, "password": "two\nlines" }, "error": "login_invalid" },
+    { "call": "job.create", "params": { "title": "x", "entry_url": "https://portal.example.org/", "interval_weeks": 4, "password": " kept as sent " }, "expect": { "password": " kept as sent " }, "save": { "id": "/job_id" } },
+    { "call": "job.complete", "params": { "job_id": "$id", "outcome": "maybe" }, "error": "outcome_invalid" },
+    { "call": "job.get", "params": { "job_id": 999999 }, "error": "job_unknown" }
+  ]
+}

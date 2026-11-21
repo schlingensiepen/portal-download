@@ -1,0 +1,17 @@
+{
+  "name": "A job deleted here comes back from a file only when reactivated",
+  "steps": [
+    { "on": "a", "call": "job.create", "params": { "title": "Energy", "entry_url": "https://energy.example.org/", "interval_weeks": 4 }, "save": { "guid": "/guid" } },
+    { "on": "a", "call": "job.export", "params": {}, "save": { "file": "/zip_base64" } },
+    { "on": "b", "call": "job.import", "params": { "zip_base64": "$file" }, "expect": { "added": 1 } },
+    { "on": "b", "call": "job.list", "params": {}, "save": { "id": "/jobs/0/job_id" } },
+    { "on": "b", "call": "job.delete", "params": { "job_id": "$id" }, "expect": { "guid": "$guid", "deleted": true } },
+    { "on": "b", "call": "job.importPreview", "params": { "zip_base64": "$file" },
+      "expect": { "new": [], "same": [], "decide": [ { "guid": "$guid", "case": "deleted_here", "deleted_at": "$any", "actions": [ "reactivate", "skip" ], "preselect": "skip" } ] } },
+    { "on": "b", "call": "job.import", "params": { "zip_base64": "$file", "decisions": { "$guid": { "accept": "preselected" } } }, "expect": { "skipped": 1 } },
+    { "on": "b", "call": "job.list", "params": {}, "expect": { "jobs": [] } },
+    { "on": "b", "call": "job.import", "params": { "zip_base64": "$file", "decisions": { "$guid": { "action": "keep_both" } } }, "error": "decision_invalid" },
+    { "on": "b", "call": "job.import", "params": { "zip_base64": "$file", "decisions": { "$guid": { "action": "reactivate" } } }, "expect": { "reactivated": 1 } },
+    { "on": "b", "call": "job.list", "params": {}, "expect": { "jobs": [ { "guid": "$guid" } ] } }
+  ]
+}

@@ -5,6 +5,8 @@
 
 mod bootstrap;
 mod config;
+#[cfg(test)]
+mod contract_tests;
 mod describe;
 mod error;
 #[cfg(test)]
