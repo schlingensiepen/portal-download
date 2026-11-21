@@ -65,7 +65,7 @@ fn content_security_policy() -> String {
         rest = &after[end..];
     }
     format!(
-        "default-src 'none'; script-src {}; style-src 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-src https: http:; form-action 'none'; base-uri 'none'; frame-ancestors 'none'",
+        "default-src 'none'; script-src {}; style-src 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; form-action 'none'; base-uri 'none'; frame-ancestors 'none'",
         hashes.join(" ")
     )
 }
@@ -239,13 +239,40 @@ fn bearer(h: &HeaderMap) -> Option<String> {
     h.get(header::AUTHORIZATION).and_then(|v| v.to_str().ok()).and_then(|s| s.strip_prefix("Bearer ")).map(|s| s.trim().to_string())
 }
 
-/// The caller from the device cookie, or else from an agent token; None without either.
+/// The caller: a browser by its cookie; by a bearer token the browser extension (a device
+/// credential, `pdd_`) or an agent (`pda_`); None without either.
 fn authenticate(store: &Store, h: &HeaderMap, user_agent: &str, address: &str) -> Option<Result<Principal, OpError>> {
     match (cookie_value(h, COOKIE), bearer(h)) {
-        (Some(c), _) => Some(store.authenticate_device(&c, user_agent, address)),
+        (Some(c), _) => Some(store.authenticate_device(&c, "browser", user_agent, address)),
+        (None, Some(k)) if k.starts_with("pdd_") => Some(store.authenticate_device(&k, "extension", user_agent, address)),
         (None, Some(k)) => Some(store.authenticate_agent(&k)),
         (None, None) => None,
     }
+}
+
+/// The password of a ZIP file travels in a header, never in an address or in params.
+fn file_password(h: &HeaderMap) -> Option<String> {
+    h.get("x-backup-password").and_then(|v| v.to_str().ok()).map(str::to_string).filter(|s| !s.is_empty())
+}
+
+/// The origin of the browser extension, which the API answers with CORS headers. Its
+/// requests carry a bearer token and never a cookie, so no credentials are allowed.
+fn extension_origin(h: &HeaderMap) -> Option<HeaderValue> {
+    let o = h.get(header::ORIGIN)?;
+    let s = o.to_str().ok()?;
+    (s.starts_with("moz-extension://") || s.starts_with("chrome-extension://")).then(|| o.clone())
+}
+
+fn with_cors(mut r: Response, origin: &Option<HeaderValue>) -> Response {
+    if let Some(o) = origin {
+        let h = r.headers_mut();
+        h.insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, o.clone());
+        h.insert(header::ACCESS_CONTROL_ALLOW_HEADERS, HeaderValue::from_static("Authorization, Content-Type, X-Backup-Password"));
+        h.insert(header::ACCESS_CONTROL_ALLOW_METHODS, HeaderValue::from_static("POST"));
+        h.insert(header::ACCESS_CONTROL_MAX_AGE, HeaderValue::from_static("600"));
+    }
+    r.headers_mut().append(header::VARY, HeaderValue::from_static("Origin"));
+    r
 }
 
 /// The backup as a file, for `curl -o` and for the download button of the application.
@@ -265,8 +292,8 @@ async fn backup(State(st): State<Arc<AppState>>, ConnectInfo(peer): ConnectInfo<
         let status = StatusCode::from_u16(e.code).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
         harden((status, [(header::CONTENT_TYPE, "text/plain; charset=utf-8")], format!("{}\n", e.message)).into_response())
     };
-    // With the browser's cookie, only the application's own button may start the download;
-    // another site navigating here would otherwise drop the backup into the Downloads folder.
+    // With the browser's cookie, only the application's own request may fetch it; another
+    // site navigating here would otherwise drop the backup into the Downloads folder.
     let fetch_site = h.get("sec-fetch-site").and_then(|v| v.to_str().ok());
     if cookie_value(&h, COOKIE).is_some() && fetch_site.is_some_and(|s| s != "same-origin") {
         return text_error(&OpError::forbidden("Start the download from the application's own button under Personen, or use an agent token with curl."));
@@ -277,14 +304,15 @@ async fn backup(State(st): State<Arc<AppState>>, ConnectInfo(peer): ConnectInfo<
         None => {
             return text_error(&OpError::unauthorized(
                 "credential_missing",
-                "The backup needs an agent token granted backup.read in the header Authorization: Bearer, or the browser of a person with the right to administer people.",
+                "The backup needs an agent token granted backup.read in the header Authorization: Bearer, or a person who manages the backup.",
             ))
         }
     };
-    match store.backup_export(&principal).and_then(|t| store.agent_touch(&principal).map(|_| t)) {
-        Ok(text) => {
-            let name = format!("attachment; filename=\"portal-download-{}.jsonl\"", store::today().format("%Y-%m-%d"));
-            let mut r = harden((StatusCode::OK, [(header::CONTENT_TYPE, "application/jsonl; charset=utf-8")], text).into_response());
+    let password = file_password(&h);
+    match store.backup_export(&principal, password.as_deref()).and_then(|t| store.agent_touch(&principal).map(|_| t)) {
+        Ok(bytes) => {
+            let name = format!("attachment; filename=\"portal-download-{}.zip\"", store::today().format("%Y-%m-%d"));
+            let mut r = harden((StatusCode::OK, [(header::CONTENT_TYPE, "application/zip")], bytes).into_response());
             r.headers_mut().insert(header::CONTENT_DISPOSITION, HeaderValue::from_str(&name).expect("ascii"));
             r
         }
@@ -292,22 +320,29 @@ async fn backup(State(st): State<Arc<AppState>>, ConnectInfo(peer): ConnectInfo<
     }
 }
 
-/// Requests are small, except a backup upload by a person with the right to administer
-/// people; anyone else is held to the small limit before the body is read.
+/// Requests are small, except a file read in by a signed-in caller; anyone else is held to
+/// the small limit before the body is read.
 const BODY_LIMIT: usize = 1024 * 1024;
-const BODY_LIMIT_ADMIN: usize = 32 * 1024 * 1024;
+const BODY_LIMIT_SIGNED_IN: usize = 96 * 1024 * 1024;
 
 async fn api(State(st): State<Arc<AppState>>, ConnectInfo(peer): ConnectInfo<SocketAddr>, method: Method, h: HeaderMap, body: axum::body::Body) -> Response {
+    let origin = extension_origin(&h);
+    if method == Method::OPTIONS {
+        return with_cors(StatusCode::NO_CONTENT.into_response(), &origin);
+    }
+    with_cors(api_call(&st, peer, method, &h, body).await, &origin)
+}
+
+async fn api_call(st: &AppState, peer: SocketAddr, method: Method, h: &HeaderMap, body: axum::body::Body) -> Response {
+    let h = h.clone();
     if method != Method::POST {
         return protocol_error(StatusCode::METHOD_NOT_ALLOWED, -32600, "Invalid Request: the API accepts only POST with a JSON-RPC 2.0 body.", Value::Null);
     }
-    let limit = match cookie_value(&h, COOKIE) {
-        Some(c) => match lock(&st).authenticate_device(&c, h.get(header::USER_AGENT).and_then(|v| v.to_str().ok()).unwrap_or(""), &client_address(&h, peer, st.trust_forwarded)) {
-            Ok(Principal::Device { is_admin: true, .. }) => BODY_LIMIT_ADMIN,
-            _ => BODY_LIMIT,
-        },
-        None => BODY_LIMIT,
+    let signed_in = match authenticate(&lock(st), &h, h.get(header::USER_AGENT).and_then(|v| v.to_str().ok()).unwrap_or(""), &client_address(&h, peer, st.trust_forwarded)) {
+        Some(Ok(Principal::Agent { role: None, .. })) | Some(Err(_)) | None => false,
+        Some(Ok(_)) => true,
     };
+    let limit = if signed_in { BODY_LIMIT_SIGNED_IN } else { BODY_LIMIT };
     let Ok(body): Result<Bytes, _> = axum::body::to_bytes(body, limit).await else {
         return protocol_error(StatusCode::PAYLOAD_TOO_LARGE, -32600, "Invalid Request: the body is too large.", Value::Null);
     };
@@ -340,10 +375,10 @@ async fn api(State(st): State<Arc<AppState>>, ConnectInfo(peer): ConnectInfo<Soc
     let user_agent = h.get(header::USER_AGENT).and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
     let address = client_address(&h, peer, st.trust_forwarded);
     let setup_secret = h.get("x-setup-secret").and_then(|v| v.to_str().ok()).map(str::to_string);
+    let password = file_password(&h);
     let device_cred = cookie_value(&h, COOKIE);
-    // The store's lock ends with this block, before anything waits on the network.
     let (outcome, renew) = {
-        let store = lock(&st);
+        let store = lock(st);
 
         // Establish the caller in one place, before any method runs.
         let auth = authenticate(&store, &h, &user_agent, &address);
@@ -362,6 +397,7 @@ async fn api(State(st): State<Arc<AppState>>, ConnectInfo(peer): ConnectInfo<Soc
             state_dir: &st.state_dir,
             principal,
             setup_secret: setup_secret.as_deref(),
+            file_password: password.as_deref(),
             user_agent: &user_agent,
             address: &address,
             today: store::today(),
@@ -480,6 +516,7 @@ mod tests {
         let tok = v["result"]["invitation_token"].as_str().unwrap().to_string();
 
         let (h, v) = rpc(&t, "invitation.redeem", json!({"token": tok, "label": "Laptop"}), &[]).await;
+        assert!(v["result"].get("device_token").is_none(), "a browser's credential stays in its cookie");
         assert_eq!(v["result"]["name"], "Ada");
         let set_cookie = h["set-cookie"].to_str().unwrap().to_string();
         assert!(set_cookie.contains("HttpOnly") && set_cookie.contains("Secure") && set_cookie.contains("SameSite=Lax"));
@@ -533,57 +570,62 @@ mod tests {
         assert_eq!(base_url(&h, remote, true), "https://downloads.intra.test", "scheme and host as the proxy added them");
     }
 
+    /// A person with every right, signed in with a browser, from a fresh store in the test's directory.
+    fn admin_cookie(t: &T) -> (Store, Principal, String) {
+        let st = Store::open(t.dir.path()).unwrap();
+        let r = st.setup_create_admin("Ada", "").unwrap();
+        let (c, _) = st.redeem_invitation(r["invitation_token"].as_str().unwrap(), "Laptop", "browser", "", "").unwrap();
+        let a = st.authenticate_device(&c, "browser", "", "").unwrap();
+        (st, a, c)
+    }
+
     #[tokio::test]
-    async fn backup_download_needs_a_backup_token_and_comes_as_a_file() {
+    async fn backup_download_needs_a_backup_token_and_comes_as_a_zip_file() {
         let t = setup();
-        let get = |auth: Option<String>| {
+        let get = |auth: Option<&str>, password: Option<&str>| {
             let mut b = Request::get("/backup");
             if let Some(a) = auth {
                 b = b.header(header::AUTHORIZATION, format!("Bearer {a}"));
             }
+            if let Some(p) = password {
+                b = b.header("x-backup-password", p);
+            }
             b.body(Body::empty()).unwrap()
         };
-        let (s, _, b) = send(&t, get(None)).await;
+        let (s, _, b) = send(&t, get(None, None)).await;
         assert_eq!(s, StatusCode::UNAUTHORIZED);
         assert!(String::from_utf8(b).unwrap().contains("backup.read"));
-        let token = {
-            let st = Store::open(t.dir.path()).unwrap();
-            let r = st.setup_create_admin("Ada", "").unwrap();
-            let (c, _) = st.redeem_invitation(r["invitation_token"].as_str().unwrap(), "Laptop", "", "").unwrap();
-            let a = st.authenticate_device(&c, "", "").unwrap();
+        let (reader, other, cookie) = {
+            let (st, a, c) = admin_cookie(&t);
             let reader = st.agent_create(&a, "NAS nightly backup", "backup.read").unwrap()["token"].as_str().unwrap().to_string();
             let other = st.agent_create(&a, "job reader", "jobs.read").unwrap()["token"].as_str().unwrap().to_string();
             (reader, other, c)
         };
-        // With the cookie, another site cannot start the download; the application's own button can.
+        // With the cookie, another site cannot start the download; the application's own request can.
         for (site, expect) in [("cross-site", StatusCode::FORBIDDEN), ("same-origin", StatusCode::OK)] {
-            let req = Request::get("/backup").header(header::COOKIE, format!("{COOKIE}={}", token.2)).header("sec-fetch-site", site).body(Body::empty()).unwrap();
+            let req = Request::get("/backup").header(header::COOKIE, format!("{COOKIE}={cookie}")).header("sec-fetch-site", site).body(Body::empty()).unwrap();
             assert_eq!(send(&t, req).await.0, expect, "{site}");
         }
-        let (s, _, _) = send(&t, get(Some(token.1))).await;
-        assert_eq!(s, StatusCode::FORBIDDEN);
-        let (s, h, b) = send(&t, get(Some(token.0))).await;
+        assert_eq!(send(&t, get(Some(&other), None)).await.0, StatusCode::FORBIDDEN);
+        let (s, h, b) = send(&t, get(Some(&reader), None)).await;
         assert_eq!(s, StatusCode::OK);
-        assert!(h[header::CONTENT_DISPOSITION].to_str().unwrap().contains(".jsonl"));
+        assert!(h[header::CONTENT_DISPOSITION].to_str().unwrap().contains(".zip"));
+        assert_eq!(h[header::CONTENT_TYPE], "application/zip");
         assert_eq!(h[header::CACHE_CONTROL], "no-store");
-        let first = String::from_utf8(b).unwrap().lines().next().unwrap().to_string();
-        assert!(first.contains("portal-download-backup"));
+        assert_eq!(&b[..2], b"PK");
+        assert!(String::from_utf8_lossy(&b).contains("portal-download.jsonl"));
+        let (s, _, locked) = send(&t, get(Some(&reader), Some("long password"))).await;
+        assert_eq!(s, StatusCode::OK);
+        assert_ne!(locked, b, "with the header the file is encrypted");
+        assert_eq!(send(&t, get(Some(&reader), Some("short"))).await.0, StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]
-    async fn only_administrators_may_send_large_bodies() {
+    async fn only_signed_in_callers_may_send_large_bodies() {
         let t = setup();
         let big = format!("{{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"agent.register\",\"params\":{{\"introduction\":\"{}\"}}}}", "x".repeat(2 * 1024 * 1024));
-        let (admin, person) = {
-            let st = Store::open(t.dir.path()).unwrap();
-            let r = st.setup_create_admin("Ada", "").unwrap();
-            let (a, _) = st.redeem_invitation(r["invitation_token"].as_str().unwrap(), "Laptop", "", "").unwrap();
-            let pa = st.authenticate_device(&a, "", "").unwrap();
-            let r = st.user_create(&pa, "Bob", "", false).unwrap();
-            let (b, _) = st.redeem_invitation(r["invitation_token"].as_str().unwrap(), "Phone", "", "").unwrap();
-            (a, b)
-        };
-        for (cookie, expect_too_large) in [(None, true), (Some(person), true), (Some(admin), false)] {
+        let (_, _, cookie) = admin_cookie(&t);
+        for (cookie, expect_too_large) in [(None, true), (Some(cookie), false)] {
             let mut b = Request::post("/api/").header(header::CONTENT_TYPE, "application/json");
             if let Some(c) = cookie {
                 b = b.header(header::COOKIE, format!("{COOKIE}={c}"));
@@ -591,6 +633,40 @@ mod tests {
             let (s, _, _) = send(&t, b.body(Body::from(big.clone())).unwrap()).await;
             assert_eq!(s == StatusCode::PAYLOAD_TOO_LARGE, expect_too_large);
         }
+    }
+
+    #[tokio::test]
+    async fn the_extension_works_with_a_bearer_token_and_cors_for_its_origin_only() {
+        let t = setup();
+        let token = {
+            let (st, a, _) = admin_cookie(&t);
+            let r = st.invitation_create_own(&a).unwrap();
+            r["invitation_token"].as_str().unwrap().to_string()
+        };
+        let ext = [("origin", "moz-extension://8c1e2f3a-0000-4000-8000-000000000000")];
+        let (h, v) = rpc(&t, "invitation.redeem", json!({"token": token, "label": "Firefox extension", "kind": "extension"}), &ext).await;
+        assert!(!h.contains_key("set-cookie"), "the extension gets no cookie");
+        let device_token = v["result"]["device_token"].as_str().unwrap().to_string();
+        assert!(device_token.starts_with("pdd_"));
+        assert_eq!(h["access-control-allow-origin"], ext[0].1);
+        assert!(!h.contains_key("access-control-allow-credentials"));
+        let bearer = format!("Bearer {device_token}");
+        let (_, v) = rpc(&t, "job.list", json!({}), &[ext[0], ("authorization", &bearer)]).await;
+        assert!(v["result"]["jobs"].is_array());
+        let (_, v) = rpc(&t, "service.status", json!({}), &[("authorization", &bearer)]).await;
+        assert_eq!(v["result"]["me"]["device_kind"], "extension");
+        assert_eq!(v["result"]["contract"], crate::rpc::contract());
+        // The preflight is answered for the extension, and for nobody else.
+        let pre = |origin: &str| Request::builder().method("OPTIONS").uri("/api/").header("origin", origin).header("access-control-request-headers", "authorization,content-type").body(Body::empty()).unwrap();
+        let (s, h, _) = send(&t, pre("chrome-extension://abcdefghijklmnop")).await;
+        assert_eq!(s, StatusCode::NO_CONTENT);
+        assert_eq!(h["access-control-allow-origin"], "chrome-extension://abcdefghijklmnop");
+        assert!(h["access-control-allow-headers"].to_str().unwrap().contains("Authorization"));
+        let (_, h, _) = send(&t, pre("https://evil.example")).await;
+        assert!(!h.contains_key("access-control-allow-origin"));
+        // The extension's credential is no cookie, and a browser's is no bearer token.
+        let (_, v) = rpc(&t, "job.list", json!({}), &[("cookie", &format!("{COOKIE}={device_token}"))]).await;
+        assert_eq!(v["error"]["data"]["type"], "credential_unknown");
     }
 
     #[tokio::test]

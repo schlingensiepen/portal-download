@@ -139,17 +139,21 @@ Secret: environment variable {ENV_SECRET}.
 }
 
 fn access_text(m: &Method) -> String {
-    let token = match m.abilities {
-        [a] => format!("an agent token granted the ability {a}"),
-        many => format!("an agent token granted one of the abilities {}", many.join(", ")),
-    };
-    match (m.access, m.abilities.is_empty()) {
-        (Access::Open, _) => "No credential needed.".into(),
-        (Access::Setup, _) => "Needs the setup secret in the header X-Setup-Secret while the setup window is open.".into(),
-        (Access::Person, false) => format!("Needs a person's device credential, or {token}."),
-        (Access::Person, true) => "Needs a person's device credential; agent tokens are refused.".into(),
-        (Access::Admin, false) => format!("Needs a person's device credential and the right to administer people, or {token}."),
-        (Access::Admin, true) => "Needs a person's device credential and the right to administer people; agent tokens are refused.".into(),
+    match m.access {
+        Access::Open => "No credential needed.".into(),
+        Access::Setup => "Needs the setup secret in the header X-Setup-Secret while the setup window is open.".into(),
+        Access::Person => "Needs a person's device credential; agent tokens are refused.".into(),
+        Access::Signed => "Needs a person's device credential or an agent token with a role.".into(),
+        Access::Can(cap) => {
+            let person = match cap.right() {
+                Some(r) => format!("a person with the right to manage {r}"),
+                None => "a person's device credential".into(),
+            };
+            match cap.roles() {
+                [] => format!("Needs {person}; agent tokens are refused."),
+                roles => format!("Needs {person}, or an agent token with the role {}.", roles.iter().map(|r| r.name()).collect::<Vec<_>>().join(" or ")),
+            }
+        }
     }
 }
 

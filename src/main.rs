@@ -45,10 +45,13 @@ enum Command {
     Status,
     /// Print version and the source revision this artifact was built from, as JSON.
     Version,
-    /// Write the backup (JSONL, the same as the download) to a new file, also while the service runs.
+    /// Write the backup (a ZIP file, the same as the download) to a new file, also while the service runs.
     Backup {
         /// The file to write; it must not exist yet.
         target: PathBuf,
+        /// A file whose first line is the password; the backup is then encrypted with AES-256.
+        #[arg(long, value_name = "PATH")]
+        password_file: Option<PathBuf>,
     },
     /// Open the setup window without a restart and print the setup secret once.
     Bootstrap {
@@ -100,7 +103,11 @@ fn main() -> ExitCode {
             }
             Err(e) => fail(EXIT_STATE, e.message),
         },
-        Command::Backup { target } => {
+        Command::Backup { target, password_file } => {
+            let password = match password_file.map(std::fs::read_to_string).transpose() {
+                Ok(p) => p.map(|t| t.lines().next().unwrap_or("").to_string()),
+                Err(e) => return fail(2, format!("The password file cannot be read: {e}.")),
+            };
             // Opening would create an empty store; a backup of nothing helps nobody.
             if !cfg.state_dir.value.join(store::STORE_FILE).exists() {
                 return fail(EXIT_STATE, format!("There is no store in {} ({}). Check `state_dir` in the configuration.", cfg.state_dir.value.display(), cfg.state_dir.source));
@@ -109,7 +116,7 @@ fn main() -> ExitCode {
                 Ok(s) => s,
                 Err(e) => return fail(EXIT_STATE, e.message),
             };
-            match store.backup_to_file(&target) {
+            match store.backup_to_file(&target, password.as_deref()) {
                 Ok(v) => {
                     println!("{v}");
                     ExitCode::SUCCESS
