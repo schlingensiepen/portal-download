@@ -31,11 +31,13 @@ pub struct AppState {
     pub state_dir: PathBuf,
     /// `trust_forwarded_headers` from the configuration.
     pub trust_forwarded: bool,
+    /// The certificate of the issuing authority, offered at /ca.crt.
+    pub ca_certificate: Option<PathBuf>,
     csp: String,
 }
 
-pub fn app(store: Store, state_dir: PathBuf, trust_forwarded: bool) -> Router {
-    let state = Arc::new(AppState { store: Mutex::new(store), state_dir, trust_forwarded, csp: content_security_policy() });
+pub fn app(store: Store, state_dir: PathBuf, trust_forwarded: bool, ca_certificate: Option<PathBuf>) -> Router {
+    let state = Arc::new(AppState { store: Mutex::new(store), state_dir, trust_forwarded, ca_certificate, csp: content_security_policy() });
     Router::new()
         .route("/", get(root))
         .route("/index.html", get(index))
@@ -48,6 +50,7 @@ pub fn app(store: Store, state_dir: PathBuf, trust_forwarded: bool) -> Router {
         // The body limit is set per caller in `api`.
         .route("/api/", any(api).layer(axum::extract::DefaultBodyLimit::disable()))
         .route("/backup", get(backup))
+        .route("/ca.crt", get(ca_file))
         .fallback(fallback)
         .with_state(state)
 }
@@ -187,6 +190,32 @@ async fn fallback(State(st): State<Arc<AppState>>, ConnectInfo(peer): ConnectInf
         format!("There is nothing at this address. The entry page at {base}/ links every part of this service; the API is POST {base}/api/.\n"),
     )
         .into_response()
+}
+
+/// The certificate in DER form and its SHA-256 fingerprint as browsers show it, read anew
+/// on every request, because the container renews it when its name changes.
+pub fn ca(path: &Option<PathBuf>) -> Option<(Vec<u8>, String)> {
+    let pem = std::fs::read_to_string(path.as_ref()?).ok()?;
+    let b64: String = pem.lines().skip_while(|l| !l.starts_with("-----BEGIN CERTIFICATE")).skip(1).take_while(|l| !l.starts_with("-----END")).collect();
+    let der = base64::engine::general_purpose::STANDARD.decode(b64).ok()?;
+    let fp = Sha256::digest(&der).iter().map(|b| format!("{b:02X}")).collect::<Vec<_>>().join(":");
+    Some((der, fp))
+}
+
+async fn ca_file(State(st): State<Arc<AppState>>) -> Response {
+    match ca(&st.ca_certificate) {
+        Some((der, _)) => (
+            [(header::CONTENT_TYPE, "application/pkix-cert"), (header::CONTENT_DISPOSITION, "attachment; filename=\"portal-download-ca.crt\""), (header::CACHE_CONTROL, "no-cache")],
+            der,
+        )
+            .into_response(),
+        None => (
+            StatusCode::NOT_FOUND,
+            [(header::CONTENT_TYPE, "text/plain; charset=utf-8")],
+            "This service offers no certificate authority: the browsers trust its certificate already, or the operator distributes the authority another way.\n",
+        )
+            .into_response(),
+    }
 }
 
 // ------------------------------------------------------------------- JSON-RPC
@@ -398,6 +427,7 @@ async fn api_call(st: &AppState, peer: SocketAddr, method: Method, h: &HeaderMap
             principal,
             setup_secret: setup_secret.as_deref(),
             file_password: password.as_deref(),
+            ca_fingerprint: ca(&st.ca_certificate).map(|(_, fp)| fp),
             user_agent: &user_agent,
             address: &address,
             today: store::today(),
@@ -433,7 +463,7 @@ mod tests {
     fn setup() -> T {
         let dir = tempfile::tempdir().unwrap();
         let store = Store::open(dir.path()).unwrap();
-        T { app: app(store, dir.path().to_path_buf(), false), dir }
+        T { app: app(store, dir.path().to_path_buf(), false, Some(dir.path().join("ca.crt"))), dir }
     }
 
     async fn send(t: &T, req: Request<Body>) -> (StatusCode, HeaderMap, Vec<u8>) {
@@ -667,6 +697,26 @@ mod tests {
         // The extension's credential is no cookie, and a browser's is no bearer token.
         let (_, v) = rpc(&t, "job.list", json!({}), &[("cookie", &format!("{COOKIE}={device_token}"))]).await;
         assert_eq!(v["error"]["data"]["type"], "credential_unknown");
+    }
+
+    #[tokio::test]
+    async fn the_certificate_authority_is_offered_when_there_is_one() {
+        let t = setup();
+        let (s, _, _) = send(&t, Request::get("/ca.crt").body(Body::empty()).unwrap()).await;
+        assert_eq!(s, StatusCode::NOT_FOUND);
+        let (_, v) = rpc(&t, "service.status", json!({}), &[]).await;
+        assert!(v["result"]["ca_certificate"].is_null());
+        // Any certificate will do; only its bytes and fingerprint count here.
+        let der: Vec<u8> = (0u8..=200).collect();
+        let pem = format!("-----BEGIN CERTIFICATE-----\n{}\n-----END CERTIFICATE-----\n", base64::engine::general_purpose::STANDARD.encode(&der));
+        std::fs::write(t.dir.path().join("ca.crt"), pem).unwrap();
+        let (s, h, b) = send(&t, Request::get("/ca.crt").body(Body::empty()).unwrap()).await;
+        assert_eq!(s, StatusCode::OK);
+        assert_eq!(h[header::CONTENT_TYPE], "application/pkix-cert");
+        assert_eq!(b, der);
+        let (_, v) = rpc(&t, "service.status", json!({}), &[]).await;
+        let fp = Sha256::digest(&der).iter().map(|b| format!("{b:02X}")).collect::<Vec<_>>().join(":");
+        assert_eq!(v["result"]["ca_certificate"]["sha256"], fp);
     }
 
     #[tokio::test]

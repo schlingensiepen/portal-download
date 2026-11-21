@@ -86,6 +86,7 @@ fn run(file: &Path) {
             principal: Some(inst.caller.clone()),
             setup_secret: None,
             file_password: password,
+            ca_fingerprint: None,
             user_agent: "",
             address: "",
             today: store::today(),

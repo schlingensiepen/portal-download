@@ -21,6 +21,7 @@ struct FileConfig {
     listen: Option<String>,
     state_dir: Option<String>,
     trust_forwarded_headers: Option<bool>,
+    ca_certificate: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -39,6 +40,9 @@ pub struct Config {
     pub state_dir: Value<PathBuf>,
     /// Whether `X-Forwarded-*` count from every sender, not only from the loopback interface.
     pub trust_forwarded_headers: Value<bool>,
+    /// The certificate of the authority that issued the service's certificate, offered for
+    /// download at /ca.crt; none when unset.
+    pub ca_certificate: Value<Option<PathBuf>>,
 }
 
 #[derive(Debug)]
@@ -111,7 +115,7 @@ pub fn load(cli: Option<&Path>) -> Result<Config, ConfigError> {
                 .map_err(|e| ConfigError(format!("The configuration file {} cannot be read: {e}. Check its permissions.", p.display())))?;
             toml::from_str(&text).map_err(|e| {
                 ConfigError(format!(
-                    "The configuration file {} is not valid: {e}. Allowed keys are `listen`, `state_dir` and `trust_forwarded_headers`; see examples/config.toml.",
+                    "The configuration file {} is not valid: {e}. Allowed keys are `listen`, `state_dir`, `trust_forwarded_headers` and `ca_certificate`; see examples/config.toml.",
                     p.display()
                 ))
             })?
@@ -154,7 +158,13 @@ pub fn load(cli: Option<&Path>) -> Result<Config, ConfigError> {
         None => Value { value: false, source: from(false) },
     };
 
-    Ok(Config { file, file_source, listen, state_dir, trust_forwarded_headers })
+    let ca_certificate = match parsed.ca_certificate {
+        Some(s) if s.trim().is_empty() => Value { value: None, source: "default (set empty)".into() },
+        Some(s) => Value { value: Some(PathBuf::from(s.trim())), source: from(true) },
+        None => Value { value: None, source: from(false) },
+    };
+
+    Ok(Config { file, file_source, listen, state_dir, trust_forwarded_headers, ca_certificate })
 }
 
 impl Config {
@@ -166,6 +176,7 @@ impl Config {
             "listen": { "value": self.listen.value, "source": self.listen.source },
             "state_dir": { "value": self.state_dir.value.display().to_string(), "source": self.state_dir.source },
             "trust_forwarded_headers": { "value": self.trust_forwarded_headers.value, "source": self.trust_forwarded_headers.source },
+            "ca_certificate": { "value": self.ca_certificate.value.as_ref().map(|p| p.display().to_string()), "source": self.ca_certificate.source },
         })
     }
 }

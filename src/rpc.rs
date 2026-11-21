@@ -246,9 +246,9 @@ pub const METHODS: &[Method] = &[
         name: "service.status",
         access: Access::Open,
         summary: "Say whether the service is set up and who is calling.",
-        description: "contract is the major and minor version of this interface; a caller built for another one says so to its user. setup_required is true while nobody has been invited yet; the entry page then explains the setup. signed_in says whether the call carried a valid device credential or agent token; me describes the caller then: a person with their rights, an agent with its display string and its role (null until granted).",
+        description: "contract is the major and minor version of this interface; a caller built for another one says so to its user. ca_certificate, when not null, names the certificate authority this service offers for download and its SHA-256 fingerprint, which the user compares before trusting it. setup_required is true while nobody has been invited yet; the entry page then explains the setup. signed_in says whether the call carried a valid device credential or agent token; me describes the caller then: a person with their rights, an agent with its display string and its role (null until granted).",
         params: r#"{}"#,
-        result: r#"{"name":"portal-download","version":"0.8.0","contract":"0.8","revision":"a1b2c3d4e5f6","setup_required":false,"signed_in":true,"me":{"kind":"person","user_id":1,"name":"Ada","rights":{"people":true,"agents":true,"backup":true},"device_id":3,"device_label":"Laptop","device_kind":"browser"}}"#,
+        result: r#"{"name":"portal-download","version":"0.8.0","contract":"0.8","revision":"a1b2c3d4e5f6","setup_required":false,"ca_certificate":{"path":"/ca.crt","sha256":"5C:0E:…:7B"},"signed_in":true,"me":{"kind":"person","user_id":1,"name":"Ada","rights":{"people":true,"agents":true,"backup":true},"device_id":3,"device_label":"Laptop","device_kind":"browser"}}"#,
     },
     Method {
         name: "setup.createAdmin",
@@ -320,6 +320,8 @@ pub struct Call<'a> {
     pub setup_secret: Option<&'a str>,
     /// The password of a ZIP file, from the header X-Backup-Password.
     pub file_password: Option<&'a str>,
+    /// The SHA-256 fingerprint of the certificate authority offered at /ca.crt, if any.
+    pub ca_fingerprint: Option<String>,
     pub user_agent: &'a str,
     pub address: &'a str,
     pub today: NaiveDate,
@@ -515,6 +517,7 @@ pub fn dispatch(name: &str, params: &Value, c: &Call) -> OpResult<(Value, Effect
                 "contract": contract(),
                 "revision": env!("PORTAL_DOWNLOAD_BUILD_REVISION"),
                 "setup_required": !s.has_users()?,
+                "ca_certificate": c.ca_fingerprint.as_ref().map(|fp| json!({ "path": "/ca.crt", "sha256": fp })),
                 "signed_in": me.is_some(),
                 "me": me,
             }))
@@ -664,7 +667,7 @@ mod tests {
     use crate::store::{Role, ROLES};
 
     fn call<'a>(store: &'a Store, dir: &'a Path, principal: Option<Principal>) -> Call<'a> {
-        Call { store, state_dir: dir, principal, setup_secret: None, file_password: None, user_agent: "", address: "", today: crate::store::today() }
+        Call { store, state_dir: dir, principal, setup_secret: None, file_password: None, ca_fingerprint: None, user_agent: "", address: "", today: crate::store::today() }
     }
 
     #[test]
