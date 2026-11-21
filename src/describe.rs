@@ -78,10 +78,10 @@ Who may do what
   signs out their own devices.
 - Three rights add to that, each held or not: managing people (inviting, deactivating,
   seeing and revoking every device), managing agents (granting, creating and revoking agent
-  tokens) and managing the backup (taking it; reading one in also needs the right to manage
-  people). A right is given or taken away only by someone who holds it, and one active
-  person always holds all three. Acting on a person (a new invitation, deactivating,
-  deleting, revoking a device) needs every right that person holds. Reading people in from a
+  tokens) and managing the backup (taking it). A right is given or taken away only by someone who holds it, and one active
+  person always holds all three. Acting on a person (a new invitation, changing their rights,
+  deactivating, deleting, withdrawing an invitation, revoking a device) needs every right
+  that person holds. Reading people in from a
   backup needs all three rights.
 - An agent works with a token for exactly one role, never with a person's access. It
   registers itself with a short introduction saying whose agent it is and what for, and

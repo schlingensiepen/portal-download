@@ -705,7 +705,7 @@ impl Store {
     fn require_reach_over(&self, p: &Principal, user_id: i64) -> OpResult<()> {
         let (target, _) = self.user_rights(user_id)?;
         if !p.grantable_rights().covers(&target) {
-            return Err(OpError::forbidden("This person holds rights you do not hold; only someone who holds them too may invite, deactivate or delete them, or revoke their devices."));
+            return Err(OpError::forbidden("This person holds rights you do not hold; only someone who holds them too may invite, deactivate or delete them, change their rights, withdraw their invitations or revoke their devices."));
         }
         Ok(())
     }
@@ -758,6 +758,9 @@ impl Store {
 
     pub fn invitation_withdraw(&self, p: &Principal, invitation_id: i64) -> OpResult<Value> {
         p.require(Cap::ManagePeople)?;
+        if let Some(owner) = self.conn.query_row("SELECT user_id FROM invitations WHERE id = ?1", [invitation_id], |r| r.get::<_, i64>(0)).optional()? {
+            self.require_reach_over(p, owner)?;
+        }
         let n = self.conn.execute("UPDATE invitations SET withdrawn_at = COALESCE(withdrawn_at, ?1) WHERE id = ?2", params![now(), invitation_id])?;
         if n == 0 {
             return Err(OpError::not_found("invitation_unknown", format!("There is no invitation {invitation_id}. Call user.list for the invitations of each person.")));
@@ -787,6 +790,7 @@ impl Store {
 
     pub fn user_set_rights(&self, p: &Principal, user_id: i64, rights: Rights) -> OpResult<Value> {
         p.require(Cap::ManagePeople)?;
+        self.require_reach_over(p, user_id)?;
         let (cur, _) = self.user_rights(user_id)?;
         // What changes, in either direction, must be within the caller's own rights.
         let changed = Rights { people: cur.people != rights.people, agents: cur.agents != rights.agents, backup: cur.backup != rights.backup };
@@ -1229,6 +1233,10 @@ pub(crate) mod tests {
         assert!(s.user_reinvite(&pia, bob).is_ok());
         assert!(s.user_reinvite(&pm, bob).is_ok());
         assert!(s.user_set_active(&pia, bob, false).is_ok());
+        // Taking a right away needs the person's rights too, and so does withdrawing their invitation.
+        assert_eq!(s.user_set_rights(&pia, ada, Rights { people: false, ..Rights::ALL }).err().unwrap().kind, "right_missing");
+        let open: i64 = s.conn.query_row("SELECT id FROM invitations WHERE user_id = ?1", [ada], |r| r.get(0)).unwrap();
+        assert_eq!(s.invitation_withdraw(&pia, open).err().unwrap().kind, "right_missing");
         // An agent without people.manage revokes no device at all.
         let reader = agent(&s, &a, Some("jobs.read"));
         assert_eq!(s.device_revoke(&reader, ada_dev).err().unwrap().kind, "right_missing");

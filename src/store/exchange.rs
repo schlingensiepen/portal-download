@@ -65,10 +65,10 @@ fn zip_text(text: &str, password: Option<&str>) -> OpResult<Vec<u8>> {
 /// A password travels in a header, so it is visible ASCII: letters, digits, punctuation and spaces.
 pub fn check_password(password: Option<&str>) -> OpResult<()> {
     if let Some(pw) = password {
-        if pw.len() < 8 || pw.len() > 200 || !pw.chars().all(|c| (' '..='~').contains(&c)) {
+        if pw.len() < 8 || pw.len() > 200 || !pw.chars().all(|c| (' '..='~').contains(&c)) || pw.trim() != pw {
             return Err(OpError::bad(
                 "password_invalid",
-                "The password for the file must have between 8 and 200 characters, only letters A to Z, digits, punctuation and spaces (no umlauts). Choose another and send again.",
+                "The password for the file must have between 8 and 200 characters, only letters A to Z, digits, punctuation and spaces (no umlauts, no space at either end). Choose another and send again.",
             ));
         }
     }
@@ -335,7 +335,7 @@ fn parse(content: &str) -> OpResult<File> {
         return Err(line_error(1, "the head names neither jobs nor full"));
     }
     let mut f = File { kind, jobs: vec![], runs: vec![], deleted: vec![], users: vec![], invitations: vec![], devices: vec![], agents: vec![] };
-    let (mut job_guids, mut run_guids) = (HashSet::new(), HashSet::new());
+    let (mut job_guids, mut run_guids, mut replaced) = (HashSet::new(), HashSet::new(), HashSet::new());
     for (i, line) in lines {
         let n = i + 1;
         let mut v: Value = serde_json::from_str(line).map_err(|_| line_error(n, "it is no JSON"))?;
@@ -349,6 +349,11 @@ fn parse(content: &str) -> OpResult<File> {
                 }
                 if !job_guids.insert(s(&v, "guid").to_string()) {
                     return Err(line_error(n, "a job with this GUID came earlier in the file"));
+                }
+                if let Some(old) = opt(&v, "replaces") {
+                    if !replaced.insert(old) {
+                        return Err(line_error(n, "another job of the file replaces the same job"));
+                    }
                 }
                 let input = job_input(&v);
                 validate_job(&input, true).map_err(|e| line_error(n, &e.message))?;
@@ -416,13 +421,13 @@ fn check_access_record(v: &mut Value) -> Result<(), &'static str> {
             }
         }
         "invitation" => {
-            if !hash_ok(s(v, "token_hash")) || !norm_field(v, "created_at") || !norm_field(v, "expires_at") || !norm_optional(v, "withdrawn_at") || !norm_optional(v, "redeemed_at") {
+            if !hash_ok(s(v, "token_hash")) || !len(v, "created_by", 0, 200) || !norm_field(v, "created_at") || !norm_field(v, "expires_at") || !norm_optional(v, "withdrawn_at") || !norm_optional(v, "redeemed_at") {
                 return Err("an invitation lacks its hash or its times");
             }
         }
         "device" => {
             let kind_ok = matches!(s(v, "kind"), "browser" | "extension");
-            if !kind_ok || !hash_ok(s(v, "credential_hash")) || !len(v, "label", 1, 80) || !norm_field(v, "created_at") || !norm_field(v, "last_seen_at") || !norm_optional(v, "revoked_at") {
+            if !kind_ok || !hash_ok(s(v, "credential_hash")) || !len(v, "label", 1, 80) || s(v, "user_agent").chars().count() > 400 || s(v, "last_address").chars().count() > 100 || !norm_field(v, "created_at") || !norm_field(v, "last_seen_at") || !norm_optional(v, "revoked_at") {
                 return Err("a device lacks its kind, its hash, its name or its times");
             }
         }
@@ -430,7 +435,7 @@ fn check_access_record(v: &mut Value) -> Result<(), &'static str> {
             let display_ok = s(v, "display").len() == 8 && s(v, "display").chars().all(|c| c.is_ascii_lowercase());
             let role_ok = opt(v, "role").is_none_or(|r| super::Role::parse(&r).is_ok());
             let reach_ok = s(v, "reach").split(',').filter(|r| !r.is_empty()).all(|r| super::Role::parse(r).is_ok());
-            if !hash_ok(s(v, "token_hash")) || !display_ok || !len(v, "introduction", 10, 500) || !role_ok || !reach_ok || !norm_field(v, "created_at") || !norm_optional(v, "granted_at") || !norm_optional(v, "last_used_at") || !norm_optional(v, "revoked_at") {
+            if !hash_ok(s(v, "token_hash")) || !display_ok || !len(v, "introduction", 10, 500) || !role_ok || !reach_ok || !len(v, "granted_by", 0, 200) || !norm_field(v, "created_at") || !norm_optional(v, "granted_at") || !norm_optional(v, "last_used_at") || !norm_optional(v, "revoked_at") {
                 return Err("an agent token lacks its hash, its display string, its introduction, a known role or its times");
             }
         }
@@ -545,10 +550,12 @@ fn compare(local: &Stored, record: &Value, newest: &Newest, hide_logins: bool) -
             continue;
         }
         let login = *f == "username" || *f == "password";
-        if lv != iv {
-            diffs.push((f.to_string(), lv, iv, lt.clone(), it.clone(), if it > lt { "incoming" } else { "local" }));
-        } else if hide_logins && login {
+        if hide_logins && login {
+            // Always listed and always keeping the value here: neither the list nor the
+            // preselection may tell whether a guessed login matches.
             diffs.push((f.to_string(), lv, iv, lt, it, "local"));
+        } else if lv != iv {
+            diffs.push((f.to_string(), lv, iv, lt.clone(), it.clone(), if it > lt { "incoming" } else { "local" }));
         }
     }
     (diffs, due_from_run)
@@ -663,6 +670,12 @@ impl Store {
             } else if let Some(j) = self.successor(guid)? {
                 Case::Known { target: j, via_old_guid: true }
             } else if let Some(deleted_at) = self.deleted_at_chain_end(guid)? {
+                Case::DeletedHere { deleted_at }
+            } else if let Some(deleted_at) = match opt(rec, "replaces") {
+                // A job with a new address for one deleted here is a deleted job too.
+                Some(old) if self.stored_by_guid(&old)?.is_none() && self.successor(&old)?.is_none() => self.deleted_at_chain_end(&old)?,
+                _ => None,
+            } {
                 Case::DeletedHere { deleted_at }
             } else if let Some(j) = match opt(rec, "replaces") {
                 Some(old) => match self.stored_by_guid(&old)? {
@@ -1278,6 +1291,15 @@ mod tests {
         let pre = b.import_preview(&manage, &file, None, ImportMode::Jobs).unwrap();
         let fields: Vec<&str> = pre["decide"][0]["fields"].as_array().unwrap().iter().map(|f| f["field"].as_str().unwrap()).collect();
         assert_eq!(fields, ["username", "password"], "equal logins are listed like differing ones");
+        // A wrong guess, newer than the login here, is preselected exactly like a right one.
+        let g = pre["decide"][0]["guid"].as_str().unwrap();
+        let mut guess = job_line(g, "Energy", "2026-11-06T12:00:00Z");
+        guess["entry_url"] = json!("https://energy.example/");
+        guess["password"] = json!("wrong guess");
+        guess["changed"]["password"] = json!("2099-01-01T00:00:00Z");
+        let pre = b.import_preview(&manage, &file_of(&[guess]), None, ImportMode::Jobs).unwrap();
+        let pw = pre["decide"][0]["fields"].as_array().unwrap().iter().find(|f| f["field"] == "password").unwrap().clone();
+        assert_eq!((pw["preselect"].as_str(), pw["incoming"].as_str()), (Some("local"), Some("•••")));
         assert_eq!(b.import_preview(&pb, &file, None, ImportMode::Jobs).unwrap()["same"].as_array().unwrap().len(), 1, "a person sees them equal");
     }
 
@@ -1287,12 +1309,10 @@ mod tests {
         let full = a.backup_export(&pa, None).unwrap();
         let two = person(&b, &pb, "Bea", Rights { people: true, backup: true, ..Rights::default() });
         assert_eq!(b.import_preview(&two, &full, None, ImportMode::Full).err().unwrap().kind, "right_missing");
-        let text = unzip(&full, None).unwrap().replace("\"role\":null", "\"role\":\"root\"");
         let head_and_agent = format!("{}\n{}\n", json!({"format": FORMAT, "version": VERSION, "kind": "full"}),
             json!({"type":"agent","token_hash":"a".repeat(64),"display":"abcdefgh","introduction":"Agent of nobody","role":"root","reach":"","granted_by":null,"granted_at":null,"created_at":"2026-11-06T10:00:00Z","last_used_at":null,"revoked_at":null}));
         let e = b.import_preview(&pb, &zip_text(&head_and_agent, None).unwrap(), None, ImportMode::Full).err().unwrap();
         assert!(e.kind == "file_invalid" && e.message.contains("Line 2"), "{}", e.message);
-        let _ = text;
     }
 
     #[test]
@@ -1301,6 +1321,7 @@ mod tests {
         let a = admin(&s);
         assert_eq!(s.job_export(&a, Some("Pässwort123")).err().unwrap().kind, "password_invalid");
         assert!(s.job_export(&a, Some("Passwort 123!")).is_ok());
+        assert_eq!(s.job_export(&a, Some(" Passwort123")).err().unwrap().kind, "password_invalid", "a browser drops spaces at the ends");
         let mut w = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
         let opts = zip::write::SimpleFileOptions::default();
         w.start_file(ENTRY, opts).unwrap();

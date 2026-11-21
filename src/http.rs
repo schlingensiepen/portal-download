@@ -292,7 +292,7 @@ fn file_password(h: &HeaderMap) -> Result<Option<String>, OpError> {
         Some(v) => match v.to_str() {
             Ok(s) if s.is_empty() => Ok(None),
             Ok(s) => store::check_password(Some(s)).map(|_| Some(s.to_string())),
-            Err(_) => store::check_password(Some("\u{e4}")).map(|_| None),
+            Err(_) => Err(OpError::bad("password_invalid", "The header X-Backup-Password holds characters other than visible ASCII. Choose a password of letters A to Z, digits, punctuation and spaces.")),
         },
     }
 }

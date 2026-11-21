@@ -1,0 +1,13 @@
+{
+  "name": "A deletion in a file does not touch a job that is in use here",
+  "steps": [
+    { "on": "a", "call": "job.create", "params": { "title": "Energy", "entry_url": "https://energy.example.org/", "interval_weeks": 4 }, "save": { "id": "/job_id", "guid": "/guid" } },
+    { "on": "a", "call": "job.export", "params": {}, "save": { "with_job": "/zip_base64" } },
+    { "on": "b", "call": "job.import", "params": { "zip_base64": "$with_job" } },
+    { "on": "a", "call": "job.delete", "params": { "job_id": "$id" } },
+    { "on": "a", "call": "job.export", "params": {}, "save": { "deleted": "/zip_base64" } },
+    { "on": "b", "call": "job.import", "params": { "zip_base64": "$deleted" }, "expect": { "added": 0, "skipped": 0 } },
+    { "on": "b", "call": "job.list", "params": {}, "expect": { "jobs": [ { "guid": "$guid" } ] } },
+    { "on": "b", "call": "job.importPreview", "params": { "zip_base64": "$with_job" }, "expect": { "same": [ { "guid": "$guid" } ], "new": [], "decide": [] } }
+  ]
+}
