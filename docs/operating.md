@@ -14,7 +14,7 @@ The service writes only the state directory and never its configuration. Run the
 ## First start
 
 1. Write the configuration and run `portal-download check`. Every value is shown with its source.
-2. Start the service. The log line `not set up yet. Setup secret: pds_…` names the secret and how long it is valid. Once somebody is set up, the start log names only the setup file, not the secret.
+2. Start the service. The log line `not set up yet. Setup secret: pds_…` names the secret and how long it is valid (in the container image, the ready block shows it, framed by stars). Once somebody is set up, the start log names only the setup file, not the secret.
 3. Open the service over its HTTPS address, enter the setup secret and your name. This creates the first person, with the rights to manage people, agents and the backup, and opens their invitation in that browser.
 4. Create the first job with the portal's login, or import the logins Firefox exports. Every person of the circle sees the logins in plain text; agents see them only with the role *Work through jobs* (`jobs.work`) or *Everything on jobs* (`jobs.all`).
 
@@ -41,16 +41,17 @@ The service writes only the state directory and never its configuration. Run the
 
 The full backup is a ZIP file with one entry, `portal-download.jsonl`: a head line, then one record per line (jobs with their logins in plain text, runs, deleted jobs, people, invitations, devices, agent tokens with the hashes of their credentials). With a password it is encrypted with AES-256; the service reads and writes no other ZIP encryption. There are three ways to get it, and they write the same file:
 
-- **With `curl`, from any machine:** under **Agents**, create a token with the role *Take the backup*. The application shows the complete line once, for example as a nightly cron job:
+- **With `curl`, from any machine:** under **Agents**, create a token with the role *Take the backup* (`backup.read`); the application shows the complete line once. Keep the token in the environment variable `PORTAL_DOWNLOAD_AGENT_TOKEN` of the backup user, and write the password once into a header file of that user (8 to 200 characters, letters, digits, punctuation and inner spaces, no umlauts):
 
   ```sh
   umask 077
-  curl -fsS -H "Authorization: Bearer pda_…" -H @/root/backup-header https://downloads.intra.example/backup -o portal-download-$(date +%F).zip
+  printf 'X-Backup-Password: %s\n' 'the backup password' > /root/backup-header
+  curl -fsS -H "Authorization: Bearer $PORTAL_DOWNLOAD_AGENT_TOKEN" -H @/root/backup-header https://downloads.intra.example/backup -o portal-download-$(date +%F).zip
   ```
 
-  `/root/backup-header` holds the one line `X-Backup-Password: <password>`; leave `-H @…` out for a file without a password. The password travels only in that header, never in the address.
+  Leave `-H @…` out for a file without a password. The password travels only in that header, never in the address. As a cron job, write every `%` as `\%` and set the variable in the crontab above the line, as the README shows.
 
-  When the backup machine does not trust the service's certificate, as with the one the container image issues, add `--cacert ca.crt` with the image's certificate authority from `https://<host>/ca.crt`; it stays the same when the certificate is renewed.
+  When the backup machine does not trust the service's certificate, as with the one the container image issues, fetch the authority once with `curl -k https://<host>/ca.crt -o ca.der`, compare `openssl x509 -inform der -in ca.der -noout -fingerprint -sha256` with the fingerprint in the ready block or on the overview page, convert it with `openssl x509 -inform der -in ca.der -out ca.pem`, and add `--cacert ca.pem`. It stays the same when the certificate is renewed.
 - **In the application:** under **Exchange**, a person who manages the backup downloads it, with or without a password.
 - **On the server:** `portal-download backup /some/dir/portal-download-$(date +%F).zip --password-file /root/backup-password`, where the first line of that file is the password; without `--password-file` the file is not encrypted. It never overwrites a file and makes it readable by its owner only.
 
@@ -84,4 +85,4 @@ Each image was built for its revision (`portal-download version`) and passed a s
 
 Replace the binary and restart. In a container, pull the new image and start a new container on the same volume. An older binary refuses a store written by a newer one, and the store records its structure version (`portal-download status`).
 
-Version 0.8 starts with an empty store: it refuses a store of 0.7 and names what to do. Stop the service, move `portal-download.sqlite` with its `-wal` and `-shm` files out of the state directory (in a container: start on a new volume), start again and import the logins anew, from Firefox or by hand; files of 0.7 cannot be read in. The image's new certificate authority is imported once more.
+Version 0.8 starts with an empty store, as a new instance: it refuses a store of 0.7 and names what to do. Stop the service, move `portal-download.sqlite` with its `-wal` and `-shm` files out of the state directory (in a container: stop and rename the old container, start the new one on a new volume, as the README shows step by step), start again and set up with the new setup secret. Then import the logins anew, from Firefox or by hand; files and backups of 0.7 cannot be read in. Every person gets a new invitation, every agent a new token, and in a container every computer imports the image's new certificate authority once more; its fingerprint tells it apart from the old one.

@@ -65,22 +65,38 @@ Every job carries a GUID that identifies it on every instance and in the browser
 
   Nothing is read in until you confirm, no run is ever lost, and the same file read in twice asks again only where it still differs. With all three rights, a full backup can bring its people, devices and tokens in beside the existing ones; a person with the name or e-mail of one here comes in with "(Import YYYY-MM-DD)" after the name.
 
-A script fetches the full backup with a token for `backup.read`:
+A script fetches the full backup with a token for `backup.read` (role *Take the backup*). Once, as the user the script runs as, write the password into a header file that only this user can read; the password follows the rules above, and a space at either end is refused:
+
+```sh
+umask 077
+printf 'X-Backup-Password: %s\n' 'the backup password' > /root/backup-header
+```
+
+Then, with the token in the environment variable `PORTAL_DOWNLOAD_AGENT_TOKEN`:
 
 ```sh
 curl -fsS -H "Authorization: Bearer $PORTAL_DOWNLOAD_AGENT_TOKEN" -H @/root/backup-header \
   https://<host>/backup -o portal-download-$(date +%F).zip
 ```
 
-The password travels in the header `X-Backup-Password` only, never in the address. `-H @/root/backup-header` reads the header from a file that holds the one line `X-Backup-Password: …`, readable by its owner only, which keeps the password out of the command line and the process list. Without the header the file is not encrypted. When a person creates such a token under **Agents**, the application shows the line with the token filled in. **A file without a password holds the portal logins in plain text**: keep it where only those who may see the logins can reach it. Details are in [docs/operating.md](docs/operating.md#backup).
+In a crontab every `%` must be written `\%`, and the variable set above the line:
+
+```crontab
+PORTAL_DOWNLOAD_AGENT_TOKEN=pda_…
+30 2 * * * cd /srv/backup && curl -fsS -H "Authorization: Bearer $PORTAL_DOWNLOAD_AGENT_TOKEN" -H @/root/backup-header https://<host>/backup -o portal-download-$(date +\%F).zip
+```
+
+The password travels in the header `X-Backup-Password` only, never in the address, and the header file keeps it out of the command line and the process list. Without the header the file is not encrypted. When a person creates such a token under **Agents**, the application shows the line with the token filled in. **A file without a password holds the portal logins in plain text**: keep it where only those who may see the logins can reach it. Details are in [docs/operating.md](docs/operating.md#backup).
 
 ## Browser extension
 
 The extension shows the due jobs of every service it knows, and of its own store, in one list in the browser's side panel; the portal opens in a normal tab beside it. Download it from the link on the service's overview page, or from the releases of the `portal-download-extension` repository. In Firefox the signed file installs with a click; in Chrome and Edge, unpack the ZIP and load it under *Extensions → Developer mode → Load unpacked*.
 
+Words used there: a **backend** is one source of jobs, either a service or the **local store**, which keeps jobs in that browser only, encrypted with a passphrase. To move jobs between backends, export them on one, read the file in on the other, and delete them where they were; reading in copies. The extension's own README explains it for its users.
+
 **Adding a service:** open an invitation link in the browser, or *Add to the browser extension* under **My devices**, and click **+** in the extension while that tab is open. The extension takes the invitation from the tab's address and asks for permission to reach that one service.
 
-**The certificate:** the extension reaches a service only when the computer trusts its certificate. Chrome and Edge do not count a certificate that was merely accepted on a warning page. A service in the container image offers its own certificate authority for that: download it from the overview page, compare its fingerprint with the one there or in the container's log, and import it once as a trusted root certificate authority (on Windows: double-click the file, *Install certificate*, *Local machine* or *Current user*, store *Trusted Root Certification Authorities*). The authority is limited to the service's name, so it vouches for nothing else. Firefox on Windows and macOS usually trusts the roots of the system; otherwise import it in Firefox's settings under *Privacy & Security → Certificates*, or accept the warning there once, which Firefox also applies to the extension.
+**The certificate:** the extension reaches a service only when the computer trusts its certificate. Chrome and Edge do not count a certificate that was merely accepted on a warning page. A service in the container image offers its own certificate authority for that: download it from the overview page, compare its fingerprint with the one there or in the container's log, and import it once as a trusted root certificate authority, before opening the invitation (on Windows: double-click the file, *Install certificate*; *Current user* needs no administrator, *Local machine* does and covers every user; store *Trusted Root Certification Authorities*). The authority is limited to the service's name, so it vouches for nothing else. Firefox on Windows and macOS usually trusts the roots of the system; on Linux, and otherwise, import it in Firefox's settings under *Privacy & Security → Certificates → View Certificates → Authorities*, or accept the warning there once, which Firefox also applies to the extension.
 
 ## In a container
 
@@ -160,10 +176,22 @@ On a Mac with Apple silicon every runtime takes the `arm64` image, with no emula
 
 **Operating it:**
 
-- **Backup with `curl`:** as described under [Exchange and backup](#exchange-and-backup). A machine that does not trust the image's authority adds `--cacert ca.crt`, with the authority from `https://<SITE>/ca.crt`; it stays the same across renewals. Or write the backup inside the container, copy it out and delete it there: `docker exec portal-download portal-download backup /data/backup.zip`, `docker cp portal-download:/data/backup.zip .`, `docker exec portal-download rm /data/backup.zip`.
+- **Backup with `curl`:** as described under [Exchange and backup](#exchange-and-backup). A machine that does not trust the image's authority fetches it once, compares its fingerprint with the one in the ready block, and converts it for curl, which wants PEM:
+
+  ```sh
+  curl -k https://<SITE>/ca.crt -o ca.der
+  openssl x509 -inform der -in ca.der -noout -fingerprint -sha256   # compare with the block
+  openssl x509 -inform der -in ca.der -out /srv/backup/ca.pem
+  ```
+
+  and adds `--cacert /srv/backup/ca.pem` to the curl line. The authority stays the same across renewals. Or write the backup inside the container, copy it out and delete it there: `docker exec portal-download portal-download backup /data/backup.zip`, `docker cp portal-download:/data/backup.zip .`, `docker exec portal-download rm /data/backup.zip`.
 - **Tags:** without a tag the image is `latest`, the last release. A tag `X.Y` such as `0.8` follows the fixes of one minor version, `X.Y.Z` such as `0.8.0` stays put, `edge` follows the main branch.
 - **Upgrading:** take a backup first, because a store written by a newer version is refused by an older one. Then `docker pull ghcr.io/schlingensiepen/portal-download`, `docker stop portal-download`, `docker rm portal-download`, and the same `docker run` as at first start, with all its options. The volume keeps everything.
-- **From 0.7 to 0.8:** version 0.8 reads no store and no backup of 0.7; it starts empty, as a new instance: setup with a new setup secret, new invitations for every person, new agent tokens, and the browser extension added anew. Start it on a new volume, `-v portal-download-0.8:/data` in the `docker run` above (in a compose file, a new volume name under `volumes:`), and keep the old volume; with the old volume the new container refuses to start and names the store files. The logins come in again with **Import logins (Firefox CSV)**. To copy them from the old instance instead, start the old image beside it under another name and port (`--name portal-download-0.7 -p 8443:443 -v portal-download:/data ghcr.io/schlingensiepen/portal-download:0.7`) and copy by hand. The new image creates its own certificate authority, so the browsers ask once more until the authority is imported. Each instance's authority carries a random part in its name, and its fingerprint tells it apart.
+- **From 0.7 to 0.8:** version 0.8 reads no store and no backup of 0.7; it starts empty, as a new instance: setup with a new setup secret, new invitations for every person, new agent tokens. Backups of 0.7 are of no use to it. The steps:
+  1. Stop the old container and give it another name, so that name and port are free: `docker stop portal-download && docker rename portal-download portal-download-0.7`.
+  2. Start 0.8 with the `docker run` above on a new volume, `-v portal-download-0.8:/data` (in a compose file, a new volume name under `volumes:`). Keep the old volume; on it the new container refuses to start and names the store files.
+  3. Bring the jobs over: with **Import logins (Firefox CSV)**, or by hand from the old instance. To look into it, run it once more, on its own volume but another port, while the 0.8 container serves 443: `docker rm portal-download-0.7`, then `docker run -d --name portal-download-0.7 -p 8443:443 -e SITE=<old SITE> -e TZ=Europe/Berlin -v portal-download:/data ghcr.io/schlingensiepen/portal-download:<old tag>`, where the old tag is the one you ran (`docker image ls ghcr.io/schlingensiepen/portal-download`), and open `https://<old SITE>:8443/`. Only one container may use a volume at a time.
+  4. Invite everybody anew, and grant the agents new tokens. The new image creates its own certificate authority, so every computer imports it once more; each instance's authority carries a random part in its name, and its fingerprint tells them apart. Once nothing is missing, remove the old container and, when you are sure, its volume.
 - **A certificate of your own** (from an intranet CA, for example): copy it in as the image's user, then restart:
 
   ```sh
