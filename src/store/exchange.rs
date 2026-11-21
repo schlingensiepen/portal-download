@@ -1282,6 +1282,19 @@ mod tests {
     }
 
     #[test]
+    fn a_file_replaces_one_job_only_once() {
+        let s = Store::open_in_memory().unwrap();
+        let a = admin(&s);
+        let old = "0b6f3c1e-5d2a-4c8e-9f10-2a3b4c5d6e7f";
+        let mut j1 = job_line("1b6f3c1e-5d2a-4c8e-9f10-2a3b4c5d6e7f", "A", "2026-11-06T12:00:00Z");
+        let mut j2 = job_line("2b6f3c1e-5d2a-4c8e-9f10-2a3b4c5d6e7f", "B", "2026-11-06T12:00:00Z");
+        j1["replaces"] = json!(old);
+        j2["replaces"] = json!(old);
+        let e = s.import_preview(&a, &file_of(&[j1, j2]), None, ImportMode::Jobs).err().unwrap();
+        assert!(e.kind == "file_invalid" && e.message.contains("Line 3"), "{}", e.message);
+    }
+
+    #[test]
     fn the_preview_tells_a_manager_nothing_about_a_guessed_login() {
         let (a, pa, b, pb) = pair();
         job(&a, &pa, "Energy", "https://energy.example/");
