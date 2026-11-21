@@ -320,8 +320,8 @@ pub struct Call<'a> {
     pub setup_secret: Option<&'a str>,
     /// The password of a ZIP file, from the header X-Backup-Password.
     pub file_password: Option<&'a str>,
-    /// The SHA-256 fingerprint of the certificate authority offered at /ca.crt, if any.
-    pub ca_fingerprint: Option<String>,
+    /// The certificate authority offered at /ca.crt, if any; read only for service.status.
+    pub ca_certificate: Option<&'a Path>,
     pub user_agent: &'a str,
     pub address: &'a str,
     pub today: NaiveDate,
@@ -517,7 +517,7 @@ pub fn dispatch(name: &str, params: &Value, c: &Call) -> OpResult<(Value, Effect
                 "contract": contract(),
                 "revision": env!("PORTAL_DOWNLOAD_BUILD_REVISION"),
                 "setup_required": !s.has_users()?,
-                "ca_certificate": c.ca_fingerprint.as_ref().map(|fp| json!({ "path": "/ca.crt", "sha256": fp })),
+                "ca_certificate": crate::http::ca(&c.ca_certificate.map(Path::to_path_buf)).map(|(_, fp)| json!({ "path": "/ca.crt", "sha256": fp })),
                 "signed_in": me.is_some(),
                 "me": me,
             }))
@@ -667,7 +667,7 @@ mod tests {
     use crate::store::{Role, ROLES};
 
     fn call<'a>(store: &'a Store, dir: &'a Path, principal: Option<Principal>) -> Call<'a> {
-        Call { store, state_dir: dir, principal, setup_secret: None, file_password: None, ca_fingerprint: None, user_agent: "", address: "", today: crate::store::today() }
+        Call { store, state_dir: dir, principal, setup_secret: None, file_password: None, ca_certificate: None, user_agent: "", address: "", today: crate::store::today() }
     }
 
     #[test]

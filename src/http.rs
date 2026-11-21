@@ -4,7 +4,7 @@
 use crate::describe;
 use crate::error::OpError;
 use crate::rpc::{self, Access, Call, Effect};
-use crate::store::{self, Principal, Store};
+use crate::store::{self, Cap, Principal, Store};
 use axum::body::Bytes;
 use axum::extract::{ConnectInfo, State};
 use axum::http::{header, HeaderMap, HeaderValue, Method, StatusCode};
@@ -205,7 +205,12 @@ pub fn ca(path: &Option<PathBuf>) -> Option<(Vec<u8>, String)> {
 async fn ca_file(State(st): State<Arc<AppState>>) -> Response {
     match ca(&st.ca_certificate) {
         Some((der, _)) => (
-            [(header::CONTENT_TYPE, "application/pkix-cert"), (header::CONTENT_DISPOSITION, "attachment; filename=\"portal-download-ca.crt\""), (header::CACHE_CONTROL, "no-cache")],
+            [
+                (header::CONTENT_TYPE, "application/pkix-cert"),
+                (header::CONTENT_DISPOSITION, "attachment; filename=\"portal-download-ca.crt\""),
+                (header::CACHE_CONTROL, "no-cache"),
+                (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
+            ],
             der,
         )
             .into_response(),
@@ -279,9 +284,17 @@ fn authenticate(store: &Store, h: &HeaderMap, user_agent: &str, address: &str) -
     }
 }
 
-/// The password of a ZIP file travels in a header, never in an address or in params.
-fn file_password(h: &HeaderMap) -> Option<String> {
-    h.get("x-backup-password").and_then(|v| v.to_str().ok()).map(str::to_string).filter(|s| !s.is_empty())
+/// The password of a ZIP file travels in a header, never in an address or in params. A
+/// header that is there but not visible ASCII is refused, never taken for "no password".
+fn file_password(h: &HeaderMap) -> Result<Option<String>, OpError> {
+    match h.get("x-backup-password") {
+        None => Ok(None),
+        Some(v) => match v.to_str() {
+            Ok(s) if s.is_empty() => Ok(None),
+            Ok(s) => store::check_password(Some(s)).map(|_| Some(s.to_string())),
+            Err(_) => store::check_password(Some("\u{e4}")).map(|_| None),
+        },
+    }
 }
 
 /// The origin of the browser extension, which the API answers with CORS headers. Its
@@ -337,7 +350,10 @@ async fn backup(State(st): State<Arc<AppState>>, ConnectInfo(peer): ConnectInfo<
             ))
         }
     };
-    let password = file_password(&h);
+    let password = match file_password(&h) {
+        Ok(p) => p,
+        Err(e) => return text_error(&e),
+    };
     match store.backup_export(&principal, password.as_deref()).and_then(|t| store.agent_touch(&principal).map(|_| t)) {
         Ok(bytes) => {
             let name = format!("attachment; filename=\"portal-download-{}.zip\"", store::today().format("%Y-%m-%d"));
@@ -367,11 +383,15 @@ async fn api_call(st: &AppState, peer: SocketAddr, method: Method, h: &HeaderMap
     if method != Method::POST {
         return protocol_error(StatusCode::METHOD_NOT_ALLOWED, -32600, "Invalid Request: the API accepts only POST with a JSON-RPC 2.0 body.", Value::Null);
     }
-    let signed_in = match authenticate(&lock(st), &h, h.get(header::USER_AGENT).and_then(|v| v.to_str().ok()).unwrap_or(""), &client_address(&h, peer, st.trust_forwarded)) {
-        Some(Ok(Principal::Agent { role: None, .. })) | Some(Err(_)) | None => false,
-        Some(Ok(_)) => true,
+    let user_agent = h.get(header::USER_AGENT).and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
+    let address = client_address(&h, peer, st.trust_forwarded);
+    // The caller is established once, before the body is read: only one who may read a file
+    // in may send a large body.
+    let auth = authenticate(&lock(st), &h, &user_agent, &address);
+    let limit = match &auth {
+        Some(Ok(p)) if p.can(Cap::ImportJobs) || p.can(Cap::BackupImport) => BODY_LIMIT_SIGNED_IN,
+        _ => BODY_LIMIT,
     };
-    let limit = if signed_in { BODY_LIMIT_SIGNED_IN } else { BODY_LIMIT };
     let Ok(body): Result<Bytes, _> = axum::body::to_bytes(body, limit).await else {
         return protocol_error(StatusCode::PAYLOAD_TOO_LARGE, -32600, "Invalid Request: the body is too large.", Value::Null);
     };
@@ -401,16 +421,14 @@ async fn api_call(st: &AppState, peer: SocketAddr, method: Method, h: &HeaderMap
         return app_error(&OpError::new(415, "content_type", "Send the request with Content-Type: application/json."), id);
     }
 
-    let user_agent = h.get(header::USER_AGENT).and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
-    let address = client_address(&h, peer, st.trust_forwarded);
     let setup_secret = h.get("x-setup-secret").and_then(|v| v.to_str().ok()).map(str::to_string);
-    let password = file_password(&h);
+    let password = match file_password(&h) {
+        Ok(p) => p,
+        Err(e) => return app_error(&e, id),
+    };
     let device_cred = cookie_value(&h, COOKIE);
     let (outcome, renew) = {
         let store = lock(st);
-
-        // Establish the caller in one place, before any method runs.
-        let auth = authenticate(&store, &h, &user_agent, &address);
         let principal = match auth {
             Some(Ok(p)) => Some(p),
             Some(Err(e)) if !matches!(m.access, Access::Open | Access::Setup) => return app_error(&e, id),
@@ -427,7 +445,7 @@ async fn api_call(st: &AppState, peer: SocketAddr, method: Method, h: &HeaderMap
             principal,
             setup_secret: setup_secret.as_deref(),
             file_password: password.as_deref(),
-            ca_fingerprint: ca(&st.ca_certificate).map(|(_, fp)| fp),
+            ca_certificate: st.ca_certificate.as_deref(),
             user_agent: &user_agent,
             address: &address,
             today: store::today(),
@@ -663,6 +681,33 @@ mod tests {
             let (s, _, _) = send(&t, b.body(Body::from(big.clone())).unwrap()).await;
             assert_eq!(s == StatusCode::PAYLOAD_TOO_LARGE, expect_too_large);
         }
+    }
+
+    #[tokio::test]
+    async fn a_password_header_that_is_no_ascii_is_refused_and_never_ignored() {
+        let t = setup();
+        let (_, _, cookie) = admin_cookie(&t);
+        let req = Request::post("/api/")
+            .header(header::CONTENT_TYPE, "application/json")
+            .header(header::COOKIE, format!("{COOKIE}={cookie}"))
+            .header("x-backup-password", HeaderValue::from_bytes(b"P\xe4sswort123").unwrap())
+            .body(Body::from(r#"{"jsonrpc":"2.0","id":1,"method":"job.export","params":{}}"#))
+            .unwrap();
+        let (_, _, b) = send(&t, req).await;
+        let v: Value = serde_json::from_slice(&b).unwrap();
+        assert_eq!(v["error"]["data"]["type"], "password_invalid", "{v}");
+    }
+
+    #[tokio::test]
+    async fn a_token_that_reads_jobs_sends_only_small_bodies() {
+        let t = setup();
+        let reader = {
+            let (st, a, _) = admin_cookie(&t);
+            st.agent_create(&a, "job reader for the test", "jobs.read").unwrap()["token"].as_str().unwrap().to_string()
+        };
+        let big = format!("{{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"job.list\",\"params\":{{\"x\":\"{}\"}}}}", "x".repeat(2 * 1024 * 1024));
+        let req = Request::post("/api/").header(header::CONTENT_TYPE, "application/json").header(header::AUTHORIZATION, format!("Bearer {reader}")).body(Body::from(big)).unwrap();
+        assert_eq!(send(&t, req).await.0, StatusCode::PAYLOAD_TOO_LARGE);
     }
 
     #[tokio::test]

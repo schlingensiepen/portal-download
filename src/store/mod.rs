@@ -8,7 +8,7 @@
 mod exchange;
 mod jobs;
 
-pub use exchange::ImportMode;
+pub use exchange::{check_password, ImportMode};
 pub use jobs::JobInput;
 
 use crate::error::{OpError, OpResult};
