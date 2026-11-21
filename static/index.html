@@ -166,6 +166,10 @@ input.invalid { border-color: var(--bad); outline: 1px solid var(--bad); }
   <span data-msg="confirm.person.deactivate" data-i18n="confirm.person.deactivate">Deactivate <span data-field="name"></span> on all devices?</span>
   <span data-msg="confirm.invitation.withdraw" data-i18n="confirm.invitation.withdraw">Withdraw the invitation? Devices already signed in stay signed in.</span>
   <span data-msg="confirm.agent.grant" data-i18n="confirm.agent.grant">Give agent <span data-field="display"></span> the role “<span data-field="role"></span>”? Grant it only if the agent told you exactly this display string.</span>
+  <span data-msg="confirm.agent.grant_people" data-i18n="confirm.agent.grant_people">This role lets the agent invite people. It could open such an invitation itself and then work as a person of the circle, with every login.</span>
+  <span data-msg="confirm.agent.grant_agents" data-i18n="confirm.agent.grant_agents">This role lets the agent grant waiting registrations, also ones that are not its user's: it must grant only the display string its user names.</span>
+  <span data-msg="agent.created" data-i18n="agent.created">· granted <span data-field="tokens"></span> tokens, invited <span data-field="people"></span> people; revoking this one leaves them as they are</span>
+  <span data-msg="confirm.person.delete" data-i18n="confirm.person.delete">Delete <span data-field="name"></span> with all invitations and devices? Their closed runs keep the name.</span>
   <span data-msg="confirm.agent.reject" data-i18n="confirm.agent.reject">Reject the registration <span data-field="display"></span>?</span>
   <span data-msg="confirm.agent.revoke" data-i18n="confirm.agent.revoke">Revoke agent <span data-field="display"></span> at once?</span>
   <span data-msg="confirm.token.create" data-i18n="confirm.token.create">Create a token with the role “<span data-field="role"></span>”?</span>
@@ -295,10 +299,12 @@ input.invalid { border-color: var(--bad); outline: 1px solid var(--bad); }
   </div>
   <div data-ref="creds"></div>
   <div data-ref="instructions"></div>
-  <textarea class="note" data-ref="note" placeholder="Note (optional), e.g. what was missing" data-i18n-placeholder="current.note"></textarea>
-  <div class="finish">
-    <button class="btn ok" type="button" data-action="succeeded" data-i18n="current.succeeded">Succeeded</button>
-    <button class="btn bad" type="button" data-action="failed" data-i18n="current.failed">Failed</button>
+  <div data-ref="work">
+    <textarea class="note" data-ref="note" placeholder="Note (optional), e.g. what was missing" data-i18n-placeholder="current.note"></textarea>
+    <div class="finish">
+      <button class="btn ok" type="button" data-action="succeeded" data-i18n="current.succeeded">Succeeded</button>
+      <button class="btn bad" type="button" data-action="failed" data-i18n="current.failed">Failed</button>
+    </div>
   </div>
   <div class="row small" style="margin-top:14px">
     <a data-ref="edit" data-i18n="current.edit">Edit</a> · <a data-ref="history" data-i18n="current.history">History</a>
@@ -502,6 +508,7 @@ input.invalid { border-color: var(--bad); outline: 1px solid var(--bad); }
   <div class="row small" style="margin-top:8px">
     <button class="btn small" type="button" data-action="reinvite" data-i18n="person.reinvite">New invitation</button>
     <button class="btn small" type="button" data-action="active"><span data-ref="deactivate" data-i18n="person.deactivate">Deactivate</span><span data-ref="reactivate" data-i18n="person.reactivate">Reactivate</span></button>
+    <button class="btn small bad" type="button" data-action="delete" data-ref="delete" data-i18n="person.delete">Delete</button>
   </div>
   <table class="small" style="margin-top:8px"><tbody data-ref="rows"></tbody></table>
 </div></template>
@@ -652,6 +659,7 @@ input.invalid { border-color: var(--bad); outline: 1px solid var(--bad); }
   <div class="card" data-ref="extension">
     <h3 data-i18n="invite.extension.title">In the browser extension</h3>
     <p class="small" data-i18n="invite.extension.text">Keep this page open and click “+” in the extension: it takes the invitation from the address bar of this tab.</p>
+    <p class="small" data-ref="own" data-i18n="invite.own">This link is for a further device of yours, here the browser extension. It serves once, within the hour.</p>
     <a class="btn" target="_blank" rel="noopener noreferrer" data-ref="extension-link" data-i18n="extension.download">Download the extension</a>
   </div>
   <form class="card" data-ref="here" data-action="accept">
@@ -681,6 +689,7 @@ input.invalid { border-color: var(--bad); outline: 1px solid var(--bad); }
   <p data-i18n="noaccess.text">This device has no access. Open the invitation link you received; it works in each of your browsers and in the browser extension.</p>
   <p class="muted small" data-field="error"></p>
   <p class="muted small" data-i18n="noaccess.hint">No link (any more)? Ask a person in the circle who manages people for a new invitation.</p>
+  <p><a class="btn" target="_blank" rel="noopener noreferrer" data-ref="extension-link" data-i18n="extension.download">Download the extension</a></p>
 </div></template>
 
 
@@ -988,6 +997,7 @@ function renderCurrent(job) {
   // After a run is closed the job stays in sight with its new date, until "next job".
   const done = state.done && state.done.job_id === job.job_id ? state.done : null;
   show(ref(d, "done"), !!done);
+  show(ref(d, "work"), !done);
   if (done) put(ref(d, "done"), { next_due: fmtDate(done.next_due) });
   ref(d, "urgency").replaceWith(urgency(job.urgency_days));
   ref(d, "schedule").textContent = plural("schedule", job.interval_weeks, { date: fmtDate(job.next_due) }).textContent;
@@ -1222,6 +1232,7 @@ async function viewPeople() {
     const card = put(T("tpl-person"), { name: u.name, email: u.email, meta: [rightsText(u.rights), u.created_by ? msg("person.created_by", { name: u.created_by }) : ""].filter(Boolean).join(" · ") });
     show(ref(card, "inactive"), !u.active);
     show(ref(card, "deactivate"), u.active); show(ref(card, "reactivate"), !u.active);
+    show(ref(card, "delete"), u.user_id !== state.me.user_id);
     const rights = rightsBox(u.rights);
     ref(card, "rights").append(rights.box);
     bind(card, {
@@ -1232,6 +1243,7 @@ async function viewPeople() {
         try { await rpc("user.setRights", { user_id: u.user_id, rights: v }); render(); } catch (e) { fail(e); render(); }
       },
       active: act(u.active ? msg("confirm.person.deactivate", { name: u.name }) : null, () => rpc("user.setActive", { user_id: u.user_id, active: !u.active })),
+      delete: act(msg("confirm.person.delete", { name: u.name }), () => rpc("user.delete", { user_id: u.user_id })),
     });
     for (const dev of u.devices) {
       const tr = put(T("tpl-person-device"), { label: dev.label, seen: fmtDateTime(dev.last_seen_at), address: dev.last_address });
@@ -1260,6 +1272,7 @@ async function viewPeople() {
 async function viewAgents() {
   if (!can("agents")) return T("tpl-forbidden");
   const ag = await rpc("agent.list");
+  const people = can("people") ? (await rpc("user.list")).users : [];
   const d = T("tpl-agents");
   const act = (question, fn) => async () => { if (question && !(await ask(question))) return; try { await fn(); render(); } catch (e) { fail(e); } };
   const options = (select, selected) => {
@@ -1279,6 +1292,10 @@ async function viewAgents() {
     const meta = [msg("agent.registered", { date: fmtDateTime(a.created_at) })];
     if (a.granted_by) meta.push(msg("agent.granted_by", { name: a.granted_by }));
     meta.push(a.last_used_at ? msg("agent.last_used", { date: fmtDateTime(a.last_used_at) }) : msg("agent.never_used"));
+    // What this token granted or invited stays when it is revoked; it is named here to revoke one by one.
+    const by = (x) => typeof x === "string" && x.startsWith(`Agent ${a.display} `);
+    const tokens = ag.agents.filter((x) => by(x.granted_by)).length, invited = people.filter((u) => by(u.created_by)).length;
+    if (tokens || invited) meta.push(msg("agent.created", { tokens, people: invited }));
     ref(card, "meta").textContent = meta.join(" ");
     show(ref(card, "pending"), a.state === "pending");
     show(ref(card, "granted"), a.state === "granted");
@@ -1287,7 +1304,8 @@ async function viewAgents() {
     return bind(card, {
       grant: async () => {
         const chosen = pick.value;
-        if (!(await ask(msg("confirm.agent.grant", { display: a.display, role: roleName(chosen) })))) return;
+        const warning = chosen === "people.manage" ? "\n\n" + msg("confirm.agent.grant_people") : chosen === "agents.manage" ? "\n\n" + msg("confirm.agent.grant_agents") : "";
+        if (!(await ask(msg("confirm.agent.grant", { display: a.display, role: roleName(chosen) }) + warning))) return;
         try { await rpc("agent.grant", { agent_id: a.agent_id, role: chosen }); if (chosen === "backup.read") showBackupLine(a.display); else render(); } catch (e) { fail(e); }
       },
       reject: act(msg("confirm.agent.reject", { display: a.display }), () => rpc("agent.revoke", { agent_id: a.agent_id })),
@@ -1353,7 +1371,7 @@ const fieldValue = (field, v) => v === "•••" ? msg("preview.hidden") : fie
 function previewCard(P) {
   const R = P.result;
   const d = put(T("tpl-preview"), { n_new: R.new.length, n_same: R.same.length, n_decide: R.decide.length });
-  show(ref(d, "people"), !!R.people);
+  show(ref(d, "people"), !!R.people && P.full);
   if (R.people) put(ref(d, "people"), R.people);
   for (const x of R.new) ref(d, "new").append(put(T("tpl-preview-line"), { title: x.title, detail: x.new_runs ? msg("preview.runs", { n: x.new_runs }) : "" }));
   for (const x of R.same) {
@@ -1361,13 +1379,14 @@ function previewCard(P) {
     ref(d, "same").append(put(T("tpl-preview-line"), { title: x.title, detail }));
   }
   for (const x of R.decide) {
-    const choice = P.choices[x.guid] || (P.choices[x.guid] = x.actions ? { action: x.preselect } : { fields: Object.fromEntries((x.fields || []).map((f) => [f.field, f.preselect])) });
+    const fields = Object.fromEntries((x.fields || []).map((f) => [f.field, f.preselect]));
+    const choice = P.choices[x.guid] || (P.choices[x.guid] = x.actions ? (x.fields ? { action: x.preselect, fields } : { action: x.preselect }) : { fields });
     const caseText = x.case === "deleted_here" ? msg("case.deleted_here", { date: fmtDateTime(x.deleted_at) })
       : x.case === "replaces" ? msg("case.replaces", { title: x.replaces_title, url: x.local_entry_url })
       : x.case === "old_address" ? msg("case.old_address", { url: x.local_entry_url }) : msg("case.known");
     const card = put(T("tpl-decide"), { title: x.title, url: x.entry_url, case: caseText });
     const rows = ref(card, "rows");
-    show(ref(card, "fields"), !!(x.fields && x.fields.length) && !x.actions);
+    show(ref(card, "fields"), !!(x.fields && x.fields.length));
     for (const f of x.fields || []) {
       const tr = put(T("tpl-decide-field"), {
         field: msg(`field.${f.field}`), local: fieldValue(f.field, f.local), incoming: fieldValue(f.field, f.incoming),
@@ -1568,7 +1587,10 @@ function viewInvite(token) {
   const d = T("tpl-invite");
   fillExtensionCard(ref(d, "extension"));
   ref(d, "label").value = guessDeviceLabel();
+  // Signed in, the link is one's own for a further device: it is meant for the extension and serves once.
   show(ref(d, "signed-in"), !!state.me);
+  show(ref(d, "own"), !!state.me);
+  show(ref(d, "here"), !state.me);
   const submit = ref(d, "submit");
   return bind(d, {
     accept: async () => {
@@ -1596,7 +1618,9 @@ function viewSetup() {
 }
 
 function viewNoAccess(err) {
-  return put(T("tpl-no-access"), { app_name: CONFIG.app_name, error: err || "" });
+  const d = put(T("tpl-no-access"), { app_name: CONFIG.app_name, error: err || "" });
+  fillExtensionCard(d);
+  return d;
 }
 
 // ------------------------------------------------------------------ render
@@ -1620,6 +1644,8 @@ async function render() {
   }
   if (mySeq !== renderSeq) return;
   if (r.id && ["job", "edit", "history"].includes(r.view)) selectJob(r.id);
+  // The note that a run was closed belongs to that job's view only.
+  if (!(r.view === "job" && state.done && state.done.job_id === r.id)) state.done = null;
   // The logins read from an export, and a file's preview, stay only while their view is shown.
   if (r.view !== "logins") state.logins = null;
   if (r.view !== "exchange") state.preview = null;

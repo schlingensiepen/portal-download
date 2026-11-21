@@ -29,9 +29,9 @@ Every job has an interval in weeks and a retry period in days.
 - **Every person works on all jobs.** Three rights add to that, each held or not:
   - **manage people:** invite, give new invitations, deactivate and delete people, see and revoke every device (**All devices**);
   - **manage agents:** grant, create and revoke agent tokens (**Agents**);
-  - **manage the backup:** take the full backup; reading one in with its people also needs the right to manage people.
+  - **manage the backup:** take the full backup; reading one in with its people needs all three rights.
 
-  A right is given or taken away only by someone who holds it, and one active person always holds all three. The first person, created at setup, holds all three.
+  A right is given or taken away only by someone who holds it, and one active person always holds all three. Acting on a person (a new invitation, deactivating, deleting, revoking a device) needs every right that person holds, so nobody takes over a person who holds more. The first person, created at setup, holds all three.
 - **Portal logins are stored in plain text on the service.** Every person of the circle sees the username and password of every job, copies them with one click and may change them in the job's edit form; a change applies for everybody at once. The protection is the intranet, HTTPS and access by invitation: whoever can read the service's store or a file without a password can read the logins.
 - **Agents work with a token for one role**, never with a person's access. An agent registers itself with a short introduction and receives a token without any role plus an eight-letter display string. It tells its user only the display string. A person, or a token, who manages agents then grants exactly one role under **Agents**:
 
@@ -56,14 +56,14 @@ Every job carries a GUID that identifies it on every instance and in the browser
 
 **One file format** serves the exchange and the backup: a ZIP file. Under **Exchange**:
 
-- **Export the jobs** (every person): every job with its login in plain text, its history and the deleted jobs. With a password (at least 8 characters) the file is encrypted with AES-256; without one, the application asks first, because the logins are in plain text.
+- **Export the jobs** (every person): every job with its login in plain text, its history and the deleted jobs. With a password (8 to 200 characters, letters A to Z, digits, punctuation and spaces, no umlauts, because it travels in an HTTP header) the file is encrypted with AES-256; without one, the application asks first, because the logins are in plain text.
 - **Full backup** (right to manage the backup): the jobs, and the people, invitations, devices and agent tokens with the hashes of their credentials.
 - **Read a file in**: from this instance, another one or the browser extension. First a preview shows every job of the file in one of three groups:
   - **taken over, because new:** not known here; it comes with its runs;
   - **taken over, because the same:** known with equal fields; runs not known here are added, and the due date follows the newest run;
   - **please decide:** known with differing fields, each shown with both values and when it changed, the newer one preselected (for the due date, the nearer one, when no newer run decides it); or deleted here (bring it back, or leave it out); or a job with a new address that replaces one here (replace it and keep its history, keep both, or leave it out).
 
-  Nothing is read in until you confirm, no run is ever lost, and the same file read in twice asks again only where it still differs. With the right to manage people and the backup, a full backup can bring its people, devices and tokens in beside the existing ones; a person with the name or e-mail of one here comes in with "(Import YYYY-MM-DD)" after the name.
+  Nothing is read in until you confirm, no run is ever lost, and the same file read in twice asks again only where it still differs. With all three rights, a full backup can bring its people, devices and tokens in beside the existing ones; a person with the name or e-mail of one here comes in with "(Import YYYY-MM-DD)" after the name.
 
 A script fetches the full backup with a token for `backup.read`:
 
@@ -162,7 +162,8 @@ On a Mac with Apple silicon every runtime takes the `arm64` image, with no emula
 
 - **Backup with `curl`:** as described under [Exchange and backup](#exchange-and-backup). A machine that does not trust the image's authority adds `--cacert ca.crt`, with the authority from `https://<SITE>/ca.crt`; it stays the same across renewals. Or write the backup inside the container, copy it out and delete it there: `docker exec portal-download portal-download backup /data/backup.zip`, `docker cp portal-download:/data/backup.zip .`, `docker exec portal-download rm /data/backup.zip`.
 - **Tags:** without a tag the image is `latest`, the last release. A tag `X.Y` such as `0.8` follows the fixes of one minor version, `X.Y.Z` such as `0.8.0` stays put, `edge` follows the main branch.
-- **Upgrading:** take a backup first, because a store written by a newer version is refused by an older one. Then `docker pull ghcr.io/schlingensiepen/portal-download`, `docker stop portal-download`, `docker rm portal-download`, and the same `docker run` as at first start, with all its options. The volume keeps everything. Version 0.8 reads no store and no backup of 0.7: it starts empty. Move the old store away (`docker exec portal-download mv /data/portal-download /data/portal-download-0.7` in the old container, or start on a new volume) and import the logins anew.
+- **Upgrading:** take a backup first, because a store written by a newer version is refused by an older one. Then `docker pull ghcr.io/schlingensiepen/portal-download`, `docker stop portal-download`, `docker rm portal-download`, and the same `docker run` as at first start, with all its options. The volume keeps everything.
+- **From 0.7 to 0.8:** version 0.8 reads no store and no backup of 0.7; it starts empty. Start it on a new volume, `-v portal-download-0.8:/data` in the `docker run` above, and keep the old volume until everything is moved; with the old volume the new container refuses to start and names the store files. The logins come in again with **Import logins (Firefox CSV)**, or copy them from the old instance while it still runs. The new image creates its own certificate authority, so the browsers ask once more until the authority is imported.
 - **A certificate of your own** (from an intranet CA, for example): copy it in as the image's user, then restart:
 
   ```sh

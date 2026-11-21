@@ -465,7 +465,7 @@ impl Store {
             SCHEMA_VERSION => {}
             1 | 2 => {
                 return Err(OpError::internal(format!(
-                    "{} was written by portal-download 0.7 (structure version {v}). This version starts with an empty store and reads no older data: stop the service, move the file away and start again; then import the logins anew.",
+                    "{} was written by portal-download 0.7 (structure version {v}). This version starts with an empty store and reads no older data: stop the service, move portal-download.sqlite and its -wal and -shm files out of the state directory (or start on an empty one), start again and import the logins anew.",
                     file.display()
                 )))
             }
@@ -1100,7 +1100,7 @@ pub(crate) mod tests {
         c.execute_batch("CREATE TABLE users(id INTEGER PRIMARY KEY); PRAGMA user_version = 2;").unwrap();
         drop(c);
         let e = Store::open(d.path()).err().unwrap();
-        assert!(e.message.contains("0.7") && e.message.contains("move the file away"), "{}", e.message);
+        assert!(e.message.contains("0.7") && e.message.contains("-wal and -shm"), "{}", e.message);
     }
 
     #[test]

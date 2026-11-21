@@ -338,7 +338,7 @@ async fn backup(State(st): State<Arc<AppState>>, ConnectInfo(peer): ConnectInfo<
     // site navigating here would otherwise drop the backup into the Downloads folder.
     let fetch_site = h.get("sec-fetch-site").and_then(|v| v.to_str().ok());
     if cookie_value(&h, COOKIE).is_some() && fetch_site.is_some_and(|s| s != "same-origin") {
-        return text_error(&OpError::forbidden("Start the download from the application's own button under Personen, or use an agent token with curl."));
+        return text_error(&OpError::forbidden("Start the download from the application's own button under Exchange, or use an agent token with curl."));
     }
     let principal = match authenticate(&store, &h, &user_agent, &address) {
         Some(Ok(p)) => p,
