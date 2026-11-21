@@ -153,7 +153,8 @@ input.invalid { border-color: var(--bad); outline: 1px solid var(--bad); }
   <span data-msg="toast.popup_blocked" data-i18n="toast.popup_blocked">The new tab was blocked. Allow pop-ups for this page and click “Open the portal” again.</span>
   <span data-msg="toast.popup_redirect" data-i18n="toast.popup_redirect">The portal could not be loaded in the new tab; close it and click “Open the portal” again.</span>
   <span data-msg="toast.choose_file" data-i18n="toast.choose_file">Choose a file first.</span>
-  <span data-msg="toast.password_short" data-i18n="toast.password_short">A password for the file needs at least 8 characters.</span>
+  <span data-msg="toast.password_short" data-i18n="toast.password_short">A password for the file needs 8 to 200 characters: letters A to Z, digits, punctuation and spaces, no umlauts.</span>
+  <span data-msg="toast.not_encrypted" data-i18n="toast.not_encrypted">The service did not encrypt the file; nothing was saved.</span>
   <span data-msg="toast.imported" data-i18n="toast.imported">Read in – added: <span data-field="added"></span>, updated: <span data-field="updated"></span>, reactivated: <span data-field="reactivated"></span>, replaced: <span data-field="replaced"></span>, left out: <span data-field="skipped"></span>, runs added: <span data-field="runs"></span>.</span>
   <span data-msg="toast.imported_people" data-i18n="toast.imported_people">People added: <span data-field="people"></span>, devices: <span data-field="devices"></span>, tokens: <span data-field="agents"></span>. Already there, added with “(Import …)”: <span data-field="renamed"></span>.</span>
   <span data-msg="confirm.finish.succeeded" data-i18n="confirm.finish.succeeded">Close “<span data-field="title"></span>” as “succeeded”?</span>
@@ -564,14 +565,14 @@ input.invalid { border-color: var(--bad); outline: 1px solid var(--bad); }
   <div class="card">
     <h3 data-i18n="exchange.export.title">Export the jobs</h3>
     <p class="small" style="margin-top:4px" data-i18n="exchange.export.hint">The file holds every job with its login in plain text, its history and the deleted jobs. The browser extension and every instance of Portal-Download read it in.</p>
-    <label data-i18n="exchange.password">Password for the file (optional, at least 8 characters; it encrypts the file with AES-256)</label>
+    <label data-i18n="exchange.password">Password for the file (optional, 8 to 200 characters without umlauts; it encrypts the file with AES-256)</label>
     <input type="text" autocomplete="off" spellcheck="false" autocapitalize="off" autocorrect="off" data-ref="export-password">
     <div style="margin-top:10px"><button class="btn primary" type="button" data-action="export-jobs" data-i18n="exchange.export.button">Download the jobs</button></div>
   </div>
   <div class="card" data-ref="backup">
     <h3 data-i18n="exchange.backup.title">Full backup</h3>
     <p class="small" style="margin-top:4px" data-i18n="exchange.backup.hint">Everything: the jobs with their logins in plain text, and the people, devices and agent tokens. A script fetches it with a token for “Take the backup”, created under Agents.</p>
-    <label data-i18n="exchange.password">Password for the file (optional, at least 8 characters; it encrypts the file with AES-256)</label>
+    <label data-i18n="exchange.password">Password for the file (optional, 8 to 200 characters without umlauts; it encrypts the file with AES-256)</label>
     <input type="text" autocomplete="off" spellcheck="false" autocapitalize="off" autocorrect="off" data-ref="backup-password">
     <div style="margin-top:10px"><button class="btn" type="button" data-action="export-backup" data-i18n="exchange.backup.button">Download the full backup</button></div>
   </div>
@@ -857,7 +858,8 @@ async function base64OfFile(file) {
 /** The password for a file from a text field: empty means none, a short one is refused. */
 function filePassword(input) {
   const pw = input.value;
-  if (pw && [...pw].length < 8) { toast(msg("toast.password_short"), true); return null; }
+  // It travels in an HTTP header, which carries visible ASCII only.
+  if (pw && (pw.length < 8 || pw.length > 200 || !/^[\x20-\x7e]+$/.test(pw))) { toast(msg("toast.password_short"), true); return null; }
   return pw;
 }
 const pwHeader = (pw) => pw ? { "X-Backup-Password": pw } : {};
@@ -1345,10 +1347,12 @@ function viewExchange() {
   return bind(d, {
     "export-jobs": () => download(ref(d, "export-password"), async (pw) => {
       const r = await rpc("job.export", {}, pwHeader(pw));
+      if (r.encrypted !== !!pw) { toast(msg("toast.not_encrypted"), true); return; }
       saveFile(new Blob([bytesOfBase64(r.zip_base64)], { type: "application/zip" }), r.file_name);
     }),
     "export-backup": () => download(ref(d, "backup-password"), async (pw) => {
       const r = await rpc("backup.export", {}, pwHeader(pw));
+      if (r.encrypted !== !!pw) { toast(msg("toast.not_encrypted"), true); return; }
       saveFile(new Blob([bytesOfBase64(r.zip_base64)], { type: "application/zip" }), r.file_name);
     }),
     preview: async () => {
