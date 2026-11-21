@@ -16,6 +16,10 @@ the browser extension. Each file is one scenario.
 - `password` is sent as the header `X-Backup-Password` with the call.
 - `expect` is matched against the result: every key of an object must be there with a
   matching value, and an array must have exactly as many entries, each matching. `"$any"`
-  matches every value.
+  matches every value, `"$uuid"` a GUID in the form of a version 4 UUID.
 - `error` instead of `expect` names the `error.data.type` the call must fail with.
 - `save` stores values of the result under a name, each given as a JSON pointer.
+
+Times are compared in whole seconds. A run sets the due date at its own time, so a run
+counts as not older than a date changed in the same second; the scenarios rely on that and
+otherwise never on how fast their steps follow each other.

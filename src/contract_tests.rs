@@ -24,7 +24,7 @@ fn instance() -> Instance {
 /// Replaces "$name", "$today" and "$today±N" in every string of the value.
 fn substitute(v: &Value, saved: &HashMap<String, Value>) -> Value {
     match v {
-        Value::String(s) if s == "$any" => v.clone(),
+        Value::String(s) if s == "$any" || s == "$uuid" => v.clone(),
         Value::String(s) if s.starts_with("$today") => {
             let days: i64 = s["$today".len()..].trim_start_matches('+').parse().unwrap_or(0);
             Value::String((store::today() + Duration::days(days)).format("%Y-%m-%d").to_string())
@@ -47,6 +47,10 @@ fn substitute(v: &Value, saved: &HashMap<String, Value>) -> Value {
 fn matches(expected: &Value, actual: &Value, at: &str) -> Result<(), String> {
     match (expected, actual) {
         (Value::String(s), _) if s == "$any" => Ok(()),
+        (Value::String(s), a) if s == "$uuid" => {
+            let ok = a.as_str().is_some_and(|g| g.len() == 36 && g.as_bytes()[14] == b'4' && g.split('-').map(str::len).eq([8, 4, 4, 4, 12]));
+            if ok { Ok(()) } else { Err(format!("{at} is {a}, expected a GUID")) }
+        }
         (Value::Object(e), Value::Object(a)) => {
             for (k, ev) in e {
                 let av = a.get(k).ok_or_else(|| format!("{at}/{k} is missing"))?;

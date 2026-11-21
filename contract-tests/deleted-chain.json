@@ -1,0 +1,13 @@
+{
+  "name": "A job that got a new address and was deleted later does not come back as new",
+  "steps": [
+    { "on": "a", "call": "job.create", "params": { "title": "Energy", "entry_url": "https://old.example.org/", "interval_weeks": 4 }, "save": { "id": "/job_id", "old": "/guid" } },
+    { "on": "a", "call": "job.export", "params": {}, "save": { "file": "/zip_base64" } },
+    { "on": "a", "call": "job.update", "params": { "job_id": "$id", "entry_url": "https://new.example.org/" } },
+    { "on": "a", "call": "job.delete", "params": { "job_id": "$id" } },
+    { "on": "a", "call": "job.importPreview", "params": { "zip_base64": "$file" },
+      "expect": { "new": [], "same": [], "decide": [ { "guid": "$old", "case": "deleted_here", "deleted_at": "$any", "actions": [ "reactivate", "skip" ], "preselect": "skip" } ] } },
+    { "on": "a", "call": "job.import", "params": { "zip_base64": "$file", "decisions": { "$old": { "accept": "preselected" } } }, "expect": { "skipped": 1 } },
+    { "on": "a", "call": "job.list", "params": {}, "expect": { "jobs": [] } }
+  ]
+}
