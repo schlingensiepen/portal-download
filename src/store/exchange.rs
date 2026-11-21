@@ -1073,6 +1073,9 @@ mod tests {
         let bad = format!("{head}\n{{\"type\":\"job\",\"guid\":\"x\"}}\n");
         let e = s.import_preview(&a, &zip_text(&bad, None).unwrap(), None, ImportMode::Jobs).err().unwrap();
         assert!(e.kind == "file_invalid" && e.message.contains("Line 2"), "{}", e.message);
+        let other = json!({"format": "another-program", "version": VERSION, "kind": "jobs"}).to_string();
+        let e = s.import_preview(&a, &zip_text(&other, None).unwrap(), None, ImportMode::Jobs).err().unwrap();
+        assert!(e.kind == "file_invalid" && e.message.contains("Line 1"), "{}", e.message);
         let old = json!({"format": FORMAT, "version": 2, "kind": "jobs"}).to_string();
         assert_eq!(s.import_preview(&a, &zip_text(&old, None).unwrap(), None, ImportMode::Jobs).err().unwrap().kind, "file_version");
     }
