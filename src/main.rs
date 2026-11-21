@@ -10,7 +10,6 @@ mod error;
 #[cfg(test)]
 mod frontend_check;
 mod http;
-mod probe;
 mod rpc;
 mod schedule;
 mod store;

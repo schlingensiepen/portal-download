@@ -51,7 +51,7 @@ pub const METHODS: &[Method] = &[
         access: Access::Admin,
         abilities: &[],
         summary: "Grant a waiting agent token exactly one ability.",
-        description: "ability is one of jobs.read (job.list, job.get, job.history, without the logins), logins.read (job.list, job.get, job.history, with each job's username and password), jobs.write (job.create, job.update, job.delete, also setting username and password, and job.checkEmbedding, which has the service fetch an address; its answers come without the logins), jobs.complete (job.complete) or backup.read (backup.export: the whole backup, including the logins in plain text and the hashes of all accesses). The agent_id comes from agent.list; check its display string and introduction against what the agent told its user. A token's ability never changes afterwards; an agent that needs two abilities registers two tokens. This takes effect: confirm with the user first.",
+        description: "ability is one of jobs.read (job.list, job.get, job.history, without the logins), logins.read (job.list, job.get, job.history, with each job's username and password), jobs.write (job.create, job.update, job.delete, also setting username and password; its answers come without the logins), jobs.complete (job.complete) or backup.read (backup.export: the whole backup, including the logins in plain text and the hashes of all accesses). The agent_id comes from agent.list; check its display string and introduction against what the agent told its user. A token's ability never changes afterwards; an agent that needs two abilities registers two tokens. This takes effect: confirm with the user first.",
         params: r#"{"agent_id":4,"ability":"jobs.write"}"#,
         result: r#"{"agent_id":4,"display":"kluvmoth","introduction":"Agent of Ada; purpose: add new portals","state":"granted","ability":"jobs.write","granted_by":"Ada","granted_at":"2026-11-06T10:05:00Z","created_at":"2026-11-06T10:00:00Z","last_used_at":null,"revoked_at":null,"expires_at":"2027-05-05T10:05:00Z"}"#,
     },
@@ -135,15 +135,6 @@ pub const METHODS: &[Method] = &[
         description: "Devices already registered with the invitation keep working; revoke them one by one with device.revoke if needed. The invitation_id comes from user.list. This takes effect: confirm with the user first.",
         params: r#"{"invitation_id":4}"#,
         result: r#"{"invitation_id":4,"withdrawn":true}"#,
-    },
-    Method {
-        name: "job.checkEmbedding",
-        access: Access::Person,
-        abilities: &["jobs.write"],
-        summary: "Check whether a portal may be shown inside the application.",
-        description: "entry_url as for job.create. The server fetches the address, follows up to 10 redirects and reads the framing headers of the page it ends on: a frame-ancestors directive in Content-Security-Policy, otherwise X-Frame-Options. embeddable is true when nothing forbids it, false when the browser would refuse it, null when it could not be checked; finding names the reason (allowed, frame_ancestors, x_frame_options, insecure for an http address or one that ends on an http page, which an https page may not embed, status for a server error or a page that does not exist (404, 410), unreachable, busy when too many checks run at once), detail the header value or status it rests on, or http. A suggestion for the job's embeddable switch: a login page reached later may still forbid embedding. Changes nothing.",
-        params: r#"{"entry_url":"https://portal.example.org/invoices"}"#,
-        result: r#"{"entry_url":"https://portal.example.org/invoices","embeddable":false,"finding":"x_frame_options","detail":"SAMEORIGIN"}"#,
     },
     Method {
         name: "job.complete",
@@ -302,8 +293,6 @@ pub enum Effect {
     None,
     SetDeviceCredential(String),
     ClearDeviceCredential,
-    /// Check the embedding of this address, outside the store's lock; the result replaces the call's.
-    CheckEmbedding(String),
 }
 
 fn p<T: DeserializeOwned>(params: &Value) -> OpResult<T> {
@@ -319,11 +308,6 @@ struct Empty {}
 #[serde(deny_unknown_fields)]
 struct DeviceId {
     device_id: i64,
-}
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct EntryUrl {
-    entry_url: String,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -476,14 +460,6 @@ pub fn dispatch(name: &str, params: &Value, c: &Call) -> OpResult<(Value, Effect
                 "signed_in": me.is_some(),
                 "me": me,
             }))
-        }
-        "job.checkEmbedding" => {
-            let a: EntryUrl = p(params)?;
-            let u = a.entry_url.trim();
-            if !(u.starts_with("https://") || u.starts_with("http://")) || u.len() > 2000 || u.contains(char::is_whitespace) {
-                return Err(OpError::bad("entry_url_invalid", "`entry_url` must be a web address starting with https:// (or http://), without spaces. Copy it from the browser's address bar."));
-            }
-            Ok((Value::Null, Effect::CheckEmbedding(u.to_string())))
         }
         "invitation.redeem" => {
             let a: Redeem = p(params)?;
