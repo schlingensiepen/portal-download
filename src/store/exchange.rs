@@ -62,10 +62,14 @@ fn zip_text(text: &str, password: Option<&str>) -> OpResult<Vec<u8>> {
     Ok(w.finish().map_err(|e| failed(&e))?.into_inner())
 }
 
-fn check_password(password: Option<&str>) -> OpResult<()> {
+/// A password travels in a header, so it is visible ASCII: letters, digits, punctuation and spaces.
+pub fn check_password(password: Option<&str>) -> OpResult<()> {
     if let Some(pw) = password {
-        if pw.chars().count() < 8 || pw.chars().count() > 200 || pw.chars().any(char::is_control) {
-            return Err(OpError::bad("password_invalid", "The password for the file must have between 8 and 200 characters, in one line. Choose another and send again."));
+        if pw.len() < 8 || pw.len() > 200 || !pw.chars().all(|c| (' '..='~').contains(&c)) {
+            return Err(OpError::bad(
+                "password_invalid",
+                "The password for the file must have between 8 and 200 characters, only letters A to Z, digits, punctuation and spaces (no umlauts). Choose another and send again.",
+            ));
         }
     }
     Ok(())
@@ -238,23 +242,37 @@ struct File {
 fn unzip(bytes: &[u8], password: Option<&str>) -> OpResult<String> {
     let not_ours = || OpError::bad("file_invalid", "This is not a file of portal-download: it is no ZIP with the entry portal-download.jsonl. Choose a file this service or the browser extension wrote.");
     let mut a = zip::ZipArchive::new(std::io::Cursor::new(bytes)).map_err(|_| not_ours())?;
+    // Exactly the one entry; anything beside it is no file of ours.
+    if a.len() != 1 {
+        return Err(not_ours());
+    }
     let index = a.index_for_name(ENTRY).ok_or_else(not_ours)?;
     let encrypted = a.by_index_raw(index).map_err(|_| not_ours())?.encrypted();
     let mut text = String::new();
-    let mut read = |f: &mut dyn Read| -> OpResult<()> {
-        f.take(MAX_BYTES + 1).read_to_string(&mut text).map_err(|_| OpError::bad("password_wrong", "The file could not be read: the password is wrong, or the file is damaged. Enter the password it was written with."))?;
+    let mut read = |f: &mut dyn Read, encrypted: bool| -> OpResult<()> {
+        f.take(MAX_BYTES + 1).read_to_string(&mut text).map_err(|_| {
+            if encrypted {
+                OpError::bad("password_wrong", "The file could not be read: the password is wrong, or the file is damaged. Enter the password it was written with.")
+            } else {
+                OpError::bad("file_invalid", "The file is damaged or holds no text. Choose a file this service or the browser extension wrote.")
+            }
+        })?;
         Ok(())
     };
     if encrypted {
-        if a.get_aes_verification_key_and_salt(index).ok().flatten().is_none() {
-            return Err(OpError::bad("file_encryption", "The file is encrypted with the old ZIP method, which is not safe and not read here. Pack it anew with AES-256 encryption."));
+        match a.get_aes_verification_key_and_salt(index).ok().flatten() {
+            None => return Err(OpError::bad("file_encryption", "The file is encrypted with the old ZIP method, which is not safe and not read here. Pack it anew with AES-256 encryption.")),
+            Some(info) if info.aes_mode != zip::AesMode::Aes256 => {
+                return Err(OpError::bad("file_encryption", "The file is encrypted with an AES strength other than 256 bits, which is not read here. Pack it anew with AES-256."))
+            }
+            Some(_) => {}
         }
         let pw = password.ok_or_else(|| OpError::bad("password_required", "The file is encrypted. Send its password in the header X-Backup-Password."))?;
         let mut f = a.by_index_decrypt(index, pw.as_bytes()).map_err(|_| OpError::bad("password_wrong", "The password does not fit this file. Enter the password it was written with."))?;
-        read(&mut f)?;
+        read(&mut f, true)?;
     } else {
         let mut f = a.by_index(index).map_err(|_| not_ours())?;
-        read(&mut f)?;
+        read(&mut f, false)?;
     }
     if text.len() as u64 > MAX_BYTES {
         return Err(OpError::bad("file_too_large", "The file holds more than 64 MiB of text; this service reads at most that."));
@@ -270,8 +288,25 @@ fn opt(v: &Value, k: &str) -> Option<String> {
     v.get(k).and_then(Value::as_str).map(str::to_string)
 }
 
-fn ts_ok(t: &str) -> bool {
-    chrono::DateTime::parse_from_rfc3339(t).is_ok()
+/// A time from a file in the one form the store compares: UTC, whole seconds, with Z.
+fn norm_ts(t: &str) -> Option<String> {
+    chrono::DateTime::parse_from_rfc3339(t).ok().map(|d| d.with_timezone(&chrono::Utc).to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
+}
+
+/// Rewrites the time under the key in the canonical form; false when it is no time.
+fn norm_field(v: &mut Value, k: &str) -> bool {
+    match v.get(k).and_then(Value::as_str).and_then(norm_ts) {
+        Some(t) => {
+            v[k] = json!(t);
+            true
+        }
+        None => false,
+    }
+}
+
+/// Like norm_field, for a key that may be null.
+fn norm_optional(v: &mut Value, k: &str) -> bool {
+    v.get(k).is_none_or(Value::is_null) || norm_field(v, k)
 }
 
 fn guid_ok(g: &str) -> bool {
@@ -300,18 +335,27 @@ fn parse(content: &str) -> OpResult<File> {
         return Err(line_error(1, "the head names neither jobs nor full"));
     }
     let mut f = File { kind, jobs: vec![], runs: vec![], deleted: vec![], users: vec![], invitations: vec![], devices: vec![], agents: vec![] };
+    let (mut job_guids, mut run_guids) = (HashSet::new(), HashSet::new());
     for (i, line) in lines {
         let n = i + 1;
-        let v: Value = serde_json::from_str(line).map_err(|_| line_error(n, "it is no JSON"))?;
+        let mut v: Value = serde_json::from_str(line).map_err(|_| line_error(n, "it is no JSON"))?;
         match s(&v, "type") {
             "job" => {
-                if !guid_ok(s(&v, "guid")) || check_url(s(&v, "entry_url")).is_err() || !ts_ok(s(&v, "created_at")) {
+                if !guid_ok(s(&v, "guid")) || check_url(s(&v, "entry_url")).is_err() || !norm_field(&mut v, "created_at") {
                     return Err(line_error(n, "a job lacks a GUID, an entry address or its creation time"));
+                }
+                if opt(&v, "replaces").is_some_and(|g| !guid_ok(&g)) {
+                    return Err(line_error(n, "the GUID a job replaces is no GUID"));
+                }
+                if !job_guids.insert(s(&v, "guid").to_string()) {
+                    return Err(line_error(n, "a job with this GUID came earlier in the file"));
                 }
                 let input = job_input(&v);
                 validate_job(&input, true).map_err(|e| line_error(n, &e.message))?;
+                v["title"] = json!(s(&v, "title").trim());
                 for f in FIELDS {
-                    if !ts_ok(v.get("changed").and_then(|c| c.get(*f)).and_then(Value::as_str).unwrap_or("")) {
+                    let ok = v.get_mut("changed").filter(|c| c.is_object()).is_some_and(|c| norm_field(c, f));
+                    if !ok {
                         return Err(line_error(n, &format!("a job lacks the time its field {f} changed")));
                     }
                 }
@@ -321,7 +365,7 @@ fn parse(content: &str) -> OpResult<File> {
                 let ok = guid_ok(s(&v, "guid"))
                     && guid_ok(s(&v, "job_guid"))
                     && matches!(s(&v, "outcome"), "succeeded" | "failed")
-                    && ts_ok(s(&v, "finished_at"))
+                    && norm_field(&mut v, "finished_at")
                     && super::parse_date("due_before", s(&v, "due_before")).is_ok()
                     && super::parse_date("due_after", s(&v, "due_after")).is_ok()
                     && text("by", s(&v, "by"), 1, 200).is_ok()
@@ -329,20 +373,26 @@ fn parse(content: &str) -> OpResult<File> {
                 if !ok {
                     return Err(line_error(n, "a run lacks its GUID, its job, its outcome or its dates"));
                 }
+                if !run_guids.insert(s(&v, "guid").to_string()) {
+                    return Err(line_error(n, "a run with this GUID came earlier in the file"));
+                }
                 f.runs.push(v);
             }
             "deleted_job" => {
-                if !guid_ok(s(&v, "guid")) || !ts_ok(s(&v, "deleted_at")) || opt(&v, "replaced_by").is_some_and(|g| !guid_ok(&g)) {
+                if !guid_ok(s(&v, "guid")) || !norm_field(&mut v, "deleted_at") || opt(&v, "replaced_by").is_some_and(|g| !guid_ok(&g)) {
                     return Err(line_error(n, "a deleted job lacks its GUID or the time it was deleted"));
                 }
                 f.deleted.push(v);
             }
-            "user" | "invitation" | "device" | "agent" if f.kind == "full" => match s(&v, "type") {
-                "user" => f.users.push(v),
-                "invitation" => f.invitations.push(v),
-                "device" => f.devices.push(v),
-                _ => f.agents.push(v),
-            },
+            "user" | "invitation" | "device" | "agent" if f.kind == "full" => {
+                check_access_record(&mut v).map_err(|why| line_error(n, why))?;
+                match s(&v, "type") {
+                    "user" => f.users.push(v),
+                    "invitation" => f.invitations.push(v),
+                    "device" => f.devices.push(v),
+                    _ => f.agents.push(v),
+                }
+            }
             t => return Err(line_error(n, &format!("the record type \"{t}\" is not known here"))),
         }
     }
@@ -351,6 +401,41 @@ fn parse(content: &str) -> OpResult<File> {
         return Err(OpError::bad("file_invalid", format!("A run in the file belongs to job {}, which the file does not hold. Nothing was read in.", s(r, "job_guid"))));
     }
     Ok(f)
+}
+
+/// Checks a record of people and accesses as API input would be checked, and puts its times
+/// in the canonical form.
+fn check_access_record(v: &mut Value) -> Result<(), &'static str> {
+    let hash_ok = |h: &str| h.len() == 64 && h.chars().all(|c| c.is_ascii_hexdigit());
+    let len = |v: &Value, k: &str, min: usize, max: usize| text(k, s(v, k), min, max).is_ok();
+    match s(v, "type") {
+        "user" => {
+            let rights_ok = v.get("rights").is_some_and(|r| serde_json::from_value::<Rights>(r.clone()).is_ok());
+            if !len(v, "name", 1, 120) || !len(v, "email", 0, 200) || !rights_ok || !norm_field(v, "created_at") || !norm_optional(v, "deactivated_at") || !len(v, "created_by", 0, 200) {
+                return Err("a person lacks a name, valid rights or the time they were created");
+            }
+        }
+        "invitation" => {
+            if !hash_ok(s(v, "token_hash")) || !norm_field(v, "created_at") || !norm_field(v, "expires_at") || !norm_optional(v, "withdrawn_at") || !norm_optional(v, "redeemed_at") {
+                return Err("an invitation lacks its hash or its times");
+            }
+        }
+        "device" => {
+            let kind_ok = matches!(s(v, "kind"), "browser" | "extension");
+            if !kind_ok || !hash_ok(s(v, "credential_hash")) || !len(v, "label", 1, 80) || !norm_field(v, "created_at") || !norm_field(v, "last_seen_at") || !norm_optional(v, "revoked_at") {
+                return Err("a device lacks its kind, its hash, its name or its times");
+            }
+        }
+        _ => {
+            let display_ok = s(v, "display").len() == 8 && s(v, "display").chars().all(|c| c.is_ascii_lowercase());
+            let role_ok = opt(v, "role").is_none_or(|r| super::Role::parse(&r).is_ok());
+            let reach_ok = s(v, "reach").split(',').filter(|r| !r.is_empty()).all(|r| super::Role::parse(r).is_ok());
+            if !hash_ok(s(v, "token_hash")) || !display_ok || !len(v, "introduction", 10, 500) || !role_ok || !reach_ok || !norm_field(v, "created_at") || !norm_optional(v, "granted_at") || !norm_optional(v, "last_used_at") || !norm_optional(v, "revoked_at") {
+                return Err("an agent token lacks its hash, its display string, its introduction, a known role or its times");
+            }
+        }
+    }
+    Ok(())
 }
 
 fn job_input(v: &Value) -> JobInput {
@@ -406,8 +491,8 @@ struct Item {
     new_runs: Vec<Value>,
     /// Field differences: (field, local, incoming, local_at, incoming_at, preselect).
     diffs: Vec<(String, Value, Value, String, String, &'static str)>,
-    /// The due date that follows from a run newer than both dates, if any.
-    due_from_run: Option<String>,
+    /// The due date that follows from a run newer than both dates, with that run's time.
+    due_from_run: Option<(String, String)>,
 }
 
 impl Item {
@@ -432,7 +517,13 @@ impl Item {
 
 /// Compares two sides field by field; the due date follows the newest run when it is newer
 /// than both dates, otherwise the nearer date is preselected.
-fn compare(local: &Stored, record: &Value, newest: &Newest) -> (Vec<(String, Value, Value, String, String, &'static str)>, Option<String>) {
+type Diff = (String, Value, Value, String, String, &'static str);
+
+/// Compares two sides field by field; the due date follows the newest run when it is not
+/// older than both dates (a run sets the date at its own time), otherwise the nearer date is
+/// preselected. For a caller who does not see the logins, both login fields are always
+/// listed, so that the list does not tell whether a guessed login matches.
+fn compare(local: &Stored, record: &Value, newest: &Newest, hide_logins: bool) -> (Vec<Diff>, Option<(String, String)>) {
     let mut diffs = vec![];
     let mut due_from_run = None;
     for f in FIELDS {
@@ -442,7 +533,7 @@ fn compare(local: &Stored, record: &Value, newest: &Newest) -> (Vec<(String, Val
             if let Some((run_at, due_after)) = newest {
                 if *run_at >= lt && *run_at >= it {
                     if *due_after != local.next_due {
-                        due_from_run = Some(due_after.clone());
+                        due_from_run = Some((due_after.clone(), run_at.clone()));
                     }
                     continue;
                 }
@@ -453,33 +544,38 @@ fn compare(local: &Stored, record: &Value, newest: &Newest) -> (Vec<(String, Val
             }
             continue;
         }
+        let login = *f == "username" || *f == "password";
         if lv != iv {
             diffs.push((f.to_string(), lv, iv, lt.clone(), it.clone(), if it > lt { "incoming" } else { "local" }));
+        } else if hide_logins && login {
+            diffs.push((f.to_string(), lv, iv, lt, it, "local"));
         }
     }
     (diffs, due_from_run)
 }
 
-/// What a decision for one GUID says.
-#[derive(Debug)]
-enum Choice {
-    Preselected,
-    Fields(HashMap<String, bool>),
-    Action(String),
+/// What a decision for one GUID says: the preselection as a whole, a side per field, an
+/// action, or an action together with a side per field (replacing a job and its fields).
+#[derive(Debug, Default)]
+struct Choice {
+    preselected: bool,
+    fields: Option<HashMap<String, bool>>,
+    action: Option<String>,
 }
 
 fn parse_decisions(v: &Value) -> OpResult<HashMap<String, Choice>> {
-    let bad = |why: String| OpError::bad("decision_invalid", format!("{why} Send for each GUID of the group decide {{\"accept\":\"preselected\"}}, or \"local\" or \"incoming\" for every field the preview lists, as {{\"fields\":{{\"password\":\"incoming\"}}}}, or one of the actions it lists, as {{\"action\":\"replace\"}}."));
+    let bad = |why: String| OpError::bad("decision_invalid", format!("{why} Send for each GUID of the group decide {{\"accept\":\"preselected\"}}, or \"local\" or \"incoming\" for every field the preview lists, as {{\"fields\":{{\"password\":\"incoming\"}}}}, and one of the actions it lists, as {{\"action\":\"replace\"}}."));
     let mut out = HashMap::new();
     let Some(map) = v.as_object() else {
         return if v.is_null() { Ok(out) } else { Err(bad("`decisions` must be an object keyed by GUID.".into())) };
     };
     for (guid, d) in map {
-        let c = if d.get("accept").and_then(Value::as_str) == Some("preselected") {
-            Choice::Preselected
-        } else if let Some(a) = d.get("action").and_then(Value::as_str) {
-            Choice::Action(a.to_string())
-        } else if let Some(fs) = d.get("fields").and_then(Value::as_object) {
+        let mut c = Choice { preselected: d.get("accept").and_then(Value::as_str) == Some("preselected"), ..Choice::default() };
+        if let Some(a) = d.get("action") {
+            c.action = Some(a.as_str().ok_or_else(|| bad(format!("The action for {guid} is no text.")))?.to_string());
+        }
+        if let Some(fs) = d.get("fields") {
+            let fs = fs.as_object().ok_or_else(|| bad(format!("The fields for {guid} are no object.")))?;
             let mut m = HashMap::new();
             for (f, side) in fs {
                 match side.as_str() {
@@ -488,10 +584,11 @@ fn parse_decisions(v: &Value) -> OpResult<HashMap<String, Choice>> {
                     _ => return Err(bad(format!("The side for field {f} of {guid} is neither local nor incoming."))),
                 };
             }
-            Choice::Fields(m)
-        } else {
+            c.fields = Some(m);
+        }
+        if !c.preselected && c.action.is_none() && c.fields.is_none() {
             return Err(bad(format!("The decision for {guid} names nothing to do.")));
-        };
+        }
         out.insert(guid.clone(), c);
     }
     Ok(out)
@@ -514,6 +611,19 @@ impl Store {
 
     fn deleted_here(&self, guid: &str) -> OpResult<Option<(String, Option<String>)>> {
         Ok(self.conn.query_row("SELECT deleted_at, replaced_by FROM deleted_jobs WHERE guid = ?1", [guid], |r| Ok((r.get(0)?, r.get(1)?))).optional()?)
+    }
+
+    /// When a chain of replacements from this GUID ends in a deleted job, when that was deleted.
+    fn deleted_at_chain_end(&self, guid: &str) -> OpResult<Option<String>> {
+        let mut g = guid.to_string();
+        for _ in 0..50 {
+            match self.deleted_here(&g)? {
+                Some((at, None)) => return Ok(Some(at)),
+                Some((_, Some(next))) if self.stored_by_guid(&next)?.is_none() => g = next,
+                _ => return Ok(None),
+            }
+        }
+        Ok(None)
     }
 
     /// The job here that a chain of replacements leads to from this GUID, if any.
@@ -540,7 +650,7 @@ impl Store {
     }
 
     /// Sorts every job of the file into new, same or decide.
-    fn plan(&self, f: &File) -> OpResult<Vec<Item>> {
+    fn plan(&self, f: &File, hide_logins: bool) -> OpResult<Vec<Item>> {
         let mut runs_of: HashMap<&str, Vec<&Value>> = HashMap::new();
         for r in &f.runs {
             runs_of.entry(s(r, "job_guid")).or_default().push(r);
@@ -552,7 +662,7 @@ impl Store {
                 Case::Known { target: j, via_old_guid: false }
             } else if let Some(j) = self.successor(guid)? {
                 Case::Known { target: j, via_old_guid: true }
-            } else if let Some((deleted_at, None)) = self.deleted_here(guid)? {
+            } else if let Some(deleted_at) = self.deleted_at_chain_end(guid)? {
                 Case::DeletedHere { deleted_at }
             } else if let Some(j) = match opt(rec, "replaces") {
                 Some(old) => match self.stored_by_guid(&old)? {
@@ -580,7 +690,7 @@ impl Store {
                             newest = Some(cand);
                         }
                     }
-                    compare(target, rec, &newest)
+                    compare(target, rec, &newest, hide_logins)
                 }
                 _ => (vec![], None),
             };
@@ -617,7 +727,7 @@ impl Store {
                 }
                 Case::New => {}
             }
-            if let Some(d) = &it.due_from_run {
+            if let Some((d, _)) = &it.due_from_run {
                 v["next_due_from_run"] = json!(d);
             }
             if !it.diffs.is_empty() {
@@ -644,7 +754,7 @@ impl Store {
     pub fn import_preview(&self, p: &Principal, bytes: &[u8], password: Option<&str>, mode: ImportMode) -> OpResult<Value> {
         self.require_import(p, mode)?;
         let f = parse(&unzip(bytes, password)?)?;
-        let items = self.plan(&f)?;
+        let items = self.plan(&f, !p.sees_logins())?;
         Ok(self.preview_json(p, &f, &items))
     }
 
@@ -664,7 +774,7 @@ impl Store {
             return Err(OpError::bad("file_kind", "This file holds jobs only, no people. Read it in under the exchange of jobs."));
         }
         let decisions = parse_decisions(decisions)?;
-        let items = self.plan(&f)?;
+        let items = self.plan(&f, !p.sees_logins())?;
         let missing: Vec<&str> = items.iter().filter(|i| i.group() == "decide" && !decisions.contains_key(i.guid())).map(Item::guid).collect();
         if !missing.is_empty() {
             return Err(OpError::bad(
@@ -677,20 +787,26 @@ impl Store {
         let bump = |done: &mut Value, k: &str, n: usize| done[k] = json!(done[k].as_u64().unwrap_or(0) + n as u64);
         for it in &items {
             let choice = decisions.get(it.guid());
+            // A side per field, unless the whole preselection was accepted; a job of the group
+            // same has no decision and no differences.
             let take = |field: &str, pre: &'static str| -> OpResult<bool> {
                 match choice {
-                    None | Some(Choice::Preselected) => Ok(pre == "incoming"),
-                    Some(Choice::Fields(m)) => m.get(field).copied().ok_or_else(|| {
+                    Some(Choice { fields: Some(m), .. }) => m.get(field).copied().ok_or_else(|| {
                         OpError::bad("decision_missing", format!("The decision for {} names no side for its field {field}. Nothing was read in.", it.guid()))
                     }),
-                    Some(Choice::Action(_)) => Ok(pre == "incoming"),
+                    Some(Choice { preselected: true, .. }) | None => Ok(pre == "incoming"),
+                    Some(_) => Err(OpError::bad(
+                        "decision_missing",
+                        format!("The decision for {} names no side for its field {field}; send fields with a side for each field the preview lists. Nothing was read in.", it.guid()),
+                    )),
                 }
             };
             let action = |offered: &[&str], pre: &str| -> OpResult<String> {
-                match choice {
-                    Some(Choice::Action(a)) if offered.contains(&a.as_str()) => Ok(a.clone()),
-                    Some(Choice::Action(a)) => Err(OpError::bad("decision_invalid", format!("\"{a}\" is not offered for {}; the preview offers {}. Nothing was read in.", it.guid(), offered.join(", ")))),
-                    _ => Ok(pre.to_string()),
+                match choice.and_then(|c| c.action.as_deref()) {
+                    Some(a) if offered.contains(&a) => Ok(a.to_string()),
+                    Some(a) => Err(OpError::bad("decision_invalid", format!("\"{a}\" is not offered for {}; the preview offers {}. Nothing was read in.", it.guid(), offered.join(", ")))),
+                    None if choice.is_some_and(|c| c.preselected) => Ok(pre.to_string()),
+                    None => Err(OpError::bad("decision_missing", format!("The decision for {} names no action; the preview offers {}. Nothing was read in.", it.guid(), offered.join(", ")))),
                 }
             };
             match &it.case {
@@ -708,8 +824,8 @@ impl Store {
                         }
                     }
                     bump(&mut done, "runs_added", insert_runs(&tx, target.id, &it.new_runs)?);
-                    if let Some(d) = &it.due_from_run {
-                        tx.execute("UPDATE jobs SET next_due = ?1, next_due_at = ?2 WHERE id = ?3", params![d, now(), target.id])?;
+                    if let Some((d, run_at)) = &it.due_from_run {
+                        tx.execute("UPDATE jobs SET next_due = ?1, next_due_at = ?2 WHERE id = ?3", params![d, run_at, target.id])?;
                         changed = true;
                     }
                     bump(&mut done, if changed || !it.new_runs.is_empty() { "updated" } else { "unchanged" }, 1);
@@ -741,8 +857,8 @@ impl Store {
                             }
                         }
                         bump(&mut done, "runs_added", insert_runs(&tx, target.id, &it.new_runs)?);
-                        if let Some(d) = &it.due_from_run {
-                            tx.execute("UPDATE jobs SET next_due = ?1, next_due_at = ?2 WHERE id = ?3", params![d, now(), target.id])?;
+                        if let Some((d, run_at)) = &it.due_from_run {
+                            tx.execute("UPDATE jobs SET next_due = ?1, next_due_at = ?2 WHERE id = ?3", params![d, run_at, target.id])?;
                         }
                         bump(&mut done, "replaced", 1);
                     }
@@ -1078,6 +1194,121 @@ mod tests {
         assert!(e.kind == "file_invalid" && e.message.contains("Line 1"), "{}", e.message);
         let old = json!({"format": FORMAT, "version": 2, "kind": "jobs"}).to_string();
         assert_eq!(s.import_preview(&a, &zip_text(&old, None).unwrap(), None, ImportMode::Jobs).err().unwrap().kind, "file_version");
+    }
+
+    /// A file with lines of our own, for the checks of reading a file in.
+    fn file_of(lines: &[Value]) -> Vec<u8> {
+        let mut t = json!({"format": FORMAT, "version": VERSION, "kind": "jobs"}).to_string();
+        for l in lines {
+            t.push('\n');
+            t.push_str(&l.to_string());
+        }
+        zip_text(&t, None).unwrap()
+    }
+
+    fn job_line(guid: &str, title: &str, at: &str) -> Value {
+        let changed: serde_json::Map<String, Value> = FIELDS.iter().map(|f| (f.to_string(), json!(at))).collect();
+        json!({"type": "job", "guid": guid, "replaces": null, "title": title, "entry_url": "https://a.example/", "interval_weeks": 4, "retry_days": 2,
+               "next_due": "2026-11-06", "username": "", "password": "pw", "instructions_md": "", "created_at": at, "changed": changed})
+    }
+
+    #[test]
+    fn a_job_replaced_and_then_deleted_here_is_not_new() {
+        let (a, pa, b, pb) = pair();
+        let id = job(&a, &pa, "Energy", "https://old.example/");
+        let old_file = a.job_export(&pa, None).unwrap();
+        a.job_update(&pa, id, JobInput { entry_url: Some("https://new.example/".into()), ..Default::default() }, d("2026-11-06")).unwrap();
+        a.job_delete(&pa, id).unwrap();
+        let pre = a.import_preview(&pa, &old_file, None, ImportMode::Jobs).unwrap();
+        assert_eq!(groups(&pre), (0, 0, 1));
+        assert_eq!(pre["decide"][0]["case"], "deleted_here");
+        let _ = (b, pb);
+    }
+
+    #[test]
+    fn replacing_takes_a_side_for_every_differing_field() {
+        let (a, pa, b, pb) = pair();
+        let id = job(&a, &pa, "Energy", "https://old.example/");
+        b.import_apply(&pb, &a.job_export(&pa, None).unwrap(), None, ImportMode::Jobs, &json!({}), d("2026-11-06")).unwrap();
+        let bid = b.job_list(&pb, d("2026-11-06")).unwrap()["jobs"][0]["job_id"].as_i64().unwrap();
+        b.job_update(&pb, bid, JobInput { entry_url: Some("https://new.example/".into()), ..Default::default() }, d("2026-11-06")).unwrap();
+        b.conn.execute("UPDATE jobs SET password = 'theirs', password_at = '2099-01-01T00:00:00Z' WHERE id = ?1", [bid]).unwrap();
+        let file = b.job_export(&pb, None).unwrap();
+        let pre = a.import_preview(&pa, &file, None, ImportMode::Jobs).unwrap();
+        let item = &pre["decide"][0];
+        assert_eq!((item["case"].as_str(), item["fields"][0]["field"].as_str()), (Some("replaces"), Some("password")));
+        let guid = item["guid"].as_str().unwrap();
+        // An action alone does not take over a field the user did not see.
+        assert_eq!(a.import_apply(&pa, &file, None, ImportMode::Jobs, &json!({ guid: {"action": "replace"} }), d("2026-11-06")).err().unwrap().kind, "decision_missing");
+        a.import_apply(&pa, &file, None, ImportMode::Jobs, &json!({ guid: {"action": "replace", "fields": {"password": "local"}} }), d("2026-11-06")).unwrap();
+        let j = a.job_get(&pa, id, d("2026-11-06")).unwrap();
+        assert_eq!((j["password"].as_str(), j["entry_url"].as_str()), (Some("pw"), Some("https://new.example/")));
+    }
+
+    #[test]
+    fn times_in_a_file_are_compared_as_instants() {
+        let s = Store::open_in_memory().unwrap();
+        let a = admin(&s);
+        let g = "0b6f3c1e-5d2a-4c8e-9f10-2a3b4c5d6e7f";
+        s.import_apply(&a, &file_of(&[job_line(g, "Energy", "2026-11-06T12:00:00Z")]), None, ImportMode::Jobs, &json!({}), d("2026-11-06")).unwrap();
+        // 13:30 at +02:00 is 11:30 UTC: older than the 12:00 here, although it sorts later as text.
+        let mut older = job_line(g, "Energy invoice", "2026-11-06T13:30:00+02:00");
+        older["changed"]["title"] = json!("2026-11-06T13:30:00+02:00");
+        let pre = s.import_preview(&a, &file_of(&[older]), None, ImportMode::Jobs).unwrap();
+        let f = &pre["decide"][0]["fields"][0];
+        assert_eq!((f["field"].as_str(), f["preselect"].as_str(), f["incoming_changed_at"].as_str()), (Some("title"), Some("local"), Some("2026-11-06T11:30:00Z")));
+    }
+
+    #[test]
+    fn a_guid_twice_in_a_file_is_refused_with_its_line() {
+        let s = Store::open_in_memory().unwrap();
+        let a = admin(&s);
+        let g = "0b6f3c1e-5d2a-4c8e-9f10-2a3b4c5d6e7f";
+        let e = s.import_preview(&a, &file_of(&[job_line(g, "A", "2026-11-06T12:00:00Z"), job_line(g, "B", "2026-11-06T12:00:00Z")]), None, ImportMode::Jobs).err().unwrap();
+        assert!(e.kind == "file_invalid" && e.message.contains("Line 3"), "{}", e.message);
+    }
+
+    #[test]
+    fn the_preview_tells_a_manager_nothing_about_a_guessed_login() {
+        let (a, pa, b, pb) = pair();
+        job(&a, &pa, "Energy", "https://energy.example/");
+        let file = a.job_export(&pa, None).unwrap();
+        b.import_apply(&pb, &file, None, ImportMode::Jobs, &json!({}), d("2026-11-06")).unwrap();
+        let manage = agent(&b, &pb, Some("jobs.manage"));
+        let pre = b.import_preview(&manage, &file, None, ImportMode::Jobs).unwrap();
+        let fields: Vec<&str> = pre["decide"][0]["fields"].as_array().unwrap().iter().map(|f| f["field"].as_str().unwrap()).collect();
+        assert_eq!(fields, ["username", "password"], "equal logins are listed like differing ones");
+        assert_eq!(b.import_preview(&pb, &file, None, ImportMode::Jobs).unwrap()["same"].as_array().unwrap().len(), 1, "a person sees them equal");
+    }
+
+    #[test]
+    fn people_are_read_in_only_with_all_three_rights_and_valid_records() {
+        let (a, pa, b, pb) = pair();
+        let full = a.backup_export(&pa, None).unwrap();
+        let two = person(&b, &pb, "Bea", Rights { people: true, backup: true, ..Rights::default() });
+        assert_eq!(b.import_preview(&two, &full, None, ImportMode::Full).err().unwrap().kind, "right_missing");
+        let text = unzip(&full, None).unwrap().replace("\"role\":null", "\"role\":\"root\"");
+        let head_and_agent = format!("{}\n{}\n", json!({"format": FORMAT, "version": VERSION, "kind": "full"}),
+            json!({"type":"agent","token_hash":"a".repeat(64),"display":"abcdefgh","introduction":"Agent of nobody","role":"root","reach":"","granted_by":null,"granted_at":null,"created_at":"2026-11-06T10:00:00Z","last_used_at":null,"revoked_at":null}));
+        let e = b.import_preview(&pb, &zip_text(&head_and_agent, None).unwrap(), None, ImportMode::Full).err().unwrap();
+        assert!(e.kind == "file_invalid" && e.message.contains("Line 2"), "{}", e.message);
+        let _ = text;
+    }
+
+    #[test]
+    fn a_password_is_visible_ascii_and_a_file_has_one_entry() {
+        let s = Store::open_in_memory().unwrap();
+        let a = admin(&s);
+        assert_eq!(s.job_export(&a, Some("Pässwort123")).err().unwrap().kind, "password_invalid");
+        assert!(s.job_export(&a, Some("Passwort 123!")).is_ok());
+        let mut w = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        let opts = zip::write::SimpleFileOptions::default();
+        w.start_file(ENTRY, opts).unwrap();
+        w.write_all(json!({"format": FORMAT, "version": VERSION, "kind": "jobs"}).to_string().as_bytes()).unwrap();
+        w.start_file("other.txt", opts).unwrap();
+        w.write_all(b"x").unwrap();
+        let two = w.finish().unwrap().into_inner();
+        assert_eq!(s.import_preview(&a, &two, None, ImportMode::Jobs).err().unwrap().kind, "file_invalid");
     }
 
     #[test]

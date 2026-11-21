@@ -753,7 +753,7 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         let store = Store::open_in_memory().unwrap();
         let kind = |pr: Principal, name: &str, params: Value| dispatch(name, &params, &call(&store, d.path(), Some(pr))).err().map(|e| e.kind);
-        let agent = |role: Option<Role>| Principal::Agent { agent_id: 1, display: "kluvmoth".into(), role, reach: vec![] };
+        let agent = |role: Option<Role>| Principal::Agent { agent_id: 1, display: "kluvmoth".into(), role, reach: vec![], granted_by: None };
         assert_eq!(kind(agent(None), "job.get", json!({"job_id": 99999})), Some("agent_pending"));
         assert_eq!(kind(agent(None), "device.revoke", json!({"device_id": 99999})), Some("agent_pending"));
         assert_eq!(kind(agent(Some(Role::BackupRead)), "job.get", json!({"job_id": 99999})), Some("right_missing"));

@@ -149,7 +149,7 @@ impl Cap {
     pub fn right(self) -> Option<&'static str> {
         match self {
             Cap::BackupRead => Some("backup"),
-            Cap::BackupImport => Some("backup and people"),
+            Cap::BackupImport => Some("people, agents and the backup"),
             Cap::ManagePeople => Some("people"),
             Cap::ManageAgents => Some("agents"),
             _ => None,
@@ -163,7 +163,7 @@ pub enum Principal {
     Device { device_id: i64, user_id: i64, rights: Rights, name: String },
     /// An agent token; `role` is None until it is granted one. `reach` holds the roles an
     /// agent with agents.manage may grant.
-    Agent { agent_id: i64, display: String, role: Option<Role>, reach: Vec<Role> },
+    Agent { agent_id: i64, display: String, role: Option<Role>, reach: Vec<Role>, granted_by: Option<String> },
 }
 
 impl Principal {
@@ -180,7 +180,7 @@ impl Principal {
         match self {
             Principal::Device { rights, .. } => match cap {
                 Cap::BackupRead => rights.backup,
-                Cap::BackupImport => rights.backup && rights.people,
+                Cap::BackupImport => *rights == Rights::ALL,
                 Cap::ManagePeople => rights.people,
                 Cap::ManageAgents => rights.agents,
                 _ => true,
@@ -212,7 +212,7 @@ impl Principal {
             Principal::Agent { display, role: None, .. } => OpError::new(
                 403,
                 "agent_pending",
-                format!("This agent token has no role yet. Tell the user its display string {display} and ask them to have a person who manages agents grant it {} in the application under Agenten.", if roles.is_empty() { "a role" } else { &roles }),
+                format!("This agent token has no role yet. Tell the user its display string {display} and ask them to have a person who manages agents grant it {} in the application under Agents.", if roles.is_empty() { "a role" } else { &roles }),
             ),
         })
     }
@@ -229,6 +229,7 @@ impl Principal {
     pub fn by_name(&self) -> String {
         match self {
             Principal::Device { name, .. } => name.clone(),
+            Principal::Agent { display, granted_by: Some(g), .. } => format!("Agent {display} ({g})"),
             Principal::Agent { display, .. } => format!("Agent {display}"),
         }
     }
@@ -603,6 +604,7 @@ impl Store {
                 display: a.display,
                 role: a.role.as_deref().map(Role::parse).transpose()?,
                 reach: roles_of(&a.reach),
+                granted_by: a.granted_by,
             }),
         }
     }
@@ -698,6 +700,16 @@ impl Store {
         Ok(json!({ "user_id": user_id, "invitation_id": invitation_id, "invitation_token": tok, "expires_at": expires }))
     }
 
+    /// Acting on a person (a new invitation, deactivating, deleting, revoking a device) needs
+    /// every right that person holds: otherwise it would hand over rights one does not hold.
+    fn require_reach_over(&self, p: &Principal, user_id: i64) -> OpResult<()> {
+        let (target, _) = self.user_rights(user_id)?;
+        if !p.grantable_rights().covers(&target) {
+            return Err(OpError::forbidden("This person holds rights you do not hold; only someone who holds them too may invite, deactivate or delete them, or revoke their devices."));
+        }
+        Ok(())
+    }
+
     fn require_grantable(p: &Principal, wanted: &Rights) -> OpResult<()> {
         if !p.grantable_rights().covers(wanted) {
             return Err(OpError::forbidden("A right can be given or taken away only by someone who holds it. Ask a person who holds that right to do it."));
@@ -731,7 +743,7 @@ impl Store {
 
     pub fn user_reinvite(&self, p: &Principal, user_id: i64) -> OpResult<Value> {
         p.require(Cap::ManagePeople)?;
-        self.user_rights(user_id)?;
+        self.require_reach_over(p, user_id)?;
         let (invitation_id, tok, expires) = self.new_invitation(user_id, false, &p.by_name())?;
         Ok(json!({ "user_id": user_id, "invitation_id": invitation_id, "invitation_token": tok, "expires_at": expires }))
     }
@@ -791,7 +803,7 @@ impl Store {
 
     pub fn user_set_active(&self, p: &Principal, user_id: i64, active: bool) -> OpResult<Value> {
         p.require(Cap::ManagePeople)?;
-        self.user_rights(user_id)?;
+        self.require_reach_over(p, user_id)?;
         if !active {
             self.keep_a_full_admin(user_id, "deactivating them")?;
             self.conn.execute("UPDATE users SET deactivated_at = COALESCE(deactivated_at, ?1) WHERE id = ?2", params![now(), user_id])?;
@@ -804,7 +816,7 @@ impl Store {
     /// Deletes a person with their invitations and devices; their closed runs keep the name.
     pub fn user_delete(&self, p: &Principal, user_id: i64) -> OpResult<Value> {
         p.require(Cap::ManagePeople)?;
-        self.user_rights(user_id)?;
+        self.require_reach_over(p, user_id)?;
         if matches!(p, Principal::Device { user_id: me, .. } if *me == user_id) {
             return Err(OpError::conflict("user_self", "You cannot delete yourself. Ask another person who manages people."));
         }
@@ -886,7 +898,10 @@ impl Store {
     pub fn device_revoke(&self, p: &Principal, device_id: i64) -> OpResult<Value> {
         let me = match p {
             Principal::Device { user_id, .. } => Some(*user_id),
-            Principal::Agent { .. } => None,
+            Principal::Agent { .. } => {
+                p.require(Cap::ManagePeople)?;
+                None
+            }
         };
         let all = p.can(Cap::ManagePeople);
         // Without that right, another person's device is answered like a missing one.
@@ -898,6 +913,10 @@ impl Store {
                 "device_unknown",
                 format!("There is no device {device_id} you may revoke. Call device.list for your own devices; another person's device can be revoked by a person who manages people."),
             ));
+        }
+        let owner: i64 = self.conn.query_row("SELECT user_id FROM devices WHERE id = ?1", [device_id], |r| r.get(0))?;
+        if Some(owner) != me {
+            self.require_reach_over(p, owner)?;
         }
         self.conn.execute("UPDATE devices SET revoked_at = COALESCE(revoked_at, ?1) WHERE id = ?2", params![now(), device_id])?;
         Ok(json!({ "device_id": device_id, "revoked": true }))
@@ -1192,6 +1211,38 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn nobody_acts_on_a_person_who_holds_more_rights_than_they_do() {
+        let s = Store::open_in_memory().unwrap();
+        let a = admin(&s);
+        let Principal::Device { user_id: ada, device_id: ada_dev, .. } = a else { panic!() };
+        let pia = person(&s, &a, "Pia", Rights { people: true, ..Rights::default() });
+        let pm = agent(&s, &a, Some("people.manage"));
+        for p in [&pia, &pm] {
+            assert_eq!(s.user_reinvite(p, ada).err().unwrap().kind, "right_missing", "a new link for a full administrator would hand over all rights");
+            assert_eq!(s.user_set_active(p, ada, false).err().unwrap().kind, "right_missing");
+            assert_eq!(s.user_delete(p, ada).err().unwrap().kind, "right_missing");
+            assert_eq!(s.device_revoke(p, ada_dev).err().unwrap().kind, "right_missing");
+        }
+        // A person with the same rights or fewer is within reach.
+        let v = s.user_create(&pia, "Bob", "", Rights::default()).unwrap();
+        let bob = v["user_id"].as_i64().unwrap();
+        assert!(s.user_reinvite(&pia, bob).is_ok());
+        assert!(s.user_reinvite(&pm, bob).is_ok());
+        assert!(s.user_set_active(&pia, bob, false).is_ok());
+        // An agent without people.manage revokes no device at all.
+        let reader = agent(&s, &a, Some("jobs.read"));
+        assert_eq!(s.device_revoke(&reader, ada_dev).err().unwrap().kind, "right_missing");
+    }
+
+    #[test]
+    fn an_agent_is_named_with_the_person_who_granted_it() {
+        let s = Store::open_in_memory().unwrap();
+        let a = admin(&s);
+        let g = agent(&s, &a, Some("jobs.all"));
+        assert!(g.by_name().ends_with(" (Ada)"), "{}", g.by_name());
+    }
+
+    #[test]
     fn every_device_is_listed_for_those_who_manage_people() {
         let s = Store::open_in_memory().unwrap();
         let a = admin(&s);
@@ -1202,8 +1253,8 @@ pub(crate) mod tests {
         assert!(names.contains(&"Ada".to_string()) && names.contains(&"Bob".to_string()));
         let pm = agent(&s, &a, Some("people.manage"));
         assert_eq!(s.device_list_all(&pm).unwrap()["devices"].as_array().unwrap().len(), 2);
-        let Principal::Device { device_id, .. } = a else { panic!() };
-        assert!(s.device_revoke(&pm, device_id).is_ok(), "an agent that manages people revokes devices too");
+        let bob_dev = all["devices"].as_array().unwrap().iter().find(|d| d["user_name"] == "Bob").unwrap()["device_id"].as_i64().unwrap();
+        assert!(s.device_revoke(&pm, bob_dev).is_ok(), "an agent that manages people revokes devices within its reach");
     }
 
     #[test]
@@ -1239,7 +1290,7 @@ pub(crate) mod tests {
         let w = s.agent_register("Agent of Ana; purpose: downloads").unwrap();
         assert_eq!(s.agent_grant(&manager, w["agent_id"].as_i64().unwrap(), "backup.read").err().unwrap().kind, "right_missing");
         let granted = s.agent_grant(&manager, w["agent_id"].as_i64().unwrap(), "jobs.work").unwrap();
-        assert_eq!(granted["granted_by"], format!("Agent {}", match &manager { Principal::Agent { display, .. } => display.clone(), _ => String::new() }));
+        assert!(granted["granted_by"].as_str().unwrap().starts_with(&format!("Agent {} (", match &manager { Principal::Agent { display, .. } => display.clone(), _ => String::new() })));
         // The full administrator's manager may hand out the backup.
         let full = agent(&s, &a, Some("agents.manage"));
         let x = s.agent_register("Agent of Ada; purpose: backup").unwrap();
