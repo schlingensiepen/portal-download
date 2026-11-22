@@ -324,6 +324,12 @@ Ich bitte um Verständnis, dass ich für ein kleines Hobbyprojekt nicht in das A
 
 *Please understand that I am not paying for the Apple Developer Program for a small hobby project. I have heard, though, that Firefox and Chrome run very well on Apple devices.*
 
+## Edge Add-ons
+
+Wegen der Unbenutzbarkeit des Microsoft Partner Center musste der Eintrag bei Edge Add-ons leider verschoben werden. Bis dahin lädt Edge die ZIP-Datei aus den Releases wie Chrome.
+
+*Because the Microsoft Partner Center proved unusable, the listing on Edge Add-ons had to be postponed. Until then, Edge loads the ZIP file from the releases, as Chrome does.*
+
 ## License
 
 Apache License 2.0, see [LICENSE](LICENSE).
