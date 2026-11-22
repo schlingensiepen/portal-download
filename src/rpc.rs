@@ -14,10 +14,12 @@ use serde_json::{json, Value};
 use std::path::Path;
 
 /// The contract version: callers built for the same major and minor version understand
-/// each other.
+/// each other. It names the interface, not the release: it changes only when the API does,
+/// and the browser extension carries the same value (its tests compare the two).
+pub const CONTRACT: &str = "0.8";
+
 pub fn contract() -> String {
-    let v = env!("CARGO_PKG_VERSION");
-    v.rsplit_once('.').map(|(mm, _)| mm.to_string()).unwrap_or_else(|| v.to_string())
+    CONTRACT.to_string()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -770,8 +772,12 @@ mod tests {
     }
 
     #[test]
-    fn the_contract_is_major_and_minor() {
+    fn the_contract_is_major_and_minor_and_not_newer_than_the_release() {
+        let mm = |v: &str| -> (u32, u32) {
+            let mut p = v.split('.').map(|x| x.parse::<u32>().unwrap());
+            (p.next().unwrap(), p.next().unwrap())
+        };
         assert_eq!(contract().matches('.').count(), 1);
-        assert!(env!("CARGO_PKG_VERSION").starts_with(&contract()));
+        assert!(mm(&contract()) <= mm(env!("CARGO_PKG_VERSION")));
     }
 }

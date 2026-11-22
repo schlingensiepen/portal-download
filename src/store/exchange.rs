@@ -327,7 +327,7 @@ fn parse(content: &str) -> OpResult<File> {
     if head.get("version").and_then(Value::as_i64) != Some(VERSION) {
         return Err(OpError::bad(
             "file_version",
-            format!("The file has format version {}; this service reads version {VERSION}, which portal-download 0.8 writes. Files of older versions are not read.", head.get("version").unwrap_or(&Value::Null)),
+            format!("The file has format version {}; this service reads version {VERSION}, which portal-download writes since 0.8. Files of older versions are not read.", head.get("version").unwrap_or(&Value::Null)),
         ));
     }
     let kind = s(&head, "kind").to_string();
