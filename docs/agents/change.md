@@ -56,9 +56,9 @@
 | a method in `METHODS` (`src/rpc.rs`) | its dispatch arm, the operation in `src/store/`, the caller in `static/index.html` and in the browser extension |
 | a text in `static/index.html` | its entry in every `static/i18n/<code>.json` |
 | a language | its file in `static/i18n/`, `LANGUAGES` in `src/http.rs`, the list in `static/config.json` |
-| what a caller may do or must do | the usage description in `src/describe.rs` and `README.md` |
-| commands or exit codes in `src/main.rs` | the table in `README.md` and the head comment of `src/main.rs` |
-| configuration keys | `src/config.rs` messages, `examples/config.toml`, `README.md`, and `deploy/config.toml` or `deploy/config-external.toml` where the image needs them |
-| the invitation lifetime, the setup window length, the agent token deadlines or limit | `README.md`, `docs/operating.md`, the texts in `src/describe.rs` and `static/index.html` |
-| the entry point, the Caddyfile or the image | `deploy/smoke.sh` and its mutations in `deploy/smoke-red.sh`, the container sections of `README.md` and `docs/operating.md` |
+| what a caller may do or must do | the usage description in `src/describe.rs` and `docs/operating.md` |
+| commands or exit codes in `src/main.rs` | the table in `docs/reference.md` and the head comment of `src/main.rs` |
+| configuration keys | `src/config.rs` messages, `examples/config.toml`, `docs/reference.md`, and `deploy/config.toml` or `deploy/config-external.toml` where the image needs them |
+| the invitation lifetime, the setup window length, the agent token deadlines or limit | `docs/operating.md`, `docs/reference.md`, the texts in `src/describe.rs` and `static/index.html` |
+| the entry point, the Caddyfile or the image | `deploy/smoke.sh` and its mutations in `deploy/smoke-red.sh`, `docs/install.md` and `docs/reference.md` |
 | the store's structure | `STRUCTURE` in `src/store/mod.rs` and its `SCHEMA_VERSION`, and `exchange_text` and `parse` in `src/store/exchange.rs`. A store written by another structure version is refused at start with what to do. |

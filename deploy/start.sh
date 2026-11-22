@@ -240,7 +240,9 @@ ready_block() {
         head="SETUP NEEDED: nobody manages people"
     fi
     if [ -n "$head" ]; then
-        secret="$(window secret)  (valid until $(window expires_at); enter it in the browser)"
+        # The browser's setup form exists only while nobody is set up; otherwise the secret goes to setup.createAdmin.
+        if [ "$users" = 0 ]; then use="enter it in the browser"; else use="for setup.createAdmin, see docs/operating.md"; fi
+        secret="$(window secret)  (valid until $(window expires_at); $use)"
         say "$STARS"
         say "*  $head"
     elif [ -n "$users" ]; then
