@@ -186,7 +186,7 @@ unset PW
 - Or write the file with an editor: one line, `X-Backup-Password: ` followed by the password. Then set its mode with `chmod 600 /srv/backup/header`.
 - Do not put the password itself into a command. It would stay in the shell history.
 
-`curl` reads the header from the file. So the password is not part of the `curl` command, and not visible in the process list. It travels in this header only, never in the address.
+`curl` reads the header from the file. So the password is not part of the `curl` command, and not visible in the process list. It travels in this header only, never in the address. The token, in contrast, is part of the `curl` command, so other users of the machine can see it in the process list: run the backup on a machine, or under an account, that nobody else uses.
 
 **5. Take one backup by hand:**
 
