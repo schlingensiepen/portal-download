@@ -125,7 +125,7 @@ Then open `https://downloads.intra.example:8443/`. If you ran a fixed version su
 
 - Keep one browser, or one browser profile, for the old instance: one that still holds its 0.7 access. Do not open the new instance there until you are done.
 - Or, while a browser still has its 0.7 access, create a new invitation for yourself in the old instance. Open it in a private window whenever you need the old instance.
-- Or give the old instance another name: start it with another `SITE`, such as the machine's IP address. The cookies are then separate. You need an invitation that names the new address, and the browser warns about a new certificate.
+- Or give the old instance another name: start it with another `SITE`, such as the machine's IP address. The cookies are then separate. Create an invitation for yourself first, while a browser still has its 0.7 access under the old name. In its link, replace the host name with the new address; the token in the link does not depend on the host. The browser warns about a new certificate.
 
 **Only one container may use a volume at a time.** Two services that write the same store can damage it. Here that rule is kept: the old container uses the old volume, the new container the new one.
 
