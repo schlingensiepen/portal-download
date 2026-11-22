@@ -1251,6 +1251,8 @@ async function viewPeople() {
     // What acts on a person needs every right that person holds.
     const within = reaches(u.rights);
     show(ref(card, "delete"), within && u.user_id !== state.me.user_id);
+    // Deactivating oneself would lock one out at the next request.
+    show(card.querySelector('[data-action="active"]'), u.user_id !== state.me.user_id);
     for (const r of ["reinvite", "active", "rights"]) card.querySelectorAll(`[data-action="${r}"]`).forEach((b) => (b.disabled = !within));
     if (!within) for (const c of ref(card, "rights").querySelectorAll("input")) c.disabled = true;
     const rights = rightsBox(u.rights);
@@ -1662,8 +1664,14 @@ async function render() {
     state.dirty = false;
     return;
   }
-  // Others in the circle may have closed or changed jobs: fetch the list on every navigation.
-  try { await loadJobs(); } catch (e) {
+  // Others in the circle may have closed or changed jobs, or one's rights: fetch both on every navigation.
+  try {
+    const st = await rpc("service.status");
+    if (mySeq !== renderSeq) return;
+    state.status = st;
+    if (st.me && st.me.kind === "person") state.me = st.me;
+    await loadJobs();
+  } catch (e) {
     if (mySeq !== renderSeq) return;
     if (e.code === 401) { state.me = null; state.authError = e.message; return render(); }
     fail(e);

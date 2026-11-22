@@ -14,10 +14,12 @@ use serde_json::{json, Value};
 use std::path::Path;
 
 /// The contract version: callers built for the same major and minor version understand
-/// each other.
+/// each other. It names the interface, not the release: it changes only when the API does,
+/// and the browser extension carries the same value (its tests compare the two).
+pub const CONTRACT: &str = "0.8";
+
 pub fn contract() -> String {
-    let v = env!("CARGO_PKG_VERSION");
-    v.rsplit_once('.').map(|(mm, _)| mm.to_string()).unwrap_or_else(|| v.to_string())
+    CONTRACT.to_string()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -248,7 +250,7 @@ pub const METHODS: &[Method] = &[
         summary: "Say whether the service is set up and who is calling.",
         description: "contract is the major and minor version of this interface; a caller built for another one says so to its user. ca_certificate, when not null, names the certificate authority this service offers for download and its SHA-256 fingerprint, which the user compares before trusting it. setup_required is true while nobody has been invited yet; the entry page then explains the setup. signed_in says whether the call carried a valid device credential or agent token; me describes the caller then: a person with their rights, an agent with its display string and its role (null until granted).",
         params: r#"{}"#,
-        result: r#"{"name":"portal-download","version":"0.8.2","contract":"0.8","revision":"a1b2c3d4e5f6","setup_required":false,"ca_certificate":{"path":"/ca.crt","sha256":"5C:0E:…:7B"},"signed_in":true,"me":{"kind":"person","user_id":1,"name":"Ada","rights":{"people":true,"agents":true,"backup":true},"device_id":3,"device_label":"Laptop","device_kind":"browser"}}"#,
+        result: r#"{"name":"portal-download","version":"0.9.0","contract":"0.8","revision":"a1b2c3d4e5f6","setup_required":false,"ca_certificate":{"path":"/ca.crt","sha256":"5C:0E:…:7B"},"signed_in":true,"me":{"kind":"person","user_id":1,"name":"Ada","rights":{"people":true,"agents":true,"backup":true},"device_id":3,"device_label":"Laptop","device_kind":"browser"}}"#,
     },
     Method {
         name: "setup.createAdmin",
@@ -770,8 +772,12 @@ mod tests {
     }
 
     #[test]
-    fn the_contract_is_major_and_minor() {
+    fn the_contract_is_major_and_minor_and_not_newer_than_the_release() {
+        let mm = |v: &str| -> (u32, u32) {
+            let mut p = v.split('.').map(|x| x.parse::<u32>().unwrap());
+            (p.next().unwrap(), p.next().unwrap())
+        };
         assert_eq!(contract().matches('.').count(), 1);
-        assert!(env!("CARGO_PKG_VERSION").starts_with(&contract()));
+        assert!(mm(&contract()) <= mm(env!("CARGO_PKG_VERSION")));
     }
 }
