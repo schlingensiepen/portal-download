@@ -241,7 +241,7 @@ ready_block() {
     fi
     if [ -n "$head" ]; then
         # The browser's setup form exists only while nobody is set up; otherwise the secret goes to setup.createAdmin.
-        if [ "$users" = 0 ]; then use="enter it in the browser"; else use="for setup.createAdmin, see docs/operating.md"; fi
+        local use; if [ "$users" = 0 ]; then use="enter it in the browser"; else use="for setup.createAdmin, see docs/operating.md"; fi
         secret="$(window secret)  (valid until $(window expires_at); $use)"
         say "$STARS"
         say "*  $head"
