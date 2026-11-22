@@ -175,7 +175,7 @@ On a Mac with Apple silicon every runtime takes the `arm64` image, with no emula
    portal-download container:                            trust it once: https://downloads.intra.example/ca.crt (compare first)
    portal-download container:    Setup secret:           pds_…  (valid until 2026-11-08T10:30:00Z; enter it in the browser)
    portal-download container: ================================================================
-   portal-download container: portal-download 0.8.2 is ready: https://downloads.intra.example/
+   portal-download container: portal-download 0.9.0 is ready: https://downloads.intra.example/
    ```
 
    Once somebody manages people, the block begins with the dashes and the line `READY: set up, 3 people, 12 jobs`, without a setup secret; while nobody manages people, the heading is `SETUP NEEDED: nobody manages people`, with the setup secret. The secret is valid for 30 minutes. If it has run out, `docker exec portal-download portal-download bootstrap` (with WSLC `wslc exec portal-download portal-download bootstrap`) prints a fresh one. With `PROXY=external` the block names no certificate but how the reverse proxy reaches the service: by the container's name or its compose service name, for example `http://portal-download:8080/`. Caddy writes only warnings and errors to the log, so the block stands at the end.
@@ -195,6 +195,7 @@ On a Mac with Apple silicon every runtime takes the `arm64` image, with no emula
   and adds `--cacert /srv/backup/ca.pem` to the curl line. The authority stays the same across renewals. Or write the backup inside the container, copy it out and delete it there: `docker exec portal-download portal-download backup /data/backup.zip`, `docker cp portal-download:/data/backup.zip .`, `docker exec portal-download rm /data/backup.zip`.
 - **Tags:** without a tag the image is `latest`, the last release. A tag `X.Y` such as `0.8` follows the fixes of one minor version, `X.Y.Z` such as `0.8.0` stays put, `edge` follows the main branch.
 - **Upgrading:** take a backup first, because a store written by a newer version is refused by an older one. Then `docker pull ghcr.io/schlingensiepen/portal-download`, `docker stop portal-download`, `docker rm portal-download`, and the same `docker run` as at first start, with all its options. The volume keeps everything.
+- **From 0.8 to 0.9:** pull the new image and start a new container on the same volume; the store, the certificate authority, the people and their devices stay. The interface is still `0.8`, so extensions of 0.8 and 0.9 work with it.
 - **From 0.7 to 0.8:** version 0.8 reads no store and no backup of 0.7; it starts empty, as a new instance: setup with a new setup secret, new invitations for every person, new agent tokens. Backups of 0.7 are of no use to it. The steps:
   1. Stop the old container and give it another name, so that name and port are free: `docker stop portal-download && docker rename portal-download portal-download-0.7`.
   2. Start 0.8 with the `docker run` above on a new volume, `-v portal-download-0.8:/data` (in a compose file, a new volume name under `volumes:`). Keep the old volume; on it the new container refuses to start and names the store files.
@@ -218,7 +219,7 @@ On a Mac with Apple silicon every runtime takes the `arm64` image, with no emula
 ```yaml
 services:
   portal-download:
-    image: ghcr.io/schlingensiepen/portal-download:0.8
+    image: ghcr.io/schlingensiepen/portal-download:0.9
     restart: unless-stopped
     ports:
       - "443:443"
@@ -246,7 +247,7 @@ services:
       - ./certs:/certs:ro
       - caddy:/data
   portal-download:
-    image: ghcr.io/schlingensiepen/portal-download:0.8
+    image: ghcr.io/schlingensiepen/portal-download:0.9
     restart: unless-stopped
     volumes:
       - portal-download:/data
