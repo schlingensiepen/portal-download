@@ -175,7 +175,7 @@ On a Mac with Apple silicon every runtime takes the `arm64` image, with no emula
    portal-download container:                            trust it once: https://downloads.intra.example/ca.crt (compare first)
    portal-download container:    Setup secret:           pds_…  (valid until 2026-11-08T10:30:00Z; enter it in the browser)
    portal-download container: ================================================================
-   portal-download container: portal-download 0.8.1 is ready: https://downloads.intra.example/
+   portal-download container: portal-download 0.8.2 is ready: https://downloads.intra.example/
    ```
 
    Once somebody manages people, the block begins with the dashes and the line `READY: set up, 3 people, 12 jobs`, without a setup secret; while nobody manages people, the heading is `SETUP NEEDED: nobody manages people`, with the setup secret. The secret is valid for 30 minutes. If it has run out, `docker exec portal-download portal-download bootstrap` (with WSLC `wslc exec portal-download portal-download bootstrap`) prints a fresh one. With `PROXY=external` the block names no certificate but how the reverse proxy reaches the service: by the container's name or its compose service name, for example `http://portal-download:8080/`. Caddy writes only warnings and errors to the log, so the block stands at the end.

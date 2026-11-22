@@ -248,7 +248,7 @@ pub const METHODS: &[Method] = &[
         summary: "Say whether the service is set up and who is calling.",
         description: "contract is the major and minor version of this interface; a caller built for another one says so to its user. ca_certificate, when not null, names the certificate authority this service offers for download and its SHA-256 fingerprint, which the user compares before trusting it. setup_required is true while nobody has been invited yet; the entry page then explains the setup. signed_in says whether the call carried a valid device credential or agent token; me describes the caller then: a person with their rights, an agent with its display string and its role (null until granted).",
         params: r#"{}"#,
-        result: r#"{"name":"portal-download","version":"0.8.1","contract":"0.8","revision":"a1b2c3d4e5f6","setup_required":false,"ca_certificate":{"path":"/ca.crt","sha256":"5C:0E:…:7B"},"signed_in":true,"me":{"kind":"person","user_id":1,"name":"Ada","rights":{"people":true,"agents":true,"backup":true},"device_id":3,"device_label":"Laptop","device_kind":"browser"}}"#,
+        result: r#"{"name":"portal-download","version":"0.8.2","contract":"0.8","revision":"a1b2c3d4e5f6","setup_required":false,"ca_certificate":{"path":"/ca.crt","sha256":"5C:0E:…:7B"},"signed_in":true,"me":{"kind":"person","user_id":1,"name":"Ada","rights":{"people":true,"agents":true,"backup":true},"device_id":3,"device_label":"Laptop","device_kind":"browser"}}"#,
     },
     Method {
         name: "setup.createAdmin",
