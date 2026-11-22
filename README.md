@@ -318,6 +318,12 @@ The tests include:
 
 Each of these, and the tests for access, rights and roles, the exchange, sanitizing and the schedule, was seen to fail once with its safeguard removed. See [AGENTS.md](AGENTS.md) for how to work on this repository.
 
+## Safari
+
+Ich bitte um Verständnis, dass ich für ein kleines Hobbyprojekt nicht in das Apple Developer Program investiere. Ich habe aber gehört, dass Firefox und Chrome sehr gut auf Apple-Geräten laufen.
+
+*Please understand that I am not paying for the Apple Developer Program for a small hobby project. I have heard, though, that Firefox and Chrome run very well on Apple devices.*
+
 ## License
 
 Apache License 2.0, see [LICENSE](LICENSE).
