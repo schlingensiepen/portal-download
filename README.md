@@ -49,8 +49,9 @@ You need a machine with Docker that the circle's browsers reach on port 443.
    ```
 
 3. Make your computer trust the service's certificate authority. [Certificates](docs/install.md#certificates) shows how, for Windows, macOS, Linux and Firefox. Until then the browser warns about the certificate.
-4. Open the address from the block. Enter the setup secret and your name. This creates the first person, who holds all three rights.
-5. Create the first job, then invite the others under **People**.
+4. Open the address from the block. Enter the setup secret and your name, and click **Create the first access**. This creates the first person, who holds all three rights.
+5. The page **Accept the invitation** appears. Name the device and click **Accept the invitation in this browser**.
+6. Create the first job, then invite the others under **People**.
 
 The setup secret is valid for 30 minutes. `docker exec portal-download portal-download bootstrap` prints a fresh one.
 

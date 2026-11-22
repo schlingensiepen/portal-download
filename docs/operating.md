@@ -73,6 +73,19 @@ A device is one browser or one browser extension of a person. A browser keeps it
 - **A further device:** the person opens the invitation link there while it is valid. Afterwards a person who manages people creates a **New invitation**.
 - **The browser extension:** the person adds it with an invitation link, or with **Add to the browser extension** under **My devices**. That link serves once, within the hour.
 
+What the service records for each device:
+
+| Record | Meaning |
+|---|---|
+| the label | the name the person gave the device |
+| the kind | browser or browser extension |
+| the identification | what the browser says it is (its `User-Agent`) |
+| the last address | the network address the device last came from |
+| the times | when it was registered, last seen and, if so, revoked |
+| the invitation | which invitation registered it |
+
+The owner sees these under **My devices**. A person who manages people sees them for everybody under **All devices**.
+
 The service connects to nothing. The browsers and the extension reach the portals themselves.
 
 ## Agents
@@ -86,6 +99,8 @@ An agent or a script works with an agent token, never with a person's access. It
 3. Click **Grant** and choose exactly one role. Reject registrations you do not recognise.
 
 **A script that cannot register itself:** under **Agents**, **Create a token**, enter what it is for, choose the role and click **Create token**. The token is shown once.
+
+**The backup line.** For the role *Take the backup*, the application shows a complete `curl` line that fetches the backup. After **Create token** the line holds the token itself. After **Grant** it holds `$PORTAL_DOWNLOAD_AGENT_TOKEN` in the token's place, because the agent already has its token.
 
 Which role to choose:
 
@@ -127,13 +142,28 @@ There are three ways to take the backup. They write the same file.
 
 ### With curl
 
-The steps below set up a nightly backup on a backup machine. They use the directory `/srv/backup` and a user `backup` who owns it. Do every step as that user.
+The steps below set up a nightly backup on a backup machine. A user of its own, `pd-backup`, does the work in the directory `/srv/backup`. Debian and Ubuntu already have a system user called `backup`, hence the other name.
 
-**1. Create the token.** In the web application, under **Agents**, **Create a token** with the role *Take the backup*. You need the rights to manage agents and to manage the backup.
+**1. Create the user and the directory,** as root:
+
+```sh
+mkdir -p /srv/backup
+useradd --system --home-dir /srv/backup --shell /usr/sbin/nologin pd-backup
+chown pd-backup: /srv/backup
+chmod 700 /srv/backup
+```
+
+Do the steps 3 to 5 in a shell of that user. Open it as root with:
+
+```sh
+sudo -u pd-backup -H bash
+```
+
+**2. Create the token.** In the web application, under **Agents**, **Create a token** with the role *Take the backup*. You need the rights to manage agents and to manage the backup.
 
 The application shows a complete `curl` line with the token in it. **It is shown only once.** Copy the token, the part that starts with `pda_`, now. If it gets lost, revoke the token under **Agents** and create a new one.
 
-**2. Let the machine trust the service's certificate.** Skip this if it trusts the certificate already. Otherwise fetch the authority, compare its fingerprint with the ready block, and convert it:
+**3. Let the machine trust the service's certificate.** Skip this if it trusts the certificate already. Otherwise fetch the authority, compare its fingerprint with the ready block, and convert it:
 
 ```sh
 cd /srv/backup
@@ -144,24 +174,25 @@ openssl x509 -inform der -in ca.der -out ca.pem
 
 The authority stays the same when the certificate is renewed. See [install.md](install.md#certificates).
 
-**3. Write the password into a header file** that only this user can read:
+**4. Write the password into a header file** that only this user can read:
 
 ```sh
 umask 077
-printf 'X-Backup-Password: %s\n' 'the backup password' > /srv/backup/header
+read -rs -p 'Backup password: ' PW && printf 'X-Backup-Password: %s\n' "$PW" > /srv/backup/header
+unset PW
 ```
 
-- Put the password between the single quotes. Characters such as `$`, `%`, `"` and `\` need nothing extra there.
-- A single quote inside the password is written as `'\''`. The password `it's-a-secret` becomes `'it'\''s-a-secret'`.
-- Or write the file with an editor instead: one line, `X-Backup-Password: ` followed by the password. Then set its mode with `chmod 600 /srv/backup/header`.
+- `read -rs` asks for the password without showing it. So it appears neither in the shell history nor on a command line. This needs bash.
+- Or write the file with an editor: one line, `X-Backup-Password: ` followed by the password. Then set its mode with `chmod 600 /srv/backup/header`.
+- Do not put the password itself into a command. It would stay in the shell history.
 
-The header file keeps the password out of the command line and the process list. The password travels in this header only, never in the address.
+`curl` reads the header from the file. So the password is not part of the `curl` command, and not visible in the process list. It travels in this header only, never in the address.
 
-**4. Take one backup by hand:**
+**5. Take one backup by hand:**
 
 ```sh
 cd /srv/backup
-export PORTAL_DOWNLOAD_AGENT_TOKEN='pda_<TOKEN>'
+read -rs -p 'Token: ' PORTAL_DOWNLOAD_AGENT_TOKEN && export PORTAL_DOWNLOAD_AGENT_TOKEN
 curl -fsS --cacert /srv/backup/ca.pem \
   -H "Authorization: Bearer $PORTAL_DOWNLOAD_AGENT_TOKEN" \
   -H @/srv/backup/header \
@@ -170,13 +201,13 @@ curl -fsS --cacert /srv/backup/ca.pem \
 
 - Leave `--cacert …` out when the machine trusts the certificate already.
 - Leave `-H @/srv/backup/header` out for a file without a password.
-- On an error, `curl` prints the reason and ends with a non-zero exit code.
+- On an error, `curl -f` prints the HTTP status, such as 401 or 403, and ends with a non-zero exit code. For the reason in words, run the line once without `-f` and without `-o …`.
 
-**5. Test the backup.** In the web application, open **Exchange**, **Read a file in**. Choose the file, enter its password and click **Show what would change**. The preview shows that the file and the password are good. Then click **Cancel**; nothing was changed.
+**6. Test the backup.** In the web application, open **Exchange**, **Read a file in**. Choose the file, enter its password and click **Show what would change**. The preview shows that the file and the password are good. Then click **Cancel**; nothing was changed.
 
 Do this once now and again from time to time. A backup that was never read is a hope, not a backup.
 
-**6. Run it every night.** Open the crontab of the user with `crontab -e` and add:
+**7. Run it every night.** As root, open the user's crontab with `crontab -u pd-backup -e` and add:
 
 ```crontab
 PORTAL_DOWNLOAD_AGENT_TOKEN=pda_<TOKEN>
@@ -220,7 +251,9 @@ The file is checked line by line. One faulty line rejects the whole file. A file
 1. Start a new instance, as [install.md](install.md) describes.
 2. Set it up with a name such as "Setup".
 3. Under **Exchange**, read the backup in, with the people ticked.
-4. Sign in as one of the restored people who holds all three rights, and delete "Setup".
+4. Still as "Setup", open **People**. Find your own restored person and click **New invitation**.
+5. Open that link in this browser and accept it. The browser is now signed in as your restored person.
+6. Under **People**, delete "Setup". Your restored person needs all three rights for that.
 
 Devices and tokens from the backup keep working when the new instance runs under the same host name. The browsers keep their cookies per host name, and the extension keeps its tokens per address.
 
@@ -238,6 +271,8 @@ You are locked out when every person who manages people has lost their devices. 
 
 2. Create the person through the API. The setup form in the browser appears only while the service has no people at all.
 
+   `ca.pem` is the service's certificate authority in PEM form. [install.md](install.md#certificates) shows how to fetch it, under "`curl` and scripts". Leave `--cacert ca.pem` out when the machine trusts the certificate already.
+
    ```sh
    curl -s --cacert ca.pem https://downloads.intra.example/api/ \
      -H 'Content-Type: application/json' \
@@ -245,7 +280,8 @@ You are locked out when every person who manages people has lost their devices. 
      -d '{"jsonrpc":"2.0","id":1,"method":"setup.createAdmin","params":{"name":"Ada"}}'
    ```
 
-3. The response holds `invitation_token`. Open `https://downloads.intra.example/#invite=<invitation_token>`, with the token from that response, in your browser.
+3. The response holds `invitation_token`, a value that starts with `pdi_`. Build the invitation link from it: the service's address, then `/#invite=`, then that value. For example `https://downloads.intra.example/#invite=pdi_<TOKEN>`.
+4. Open the link in your browser and accept the invitation there. You are the new person, with all three rights.
 
 Without a container, run `portal-download bootstrap` as the service user.
 
@@ -253,7 +289,7 @@ Without a container, run `portal-download bootstrap` as the service user.
 
 Take a backup first. Then follow [upgrading.md](upgrading.md); it has one table per version step.
 
-- **From 0.8 to 0.9:** pull the image `:0.9` and start a new container on the same volume. The store, the certificate authority, the people and their devices stay.
+- **From 0.8 to 0.9:** pull the image `:0.9` and start a new container on the same volume. The store, the certificate authority, the people and their devices stay. Going back to 0.8 works the same way.
 - **From 0.7 to 0.8:** a new instance on a new volume. Version 0.8 reads no data of 0.7.
 
 ## Where things are

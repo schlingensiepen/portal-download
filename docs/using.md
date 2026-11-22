@@ -86,7 +86,7 @@ What you get:
 - Several logins for one host become several jobs of that name.
 - A login that matches an existing job by host name and username is marked "already there" and cannot be ticked.
 - Duplicates within the file count once. The entry whose password was changed last wins.
-- If the service refuses a login, the others are still created. One message lists every refusal with its reason.
+- If the service refuses a login, the others are still created. One message counts the refusals and lists the first five with their reasons; "…" stands for the rest.
 
 ## Exchanging jobs as a file
 

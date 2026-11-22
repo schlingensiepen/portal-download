@@ -50,7 +50,7 @@ portal-download container: portal-download 0.9.0 is ready: https://downloads.int
 | `SETUP NEEDED: nobody is set up yet` | There is no active person at all, as on a fresh instance. |
 | `SETUP NEEDED: nobody manages people` | There are active people, but none of them holds the right to manage people. |
 
-In both cases a line of stars and the heading stand above the dashes, and the block shows the setup secret. In the second case, use the secret as [operating.md](operating.md#locked-out) describes.
+In both cases a line of stars and the heading stand above the dashes, and the block shows the setup secret. After the secret stands how to use it. While the service has no people at all, that is `enter it in the browser`. Otherwise it is `for setup.createAdmin, see docs/operating.md`; [operating.md](operating.md#locked-out) has the steps.
 
 In every other case the block begins with the dashes and shows no secret:
 
@@ -208,7 +208,9 @@ curl -s --cacert ca.pem https://downloads.intra.example/
 The entry page links the usage description, the API contract and the skill file. Every address in them names the host the request arrived on.
 
 - **Calls** go to `POST /api/` as JSON-RPC 2.0 with `Content-Type: application/json`.
-- **Errors** come with HTTP status 200 and an `error` object. `error.data.type` is a stable identifier, and `error.message` says what to do next.
+- **Application errors** come with HTTP status 200 and an `error` object. `error.data.type` is a stable identifier, and `error.message` says what to do next.
+- **A request the API cannot read** gets another status: 400 for a body that is not JSON, 405 for a method other than `POST`, 413 for a body that is too large.
+- **`GET /backup`** is not JSON-RPC. It answers an error with the fitting HTTP status, such as 401 or 403, and the reason as plain text.
 - **A token** is obtained by registering (`agent.register`), or a person creates one. [operating.md](operating.md#agents) describes both.
 - **The token's place** is the environment variable `PORTAL_DOWNLOAD_AGENT_TOKEN`.
 - **The interface version** is in `service.status` → `contract`. A caller built for another one says so to its user.

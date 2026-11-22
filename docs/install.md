@@ -118,9 +118,10 @@ Notes for these runtimes:
 1. Read the [ready block](reference.md#the-ready-block) in the log. On a fresh instance it says `SETUP NEEDED: nobody is set up yet` and shows the setup secret.
 2. Make your computer trust the service's certificate authority, as [Certificates](#certificates) describes.
 3. Open the address from the line `Open:`.
-4. Enter the setup secret and your name, and click **Create the first access**. This creates the first person, with all three rights, and signs this browser in.
-5. Create the first job, or use **Import logins (Firefox CSV)**. [using.md](using.md) describes both.
-6. Invite the others under **People**. [operating.md](operating.md#invitations) describes how.
+4. Enter the setup secret and your name, and click **Create the first access**. This creates the first person, with all three rights.
+5. The page **Accept the invitation** appears. Name the device and click **Accept the invitation in this browser**. Now this browser is signed in.
+6. Create the first job, or use **Import logins (Firefox CSV)**. [using.md](using.md) describes both.
+7. Invite the others under **People**. [operating.md](operating.md#invitations) describes how.
 
 The setup secret is valid for 30 minutes after the start. If it has run out, print a fresh one:
 
@@ -141,7 +142,7 @@ The service is reached over HTTPS. The image makes its own certificate authority
 
 **Do this before you open an invitation link.** Whoever invites people sends them this section together with the link, and the fingerprint from step 2.
 
-The authority is limited to `SITE` by a name constraint. A computer that trusts it trusts it for this one name only.
+The authority is limited by a name constraint. For a host name as `SITE`, it can vouch for that name and its subdomains only. For an IP address as `SITE`, it can vouch for that one address only.
 
 ### 1. Download the authority
 
@@ -153,11 +154,29 @@ A person who is signed in finds the same file on the overview page, under **Down
 
 Compare the file's SHA-256 fingerprint with the one in the line `Certificate authority:` of the ready block. People who cannot read the log get the fingerprint from the operator. The overview page of the web application shows it too.
 
-| System | Command | Output |
-|---|---|---|
-| Windows | `certutil -hashfile portal-download-ca.crt SHA256` | the same digits, in lower case and without colons |
-| macOS | `shasum -a 256 portal-download-ca.crt` | the same digits, in lower case and without colons |
-| Linux | `openssl x509 -inform der -in portal-download-ca.crt -noout -fingerprint -sha256` | the fingerprint as the block shows it |
+The ready block writes the fingerprint as 32 pairs of hexadecimal digits, in capital letters, with colons between the pairs:
+
+```text
+3B:0E:…:7C
+```
+
+These commands print it in the same form:
+
+**Windows (PowerShell):**
+
+```powershell
+((Get-FileHash portal-download-ca.crt -Algorithm SHA256).Hash -split '(..)' -ne '') -join ':'
+```
+
+**macOS and Linux:**
+
+```sh
+openssl x509 -inform der -in portal-download-ca.crt -noout -fingerprint -sha256
+```
+
+The fingerprint follows the `=` sign in the output.
+
+Two shorter commands print the same digits in another form: `certutil -hashfile portal-download-ca.crt SHA256` on Windows and `shasum -a 256 portal-download-ca.crt` on macOS. Their output is in small letters and has no colons. Compare the digits pair by pair, and ignore the colons and the size of the letters.
 
 If the fingerprints differ, do not import the file.
 
