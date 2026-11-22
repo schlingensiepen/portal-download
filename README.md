@@ -1,5 +1,11 @@
 # portal-download
 
+> [!IMPORTANT]
+> **Warum es das gibt.** Rechnungen, Bescheide und Abrechnungen kommen bei vielen Unternehmen nicht mehr per Post oder E-Mail, sondern liegen nur noch in einem Portal, aus dem ich sie mir selbst holen muss. Das ist eine absolute Unart. Jedes Unternehmen hat sein eigenes Portal, ein einheitliches Verfahren gibt es nicht, und der einzige Grund, den ich mir dafür vorstellen kann, ist die Einbildung, so ließe sich die Zustellung beweisen. Mich nervt das gewaltig. portal-download löst das Problem nicht, es macht es für mich nur erträglicher, und zufrieden bin ich damit nicht.
+
+> [!NOTE]
+> **Why this exists.** Invoices, notices and statements from many companies no longer come by post or e-mail; they sit in a portal, and I have to fetch them myself. That is an utter bad habit. Every company has its own portal, there is no common procedure, and the only reason I can think of is the belief that this proves delivery. It annoys me enormously. portal-download does not solve the problem; it only makes it bearable for me, and I am not happy with it.
+
 An intranet workbench for a small, invited circle of people who regularly have to download invoices, statements and other documents from web portals.
 
 The service keeps the list of download jobs. Two surfaces work with it:
@@ -167,7 +173,7 @@ On a Mac with Apple silicon every runtime takes the `arm64` image, with no emula
    portal-download container:                            trust it once: https://downloads.intra.example/ca.crt (compare first)
    portal-download container:    Setup secret:           pds_…  (valid until 2026-11-08T10:30:00Z; enter it in the browser)
    portal-download container: ================================================================
-   portal-download container: portal-download 0.8.0 is ready: https://downloads.intra.example/
+   portal-download container: portal-download 0.8.1 is ready: https://downloads.intra.example/
    ```
 
    Once somebody manages people, the block begins with the dashes and the line `READY: set up, 3 people, 12 jobs`, without a setup secret; while nobody manages people, the heading is `SETUP NEEDED: nobody manages people`, with the setup secret. The secret is valid for 30 minutes. If it has run out, `docker exec portal-download portal-download bootstrap` (with WSLC `wslc exec portal-download portal-download bootstrap`) prints a fresh one. With `PROXY=external` the block names no certificate but how the reverse proxy reaches the service: by the container's name or its compose service name, for example `http://portal-download:8080/`. Caddy writes only warnings and errors to the log, so the block stands at the end.
